@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req_example_001",
+  "season": {
+    "value": "2027-SS",
+    "source": "user"
+  },
+  "target_category": "상의",
+  "segment": "Ladieswear",
+  "trend_colors": [
+    "라이트핑크",
+    "화이트"
+  ]
+}
