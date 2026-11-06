@@ -3,6 +3,7 @@
 실행 예 (레포 맨 위 폴더에서)
   python scripts/run_agent.py                          # 기본 예시 요청
   python scripts/run_agent.py --request req.json       # 요청 파일
+  python scripts/run_agent.py --request examples/request-trends-example.json   # 트렌드 여러 개
   python scripts/run_agent.py --out data/resp.json     # 응답을 파일로도 저장
 """
 
@@ -15,7 +16,7 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent.agent import run  # noqa: E402
+from stock_agent.multi import run_request  # noqa: E402
 
 EXAMPLE = {
     "schema_version": "1.0",
@@ -33,7 +34,7 @@ args = ap.parse_args()
 
 req = json.loads(Path(args.request).read_text(encoding="utf-8")) if args.request else EXAMPLE
 con = duckdb.connect(os.environ.get("STOCK_DB_PATH", "data/stock.duckdb"), read_only=True)
-resp = run(req, con)
+resp = run_request(req, con)   # trends가 있으면 트렌드마다 1개
 con.close()
 
 text = json.dumps(resp, ensure_ascii=False, indent=2, default=str)

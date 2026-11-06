@@ -63,7 +63,21 @@ def test_docs_show_request_fields_examples_and_400(client):
     op = spec["paths"]["/v1/inventory-products"]["post"]
     assert set(op["responses"]) == {"200", "400", "500"}            # 422 대신 400
     body = op["requestBody"]["content"]["application/json"]
-    assert {"user_category", "trend_categories_no_color", "missing_season"} <= set(body["examples"])
+    assert {"user_category", "trend_categories_no_color", "multi_trends", "missing_season"} <= set(body["examples"])
     req = spec["components"]["schemas"]["InventoryRequest"]["properties"]
     assert {"season", "target_category", "trend_categories", "trend_colors", "segment"} <= set(req)
     assert "InventoryResponse" in spec["components"]["schemas"]
+
+
+def test_post_trends_returns_one_per_trend(client):
+    req = {**REQ, "trends": [{"trend_id": "t1", "trend_colors": ["라이트핑크", "화이트"]},
+                             {"trend_id": "t2", "trend_colors": ["라이트핑크"]}]}
+    r = client.post("/v1/inventory-products", json=req)
+    assert r.status_code == 200
+    body = r.json()
+    assert [p["trend_id"] for p in body["products"]] == ["t1", "t2"] and len(body["trend_results"]) == 2
+
+
+def test_post_trends_all_invalid_is_400(client):
+    r = client.post("/v1/inventory-products", json={**REQ, "trends": [{"trend_colors": ["무지개"]}]})
+    assert r.status_code == 400 and r.json()["status"] == "error"

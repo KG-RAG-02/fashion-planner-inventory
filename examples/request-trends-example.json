@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req_trends_example_001",
+  "season": {"value": "2027-SS", "source": "user"},
+  "target_category": "상의",
+  "segment": "Ladieswear",
+  "trends": [
+    {"trend_id": "t1", "name": "정제된 맥시멀리스트", "trend_colors": [], "trend_categories": ["재킷", "셔츠"]},
+    {"trend_id": "t2", "name": "발레코어", "trend_colors": ["라이트핑크", "화이트"], "trend_categories": ["상의"]},
+    {"trend_id": "t3", "name": "버터 옐로", "trend_colors": ["옐로우"], "trend_categories": ["상의"]}
+  ]
+}

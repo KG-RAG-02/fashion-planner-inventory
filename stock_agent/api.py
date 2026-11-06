@@ -1,6 +1,7 @@
 """stock-agent HTTP API
 
   POST /v1/inventory-products   요청 1건 → 공통 envelope + InventoryProductResult
+                                trends 목록이 있으면 트렌드마다 1위 1개(총 n개, stock_agent/multi.py)
   GET  /health                  DB 연결·필수 테이블·이미지 폴더 확인
   GET  /docs                    설명서 (요청 예시 3개, 응답 200·400·500 형식)
 
@@ -21,7 +22,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from stock_agent.agent import AGENT_ID, SCHEMA_VERSION, run
+from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
+from stock_agent.multi import run_request
 from stock_agent.images import DEFAULT_IMAGE_DIR
 from stock_agent.schemas import REQUEST_EXAMPLES, RESPONSES, Health, InventoryRequest
 
@@ -102,12 +104,12 @@ def health():
         return _json({"status": "error", "agent_id": AGENT_ID, "db": DB_PATH, "message": str(e)}, 503)
 
 
-@app.post("/v1/inventory-products", responses=RESPONSES, summary="과잉재고 1위 상품 (사진·추천 이유 포함)")
+@app.post("/v1/inventory-products", responses=RESPONSES, summary="과잉재고 1위 상품 (사진·추천 이유 포함). trends가 있으면 트렌드마다 1개")
 def inventory_products(body: InventoryRequest = Body(..., openapi_examples=REQUEST_EXAMPLES)):
     request = body.model_dump(exclude_unset=True)   # 받은 값 그대로(빠진 값은 run이 400으로 알려 줌)
     con = state["con"].cursor()   # 요청마다 cursor (DuckDB 연결을 스레드 간에 그대로 공유하지 않음)
     try:
-        resp = run(request, con, image_dir=IMAGE_DIR)
+        resp = run_request(request, con, image_dir=IMAGE_DIR)   # trends 있으면 트렌드별
     except Exception as e:  # 예상하지 못한 실패: 안전한 오류와 request_id만 반환
         body = _error_body(request.get("request_id"), "INTERNAL_ERROR", type(e).__name__)
         return _json({**body, "summary": "내부 오류"}, 500)

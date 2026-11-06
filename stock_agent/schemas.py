@@ -19,6 +19,15 @@ class SeasonIn(BaseModel):
         None, description="user = 사용자가 말함, inferred = 02 쿼리 전처리가 추정 (그 밖의 값은 unknown으로 봄)")
 
 
+class TrendIn(BaseModel):
+    """03 트렌드 분석이 넘기는 트렌드 하나"""
+    model_config = ConfigDict(extra="allow")
+    trend_id: Optional[str] = Field(None, description="트렌드 ID. 없으면 t1, t2 … 순서대로 붙임")
+    name: Optional[str] = Field(None, description="트렌드 이름. 예: 정제된 맥시멀리스트")
+    trend_colors: Optional[Union[list[str], str]] = Field(None, description="이 트렌드의 색(K-Fashion 21색). 색이 없으면 []")
+    trend_categories: Optional[Union[list[str], str]] = Field(None, description="이 트렌드의 카테고리")
+
+
 class InventoryRequest(BaseModel):
     """04 stock-agent 요청. 02 쿼리 전처리·03 트렌드 분석 결과를 담는다."""
     model_config = ConfigDict(extra="allow")
@@ -36,6 +45,10 @@ class InventoryRequest(BaseModel):
                           "트렌드에 색이 없으면 []. 카테고리와 색이 모두 없으면 400")
     segment: Optional[str] = Field(
         None, description="고객군: Ladieswear, Menswear, Divided, Baby/Children, Sport. 없으면 전체")
+    trends: Optional[list[TrendIn]] = Field(
+        None, description="트렌드 목록(03). 있으면 트렌드마다 1위 1개씩 총 n개를 돌려줌. "
+                          "이때 위의 trend_colors·trend_categories는 쓰지 않고 트렌드별 값을 씀. "
+                          "시즌·사용자 카테고리·고객군은 모든 트렌드에 공통")
 
 
 REQUEST_EXAMPLES = {
@@ -50,6 +63,15 @@ REQUEST_EXAMPLES = {
         "value": {"schema_version": "1.0", "request_id": "req_example_002",
                   "season": {"value": "2026-FW", "source": "inferred"}, "segment": "Ladieswear",
                   "trend_categories": ["재킷", "셔츠"], "trend_colors": []},
+    },
+    "multi_trends": {
+        "summary": "트렌드 여러 개: 트렌드마다 1개씩",
+        "value": {"schema_version": "1.0", "request_id": "req_example_004",
+                  "season": {"value": "2027-SS", "source": "user"}, "target_category": "상의", "segment": "Ladieswear",
+                  "trends": [
+                      {"trend_id": "t1", "name": "정제된 맥시멀리스트", "trend_colors": [], "trend_categories": ["재킷", "셔츠"]},
+                      {"trend_id": "t2", "name": "발레코어", "trend_colors": ["라이트핑크", "화이트"], "trend_categories": ["상의"]},
+                  ]},
     },
     "missing_season": {
         "summary": "오류 예: 시즌 없음 → 400",
@@ -112,6 +134,8 @@ class Product(BaseModel):
     matched_trend_color: Optional[str]
     reason: Reason
     image: Optional[Image] = Field(None, description="상품 사진. 후보 전체에 사진이 없으면 null")
+    trend_id: Optional[str] = Field(None, description="trends 요청일 때: 이 상품을 고른 트렌드")
+    trend_name: Optional[str] = None
     evidence_ids: list[str]
 
 
@@ -121,6 +145,17 @@ class Error(BaseModel):
     message: str
 
 
+class TrendResult(BaseModel):
+    trend_id: str
+    trend_name: Optional[str] = None
+    status: Literal["ok", "partial", "no_results", "error"]
+    summary: str
+    n_products: int
+    attribute_summary: Optional[dict[str, Any]] = None
+    limitations: list[str] = Field(description="이 트렌드에만 해당하는 경고 (공통 경고는 위 limitations)")
+    errors: list[Error] = []
+
+
 class InventoryResponse(BaseModel):
     """공통 envelope + InventoryProductResult (+ 04 추가 필드)"""
     schema_version: str
@@ -128,13 +163,15 @@ class InventoryResponse(BaseModel):
     agent_id: str = "stock-agent"
     status: Literal["ok", "partial", "no_results", "error"]
     summary: str
-    products: list[Product] = Field(description="이미지가 있는 최상위 1개")
+    products: list[Product] = Field(description="이미지가 있는 최상위 1개. trends 요청이면 트렌드마다 1개")
     attribute_summary: Optional[dict[str, Any]] = Field(None, description="상위 50개 후보의 색·소재·핏 분포")
     season_basis: Optional[dict[str, Any]] = Field(None, description="대신 쓴 과거 시즌 기간과 시즌 출처")
     findings: list[dict[str, Any]]
     evidence: list[dict[str, Any]]
     limitations: list[str]
     errors: list[Error]
+    trend_results: Optional[list[TrendResult]] = Field(
+        None, description="trends 요청일 때만: 트렌드별 status·summary·limitations·attribute_summary")
 
 
 class ErrorResponse(BaseModel):

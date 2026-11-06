@@ -74,6 +74,8 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 
 응답 `products`는 H&M 이미지가 있는 최상위 상품 1개다(1위에 이미지가 없으면 다음 순위, `rank`는 실제 순위). 사진은 `products[].image`에 base64 JPEG로 들어간다(`media_type`, `encoding`, `data`, `size_bytes`, `source`). 이미지가 하나도 없으면 1위를 `image: null`로 반환한다. `attribute_summary`는 상위 50개 후보의 분포다(`scope` 필드).
 
+**트렌드 여러 개**: 같은 주소에 `trends` 목록(각 항목 `trend_id`, `name`, `trend_colors`, `trend_categories`)을 담으면 트렌드마다 1위 1개, 총 n개를 돌려준다. 상품에 `trend_id`·`trend_name`이 붙고, 트렌드별 요약은 `trend_results`에 있다. 예시: `examples/request-trends-example.json`, 코드: `stock_agent/multi.py`.
+
 포트(8002)·경로는 팀 공통 OpenAPI가 정해지면 맞춘다.
 
 ## 구조
