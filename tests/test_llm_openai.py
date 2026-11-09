@@ -111,6 +111,63 @@ def test_failure_reaches_response(exc, code, reason, http):
     assert r["errors"][0]["code"] == code and http_status(r) == http
 
 
+# ---------------------------------------------------------------- 이미지 분석 see() (무신사 스냅 착샷)
+
+def json_reply(obj):
+    return NS(choices=[NS(message=NS(content=json.dumps(obj, ensure_ascii=False), tool_calls=None))])
+
+
+BadRequest = type("BadRequestError", (Exception,), {})
+
+
+def test_see_sends_image_url_and_parses_json():
+    client = FakeClient(json_reply({"full_outfit": True, "garments": {}}))
+    out = OpenAILLM(client=client).see("시스템", "어휘", "https://img.example/a.jpg")
+    assert out == {"full_outfit": True, "garments": {}}
+    kw = client.kwargs[0]
+    assert kw["temperature"] == 0 and kw["response_format"] == {"type": "json_object"}
+    part = kw["messages"][1]["content"][1]
+    assert part == {"type": "image_url", "image_url": {"url": "https://img.example/a.jpg", "detail": "low"}}
+
+
+def test_see_falls_back_to_download():
+    client = FakeClient(BadRequest("cannot fetch"), json_reply({"full_outfit": False, "garments": {}}))
+    got = []
+    llm = OpenAILLM(client=client, fetch=lambda u: got.append(u) or "data:image/jpeg;base64,AAAA")
+    assert llm.see("s", "p", "https://img.example/a.jpg")["full_outfit"] is False
+    assert got == ["https://img.example/a.jpg"]
+    assert client.kwargs[1]["messages"][1]["content"][1]["image_url"]["url"].startswith("data:image/jpeg")
+
+
+def test_see_image_unavailable():
+    from stock_agent.llm import ImageUnavailable
+
+    def no(u):
+        raise ImageUnavailable("404")
+    with pytest.raises(ImageUnavailable):
+        OpenAILLM(client=FakeClient(BadRequest("x")), fetch=no).see("s", "p", "https://img.example/a.jpg")
+    with pytest.raises(ImageUnavailable):           # 내려받아 보내도 OpenAI가 못 읽음
+        OpenAILLM(client=FakeClient(BadRequest("x")), fetch=lambda u: "data:image/png;base64,AA").see("s", "p", "https://a")
+
+
+@pytest.mark.parametrize("reply, exc", [
+    (NS(choices=[NS(message=NS(content="그냥 글", tool_calls=None))]), LLMError),
+    (NS(choices=[NS(message=NS(content="[1]", tool_calls=None))]), LLMError),
+    (type("APITimeoutError", (Exception,), {})("x"), TimeoutError),
+    (type("AuthenticationError", (Exception,), {})("x"), LLMUnavailable),
+])
+def test_see_errors(reply, exc):
+    with pytest.raises(exc):
+        OpenAILLM(client=FakeClient(reply)).see("s", "p", "https://img.example/a.jpg")
+
+
+def test_fetch_image_rejects_non_http():
+    from stock_agent.llm import ImageUnavailable
+    from stock_agent.llm_openai import fetch_image
+    with pytest.raises(ImageUnavailable):
+        fetch_image("file:///etc/passwd")
+
+
 # ---------------------------------------------------------------- load_llm
 
 def test_load_llm_without_key_is_none(monkeypatch, tmp_path):

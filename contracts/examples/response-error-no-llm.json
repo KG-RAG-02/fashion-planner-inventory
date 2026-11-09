@@ -41,14 +41,8 @@
         "areas": null,
         "colors": null,
         "color_overlap": null,
-        "trend_materials": [
-          "시폰"
-        ],
-        "trend_fit": [
-          "루즈"
-        ],
-        "trend_attributes_source": "trend_item",
-        "attribute_filter": null,
+        "outfit_reference": null,
+        "attribute_tier": null,
         "steps": [],
         "relaxed": [],
         "segments": [

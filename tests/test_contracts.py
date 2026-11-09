@@ -49,3 +49,21 @@ def test_request_example_in_docs_is_contract_example():
 ])
 def test_real_responses_match_schema(req):
     assert errors(RES, run_request(req, con=None)) == []
+
+
+def test_snap_request_and_response_match_schema(con, tmp_path):
+    """무신사 스냅 착샷이 있는 02 결과 → 착샷 소재·핏 단계를 쓴 응답도 계약에 맞음 (작은 DB)"""
+    from stock_agent.llm import PolicyLLM
+    trend = json.loads(json.dumps(TREND_RESULT_EXAMPLE["trends"][0]))
+    trend["items"][0]["similar_products"] = [
+        {"product_id": "musinsa_snap:1", "name": "스냅", "brand": "Musinsa", "image_url": "https://img.example/s.jpg",
+         "source": "musinsa_snap", "kind": "snap_garment", "score": 0.8}]
+    req = {**TREND_RESULT_EXAMPLE, "trends": [trend]}
+    assert errors(REQ, req) == []
+    answer = {"full_outfit": True, "garments": {"하의": {"visible": True, "materials": ["데님"], "fit": "와이드"},
+                                                "아우터": {"visible": False}}}
+    r = run_request(req, con, image_dir=str(tmp_path), llm=PolicyLLM(vision=[answer]))
+    assert errors(RES, r) == [] and r["status"] == "ok"
+    s = r["trend_results"][0]["search"]
+    assert s["outfit_reference"]["status"] == "used" and s["attribute_tier"]["tier"] == "A"
+    assert "stock-agent:style_012:E-006" in r["trend_results"][0]["evidence_ids"]

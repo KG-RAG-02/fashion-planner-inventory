@@ -20,11 +20,11 @@
     b. 하나도 안 겹치면 → 사용자 색 전부. agent가 limitations에 "트렌드 아이템에 없음"을 적는다 (user_colors)
     어울리는 색은 overstock.get_matching_colors가 "트렌드 색과 어울리는 색 중 가장 많이 겹치는 색"으로 고른다.
 
-트렌드 소재·핏 (LLM agent가 재고를 거를 때 비교 기준, 2026-11-08)
+트렌드 소재·핏 (materials·fits·attr_notes)
     아이템의 materials(또는 material)·fit 값을 모은다. 사용자 카테고리 아이템을 먼저 보고, 없으면 아이템 전체.
-    하나도 없으면 [] → agent가 트렌드 설명을 보고 LLM이 추론한다 (search.trend_attributes_source = llm_inferred)
-    vocabulary_v1에 없는 값과 02가 근사 매핑으로 표시한 값(approx: "material:플리스", "fit:타이트")은 쓰지 않고
-    attr_notes에 적는다 (agent가 limitations에 넣음). 02도 근사 값은 1차 검색에 쓰지 않는다.
+    vocabulary_v1에 없는 값과 02가 근사 매핑으로 표시한 값(approx)은 빼고 attr_notes에 적는다 (규칙 방식 limitations).
+    2026-11-09부터 LLM agent는 이 값으로 재고를 거르지 않는다. 새 상품 자신의 소재로 짝 재고를 거르면 코디 논리에
+    맞지 않아서, 무신사 스냅 착샷에서 함께 입은 옷의 소재·핏을 쓴다 (outfit.py).
 
 LLM에게 보내는 트렌드 (llm_trend)
     02 트렌드에서 similar_products(무신사 유사 상품)·image_urls·evidence_ids·request_match·점수를 빼고,

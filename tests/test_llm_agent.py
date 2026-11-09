@@ -93,8 +93,7 @@ def test_policy_run_records_steps(con, tmp_path):
 
 
 def test_tools_have_schemas():
-    assert TOOL_NAMES == ["find_categories", "find_colors", "get_inventory", "filter_attributes", "rank_candidates",
-                          "finish"]
+    assert TOOL_NAMES == ["find_categories", "find_colors", "get_inventory", "rank_candidates", "finish"]
 
 
 # ---- 사용자 조건은 완화하지 않음
@@ -119,7 +118,9 @@ def test_user_colors_not_relaxed_when_empty(con, tmp_path):
 
 @pytest.mark.parametrize("inv_args, word", [
     ({"areas": ["상의"], "colors": ["스카이블루"]}, "영역"),           # 짝 영역이 아닌 영역
-    ({"areas": ["하의"], "colors": ["무지개"]}, "색"),                 # 21색이 아님
+    ({"colors": ["무지개"]}, "색"),                                    # 21색이 아님
+    ({"areas": ["하의"]}, "좁힐 수 없습니다"),                         # 짝 영역 일부만 (2026-11-09 좁히기 금지)
+    ({"colors": ["스카이블루"]}, "좁힐 수 없습니다"),                  # 찾을 색 일부만
 ])
 def test_inventory_args_must_come_from_earlier_tools(con, tmp_path, inv_args, word):
     steps = first_steps()[:2] + [T("get_inventory", inv_args)]
@@ -163,7 +164,7 @@ def test_finish_reason_numbers_must_come_from_tools(con, tmp_path):
 def test_llm_can_pick_lower_rank(con, tmp_path):
     # 트렌드 색 중 화이트만 기준으로, 하나라도 어울리는 색까지 넓혀서 순위 마지막 후보를 고름
     steps = [T("find_categories"), T("find_colors", {"base_colors": ["화이트"], "mode": "any", "note": "넓게"}),
-             lambda m: T("get_inventory", {"areas": ["하의"], "colors": last_result(m)["colors"]}),
+             T("get_inventory"),
              T("rank_candidates", {"top_k": 5}),
              lambda m: T("finish", {"article_id": last_result(m)["candidates"][-1]["article_id"], "reason": "마지막 후보",
                                     "why_not_higher": "더 높은 순위 상품에 사진이 없음"})]
@@ -185,43 +186,13 @@ def test_relax_trend_colors_when_empty(con, tmp_path):
     assert r["trend_result"]["reason"]["color"]["rule"] == "색 조건 없음"
 
 
-# ---- 소재·핏
-def test_filter_by_trend_item_materials(con, tmp_path):
-    item = {**BLOUSE, "colors": ["화이트"], "materials": ["데님"]}
+# ---- 트렌드 아이템 자신의 소재·핏은 재고를 거르는 데 쓰지 않음 (2026-11-09 착샷 기준으로 변경)
+def test_item_materials_not_used_to_filter(con, tmp_path):
+    item = {**BLOUSE, "materials": ["린넨"], "fit": "루즈"}
     r = run_agent({**BASE, "trend": trend(item)}, con, llm=PolicyLLM(), image_dir=str(tmp_path))
+    assert r["status"] == "ok" and r["product"]["sku_ids"] == ["a1"]
     s = r["trend_result"]["search"]
-    assert r["product"]["sku_ids"] == ["a1"] and s["trend_materials"] == ["데님"]
-    assert s["attribute_filter"]["materials_source"] == "trend_item" and s["relaxed"] == []
-    assert r["trend_result"]["reason"]["attributes"]["matched_materials"] == ["데님"]
-
-
-def test_relax_materials_when_filter_empties(con, tmp_path):
-    item = {**BLOUSE, "materials": ["린넨"]}
-    r = run_agent({**BASE, "trend": trend(item)}, con, llm=PolicyLLM(), image_dir=str(tmp_path))
-    assert r["status"] == "ok"
-    assert r["trend_result"]["search"]["relaxed"][0]["condition"] == "trend_materials"
-
-
-def test_trend_materials_cannot_be_replaced(con, tmp_path):
-    item = {**BLOUSE, "materials": ["데님"]}
-    steps = first_steps() + [T("filter_attributes", {"materials": ["면"]})]
-    r = run_agent({**BASE, "trend": trend(item)}, con, llm=stubborn(steps), image_dir=str(tmp_path))
-    assert err(r) == ("llm_failed", "rule_violation")
-
-
-def test_llm_inferred_materials(con, tmp_path):
-    steps = first_steps() + [T("filter_attributes", {"materials": ["데님"], "note": "발레코어는 데님과 매치"}),
-                             T("rank_candidates"), pick_first]
-    r = run_agent(REQ, con, llm=ScriptedLLM(steps), image_dir=str(tmp_path))
-    s = r["trend_result"]["search"]
-    assert s["trend_attributes_source"] == "llm_inferred" and s["attribute_filter"]["materials"] == ["데님"]
-    assert any("LLM이 트렌드 설명을 보고 추론" in x for x in r["trend_result"]["limitations"])
-
-
-def test_vocab_checked(con, tmp_path):
-    steps = first_steps() + [T("filter_attributes", {"fit": ["슈퍼와이드"]})]
-    r = run_agent(REQ, con, llm=stubborn(steps), image_dir=str(tmp_path))
-    assert err(r) == ("llm_failed", "rule_violation")
+    assert s["attribute_tier"] is None and s["outfit_reference"]["skip_reason"] == "no_snap"
 
 
 # ---- 사용자 카테고리 여러 개·제외
@@ -281,8 +252,8 @@ def test_multi_all_llm_failed(con, tmp_path):
 
 # ---- 1위가 아닌 상품: why_not_higher 필수 (2026-11-09 결정)
 ALL_BOTTOMS = [T("find_categories"), T("find_colors", {"base_colors": [], "note": "색 조건 풂"}),
-               lambda m: T("get_inventory", {"areas": ["하의"], "colors": last_result(m)["colors"]}),
-               T("rank_candidates", {"top_k": 5})]                      # 하의 Ladieswear 후보 a1, a2
+               T("get_inventory"),
+               T("rank_candidates", {"top_k": 5})]     # 하의·아우터 Ladieswear SS 후보 a1, a2 (a3 아우터는 FW만)
 
 
 def last_ranking(messages):
@@ -326,55 +297,137 @@ def test_why_numbers_must_come_from_tools(con, tmp_path):
     assert err(r) == ("llm_failed", "invalid_final") and "98765" in r["trend_result"]["errors"][0]["message"]
 
 
-# ---- 소재·핏 거르기: 정보 없는 상품(미확인)은 남김 (2026-11-09 결정)
-def _filter_then_first(**f):
-    return ALL_BOTTOMS[:3] + [T("filter_attributes", f), lambda m: T("rank_candidates", {"top_k": 5}), pick_first]
+# ---- 무신사 스냅 착샷 → 함께 입은 옷의 소재·핏 → 재고 단계 A/B/C (2026-11-09 결정)
+SNAP = {"product_id": "musinsa_snap:1", "image_url": "https://img.example/snap1.jpg", "kind": "snap_garment",
+        "source": "musinsa_snap", "score": 0.8}
+SNAP_LOW = {**SNAP, "product_id": "musinsa_snap:2", "image_url": "https://img.example/snap2.jpg", "score": 0.5}
+CATALOG = {"product_id": "otpensource:9", "image_url": "https://img.example/cat.jpg", "kind": "catalog_item",
+           "source": "otpensource", "score": 0.95}
+SNAP_BLOUSE = {**BLOUSE, "id": "item_1", "similar_products": [CATALOG, SNAP_LOW, SNAP]}
 
 
-def test_filter_keeps_unknown_materials(con, tmp_path):
-    # a1 데님(일치), a2 소재 없음(미확인) → 둘 다 남음
-    r = run_agent(REQ, con, llm=ScriptedLLM(_filter_then_first(materials=["데님"])), image_dir=str(tmp_path))
+def outfit(bottom=None, outer=None, full=True):
+    """착샷 분석 답. bottom/outer: (소재 목록, 핏) 또는 None(안 보임)."""
+    g = lambda v: ({"visible": True, "materials": v[0], "fit": v[1]} if v else  # noqa: E731
+                   {"visible": False, "materials": [], "fit": None})
+    return {"full_outfit": full, "note": "테스트",
+            "garments": {"상의": g((["시폰"], "루즈")), "하의": g(bottom), "아우터": g(outer), "원피스": g(None)}}
+
+
+def run_snap(con, tmp_path, vision, steps=None, item=SNAP_BLOUSE):
+    llm = ScriptedLLM(steps or (ALL_BOTTOMS + [pick_first]), vision=vision)
+    return run_agent({**BASE, "trend": trend(item)}, con, llm=llm, image_dir=str(tmp_path)), llm
+
+
+def test_snap_with_highest_score_is_analyzed(con, tmp_path):
+    r, llm = run_snap(con, tmp_path, [outfit((["데님"], "와이드"))])
+    assert [x["image_url"] for x in llm.seen] == [SNAP["image_url"]]      # catalog_item(0.95)이 아니라 스냅 중 최고
+    o = r["trend_result"]["search"]["outfit_reference"]
+    assert o["status"] == "used" and o["product_id"] == "musinsa_snap:1" and o["score"] == 0.8
+    assert o["garments"]["하의"] == {"visible": True, "materials": ["데님"], "fit": "와이드"}
+
+
+def test_tier_a_material_and_fit(con, tmp_path):
+    # a1 청바지 데님·와이드 → A, a2 소재·핏 없음 → C
+    r, _ = run_snap(con, tmp_path, [outfit((["데님"], "와이드"))])
+    t = r["trend_result"]["search"]["attribute_tier"]
+    assert t == {"tier": "A", "counts": {"A": 1, "B": 0, "C": 1}, "relaxed": []}
+    assert r["product"]["sku_ids"] == ["a1"]
+    at = r["trend_result"]["reason"]["attributes"]
+    assert at["tier"] == "A" and at["materials_match"] is True and at["fit_match"] is True
+    assert at["outfit_materials"] == ["데님"] and at["outfit_fit"] == "와이드"
+
+
+def test_tier_b_relaxes_fit(con, tmp_path):
+    # 착샷 하의 데님·스키니 → a1 데님이지만 와이드 → B (핏을 풂)
+    r, _ = run_snap(con, tmp_path, [outfit((["데님"], "스키니"))])
+    t = r["trend_result"]["search"]["attribute_tier"]
+    assert t["tier"] == "B" and t["relaxed"] == ["fit"] and r["product"]["sku_ids"] == ["a1"]
+    assert r["trend_result"]["reason"]["attributes"]["fit_match"] is False
+    assert any("핏 조건을 풀고" in x for x in r["trend_result"]["limitations"])
+
+
+def test_tier_c_unknown_and_mismatch_ranked_together(con, tmp_path):
+    # 착샷 하의 면 → a1 데님(다른 소재)·a2 소재 없음(미확인) 모두 C, 과잉재고 순위로
+    r, _ = run_snap(con, tmp_path, [outfit((["면"], None))])
+    t = r["trend_result"]["search"]["attribute_tier"]
+    assert t == {"tier": "C", "counts": {"A": 0, "B": 0, "C": 2}, "relaxed": ["materials"]}
+    assert r["trend_result"]["search"]["steps"][2]["n_candidates"] == 2
+    assert any("소재·핏 조건을 풀고" in x for x in r["trend_result"]["limitations"])
+
+
+def test_outer_not_in_snap_is_removed(con, tmp_path):
+    r, _ = run_snap(con, tmp_path, [outfit((["데님"], "와이드"), outer=None)])
     s = r["trend_result"]["search"]
-    assert s["steps"][3]["n_candidates"] == 2
-    assert s["attribute_filter"]["counts"] == {"materials": {"matched": 1, "unknown": 1}, "fit": None}
-    assert any("미확인)은 빼지 않고" in x and "소재: 일치 1개·미확인 1개" in x for x in r["trend_result"]["limitations"])
+    assert s["areas"] == ["하의"] and s["outfit_reference"]["areas_removed"] == ["아우터"]
+    assert s["steps"][0]["areas"] == ["하의"]
+    assert any("착샷에 아우터이(가) 없어" in x for x in r["trend_result"]["limitations"])
 
 
-def test_filter_drops_known_mismatch(con, tmp_path):
-    # 면: a1 데님(불일치) 빠짐, a2 미확인 남음
-    r = run_agent(REQ, con, llm=ScriptedLLM(_filter_then_first(materials=["면"])), image_dir=str(tmp_path))
-    assert r["product"]["sku_ids"] == ["a2"]
-    assert r["trend_result"]["reason"]["attributes"]["materials_match"] is None        # a2는 미확인
+def test_outer_in_snap_is_kept(con, tmp_path):
+    r, _ = run_snap(con, tmp_path, [outfit((["데님"], "와이드"), outer=(["가죽"], None))])
+    assert r["trend_result"]["search"]["areas"] == ["하의", "아우터"]
 
 
-def test_filter_fit_unknown_kept(con, tmp_path):
-    # 루즈: a1 와이드(불일치) 빠짐, a2 핏 없음(미확인) 남음
-    r = run_agent(REQ, con, llm=ScriptedLLM(_filter_then_first(fit=["루즈"])), image_dir=str(tmp_path))
-    assert r["product"]["sku_ids"] == ["a2"]
-    assert r["trend_result"]["search"]["attribute_filter"]["counts"]["fit"] == {"matched": 0, "unknown": 1}
+def test_snap_evidence(con, tmp_path):
+    r, _ = run_snap(con, tmp_path, [outfit((["데님"], "와이드"))])
+    ev = {e["evidence_id"]: e for e in r["evidence"]}
+    assert ev["stock-agent:E-006"]["locator"] == SNAP["image_url"]
+    assert ev["stock-agent:E-006"]["source_id"] == "musinsa_snap"
 
 
-@pytest.mark.parametrize("ms, wanted, state", [
-    (["데님"], ["데님"], "matched"), (["면"], ["데님"], "mismatched"), ([], ["데님"], "unknown"),
-    (None, ["데님"], "unknown"), (["데님"], [], None)])
-def test_material_state(ms, wanted, state):
-    from stock_agent.llm_agent import material_state
-    assert material_state(ms, wanted) == state
+@pytest.mark.parametrize("item, vision, reason", [
+    ({**BLOUSE, "similar_products": [CATALOG]}, [], "no_snap"),                 # 판매 상품만
+    (SNAP_BLOUSE, [outfit((["데님"], "와이드"), full=False)], "not_full_outfit"),   # 아이템만 잘라낸 사진
+    (SNAP_BLOUSE, [__import__("stock_agent.llm", fromlist=["ImageUnavailable"]).ImageUnavailable("404")],
+     "image_error"),
+    (SNAP_BLOUSE, None, "no_vision"),                                           # 이미지를 못 보는 LLM
+])
+def test_snap_skipped_goes_on_without_materials(con, tmp_path, item, vision, reason):
+    r, llm = run_snap(con, tmp_path, vision, item=item)
+    assert r["status"] == "ok", r["trend_result"]["errors"]
+    s = r["trend_result"]["search"]
+    assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == reason
+    assert s["attribute_tier"] is None and s["areas"] == ["하의", "아우터"]
+    assert "stock-agent:E-006" not in {e["evidence_id"] for e in r["evidence"]}
+    assert any("소재·핏 조건 없이" in x for x in r["trend_result"]["limitations"])
+    if reason == "no_snap":
+        assert llm.seen == []
 
 
-@pytest.mark.parametrize("f, wanted, state", [
-    ("루즈", ["루즈"], "matched"), ("와이드", ["루즈"], "mismatched"), (None, ["루즈"], "unknown"),
-    (float("nan"), ["루즈"], "unknown"), ("루즈", [], None)])
-def test_fit_state(f, wanted, state):
-    from stock_agent.llm_agent import fit_state
-    assert fit_state(f, wanted) == state
+@pytest.mark.parametrize("answer, reason", [
+    (TimeoutError("30s"), "timeout"),
+    (LLMError("bad"), "invalid_response"),
+    ({"full_outfit": True}, "invalid_response"),          # garments 없음
+])
+def test_snap_llm_failure_is_trend_error(con, tmp_path, answer, reason):
+    r, _ = run_snap(con, tmp_path, [answer])
+    assert err(r) == ("llm_failed", reason) and r["product"] is None
+    o = r["trend_result"]["search"]["outfit_reference"]
+    assert o["product_id"] == "musinsa_snap:1" and o["status"] == "failed"
+
+
+def test_snap_without_user_category_uses_all_items(con, tmp_path):
+    skirt = {"category_major": "하의", "category_minor": "스커트", "colors": ["화이트"],
+             "similar_products": [{**SNAP, "product_id": "musinsa_snap:skirt", "score": 0.9}]}
+    req = {k: v for k, v in BASE.items() if k != "target_category"}
+    llm = ScriptedLLM([lambda m: LLMError("stop")], vision=[outfit((["데님"], "와이드"))])
+    r = run_agent({**req, "trend": trend(SNAP_BLOUSE, skirt)}, con, llm=llm, image_dir=str(tmp_path))
+    assert r["trend_result"]["search"]["outfit_reference"]["product_id"] == "musinsa_snap:skirt"
+
+
+def test_policy_llm_with_snap(con, tmp_path):
+    llm = PolicyLLM(vision=[outfit((["데님"], "스키니"))])
+    r = run_agent({**BASE, "trend": trend(SNAP_BLOUSE)}, con, llm=llm, image_dir=str(tmp_path))
+    assert r["status"] == "ok" and r["product"]["sku_ids"] == ["a1"]
+    assert r["trend_result"]["search"]["attribute_tier"]["tier"] == "B"
 
 
 # ---- 규칙 위반: LLM에게 알려 주고 다시 시도 (2026-11-09 결정)
 def test_violation_is_fed_back_and_retried(con, tmp_path):
     # 4번째 호출이 규칙 위반(find_colors 결과에 없는 색) → 오류를 돌려받고 올바르게 다시 부름
-    bad = lambda m: T("get_inventory", {"areas": ["하의"], "colors": ["무지개"]})      # noqa: E731
-    steps = first_steps()[:2] + [bad, lambda m: T("get_inventory", {"areas": ["하의"], "colors": _colors(m)}),
+    bad = lambda m: T("get_inventory", {"colors": ["무지개"]})      # noqa: E731
+    steps = first_steps()[:2] + [bad, lambda m: T("get_inventory", {"colors": _colors(m)}),
                                  T("rank_candidates"), pick_first]
     llm = ScriptedLLM(steps)
     r = run_agent(REQ, con, llm=llm, image_dir=str(tmp_path))
@@ -417,37 +470,28 @@ def _colors(messages):
                 if x.get("role") == "tool" and x["name"] == "find_colors")
 
 
-def test_tone_on_tone_colors_allowed(con, tmp_path):
-    # 기준 색(핑크·화이트) 자체도 찾을 수 있음 → 화이트로 조회해도 위반이 아님
-    steps = first_steps()[:2] + [T("get_inventory", {"areas": ["하의"], "colors": ["화이트"]}), T("rank_candidates"),
-                                 lambda m: T("finish", {"article_id": None, "reason": "후보 없음"})]
-    r = run_agent(REQ, con, llm=ScriptedLLM(steps), image_dir=str(tmp_path))
+def test_tone_on_tone_colors_included(con, tmp_path):
+    # 기준 색(핑크·화이트) 자체도 find_colors 결과에 들어감 (톤온톤)
+    r = run_agent(REQ, con, llm=ScriptedLLM(first_steps() + [T("rank_candidates"), pick_first]), image_dir=str(tmp_path))
     s = r["trend_result"]["search"]["steps"]
-    assert "error" not in s[2] and "화이트" in s[1]["colors"]
+    assert "화이트" in s[1]["colors"] and "스카이블루" in s[1]["colors"] and "error" not in s[2]
 
 
-# ---- LLM이 앞 도구 결과보다 좁혀 쓴 영역·색은 기록 (2026-11-09 결정)
-def test_narrowed_colors_and_areas_recorded(con, tmp_path):
-    steps = first_steps()[:2] + [T("get_inventory", {"areas": ["하의"], "colors": ["스카이블루"], "note": "데님 위주"}),
+# ---- get_inventory에서 영역·색 좁히기 금지 (2026-11-09 결정: 어울리는 색 + 톤온톤을 함께 봄)
+def test_tone_on_tone_only_narrowing_blocked(con, tmp_path):
+    # 어울리는 색을 버리고 톤온톤(핑크·화이트)만 조회 → 실행하지 않고 다시 고르게 함
+    steps = first_steps()[:2] + [T("get_inventory", {"colors": ["핑크", "화이트"]}), T("get_inventory"),
                                  T("rank_candidates"), pick_first]
     r = run_agent(REQ, con, llm=ScriptedLLM(steps), image_dir=str(tmp_path))
-    tr = r["trend_result"]
-    got = {x["condition"]: x for x in tr["search"]["narrowed"]}
-    assert got["areas"]["to"] == ["하의"] and got["colors"]["to"] == ["스카이블루"]
-    assert got["colors"]["tone_on_tone_only"] is False and got["colors"]["why"] == "데님 위주"
-    assert any("LLM이 찾을 색을 좁혔습니다" in x and "스카이블루만" in x for x in tr["limitations"])
-    assert "LLM이 고른 색(스카이블루)" in tr["summary"]
+    s = r["trend_result"]["search"]["steps"]
+    assert s[2]["error"]["reason"] == "rule_violation" and "좁힐 수 없습니다" in s[2]["error"]["message"]
+    assert "find_colors" in s[2]["error"]["message"]
+    assert r["status"] == "ok" and s[3]["n_candidates"] == 1
 
 
-def test_tone_on_tone_only_narrowing(con, tmp_path):
-    steps = first_steps()[:2] + [lambda m: T("get_inventory", {"areas": _areas(m), "colors": ["핑크", "화이트"]}),
-                                 T("rank_candidates"), lambda m: T("finish", {"article_id": None, "reason": "없음"})]
-    r = run_agent(REQ, con, llm=ScriptedLLM(steps), image_dir=str(tmp_path))
-    n = r["trend_result"]["search"]["narrowed"]
-    assert [x["condition"] for x in n] == ["colors"] and n[0]["tone_on_tone_only"] is True
-    assert any("(같은 색, 톤온톤만)" in x for x in r["trend_result"]["limitations"])
-
-
-def test_full_use_not_narrowed(con, tmp_path):
-    r = run_agent(REQ, con, llm=ScriptedLLM(first_steps() + [T("rank_candidates"), pick_first]), image_dir=str(tmp_path))
-    assert r["trend_result"]["search"]["narrowed"] == []
+def test_inventory_args_omitted_use_all(con, tmp_path):
+    r = run_agent(REQ, con, llm=ScriptedLLM(first_steps()[:2] + [T("get_inventory"), T("rank_candidates"), pick_first]),
+                  image_dir=str(tmp_path))
+    s = r["trend_result"]["search"]
+    assert s["areas"] == ["하의", "아우터"] and s["colors"] == s["steps"][1]["colors"]
+    assert "narrowed" not in s

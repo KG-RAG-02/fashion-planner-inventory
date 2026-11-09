@@ -94,9 +94,7 @@ class TemplateSummarizer:
         label = f.get("color_label", "트렌드 색")
         rule = ("하나라도 어울리는 색·같은 색" if f.get("color_mode") == "any"
                 else "어울리는 색 중 가장 많이 겹치는 색·같은 색")
-        color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule} 중 LLM이 고른 색"
-                      f"({', '.join(f['used_colors'])})의" if f["trend_colors"] and f.get("used_colors")
-                      else f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
+        color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
                       else "트렌드 색 조건을 풀어 색 조건 없이" if f.get("colors_relaxed")
                       else "트렌드 색이 없어 색 조건 없이")
         text = (f"{f['season_label']} {where} 중 {color_part} 재고 후보 {f['n_candidates']:,}개를 비교해, "
@@ -395,12 +393,21 @@ def same_trend_colors(product_color: str, trend_colors: list[str]) -> list[str]:
     return [t for t in trend_colors if normalize_color(t) == product_color]
 
 
-def _evidence(now: str, period, areas, colors, trend_period, with_images: bool = False) -> list[dict]:
+def _evidence(now: str, period, areas, colors, trend_period, with_images: bool = False,
+              outfit_ref: dict | None = None) -> list[dict]:
+    """데이터 출처. outfit_ref: LLM agent가 소재·핏 기준으로 쓴 무신사 스냅 착샷 (E-006, 쓴 경우만)."""
     common = {"published_at": None, "observed_at": DATA_END.isoformat(), "fetched_at": now,
               "permission_status": LICENSE, "manifest_id": "TBD"}
     image_ev = [{"evidence_id": f"{NS}:E-005", "source_id": "hm_images", "source_type": "internal_product_image",
                  "source_name": "H&M 상품 이미지", "data_nature": "fact",
                  "locator": "images/<article_id 앞 3자리>/<article_id>.jpg", **common}] if with_images else []
+    if outfit_ref:
+        image_ev.append({
+            "evidence_id": f"{NS}:E-006", "source_id": outfit_ref.get("source") or "musinsa_snap",
+            "source_type": "external_outfit_image",
+            "source_name": "무신사 스냅 착샷 (02 similar_products, 함께 입은 옷의 소재·핏은 LLM 이미지 판단)",
+            "data_nature": "fact", "locator": outfit_ref.get("image_url"),
+            **{**common, "observed_at": None, "permission_status": "02 트렌드 결과의 무신사 이미지 (팀 확인: OpenAI 전송 허용)"}})
     return [
         {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",
          "source_name": f"가상 재고 ({STOCK_VERSION})", "data_nature": "sample",
