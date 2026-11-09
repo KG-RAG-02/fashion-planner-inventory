@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,21 +61,31 @@ class StyleIn(BaseModel):
     definition: Optional[str] = Field(None, description="LLM에게 보냄 (소재·핏 추론에 씀)")
 
 
+class ProductMatchIn(BaseModel):
+    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·score·product_id만 쓴다"""
+    model_config = ConfigDict(extra="allow")
+    product_id: Optional[str] = None
+    image_url: Optional[str] = Field(None, description="착샷 이미지 URL")
+    kind: Optional[str] = Field(None, description="snap_garment(무신사 스냅 착장 속 아이템)만 착샷으로 씀. catalog_item은 쓰지 않음")
+    score: Optional[float] = Field(None, description="트렌드 아이템과의 일치도. 가장 높은 스냅 1장을 씀")
+
+
 class ItemIn(BaseModel):
-    """02 트렌드 아이템. 03은 category_major·category_minor·colors·materials·fit·gender·approx를 쓴다"""
+    """02 트렌드 아이템. 03은 category_major·category_minor·colors·gender·similar_products를 쓴다"""
     model_config = ConfigDict(extra="allow")
     category_major: Optional[str] = Field(None, description="상의 / 하의 / 아우터 / 원피스")
     category_minor: Optional[str] = Field(None, description="세부 카테고리 21종. 예: 셔츠, 재킷")
     colors: Optional[list[str]] = Field(None, description="21색. 순서는 의미 없음")
-    materials: Optional[list[str]] = Field(None, description="소재(vocabulary_v1). 있으면 LLM agent가 재고를 거르는 기준. "
-                                                             "없으면 LLM이 트렌드 설명을 보고 추론. 어휘 밖·approx 값은 쓰지 않음")
-    fit: Optional[Union[str, list[str]]] = Field(None, description="핏. materials와 같은 방식")
     gender: Optional[str] = Field(None, description="요청 성별이 없을 때 고객군을 정하는 데 씀")
-    approx: Optional[list[str]] = Field(None, description="근사 매핑 값. 예: material:플리스 (03은 쓰지 않음)")
+    similar_products: Optional[list[ProductMatchIn]] = Field(
+        None, description="무신사 유사 상품. 사용자 카테고리 아이템(없으면 아이템 전체)의 snap_garment 중 score가 가장 높은 착샷을 "
+                          "LLM이 보고, 모델이 함께 입은 하의·아우터의 소재·핏으로 재고 단계(A 소재·핏 일치 → B 소재 일치 → C 전체)를 정함. "
+                          "snap_garment가 없거나 아이템만 잘라낸 사진이면 소재·핏 조건 없이 찾음. "
+                          "아이템 자신의 materials·fit은 재고를 거르는 데 쓰지 않음")
 
 
 class TrendIn(BaseModel):
-    """02 결과의 trends[] 한 항목 그대로 (similar_products 등 다른 필드는 받아도 쓰지 않음)"""
+    """02 결과의 trends[] 한 항목 그대로"""
     model_config = ConfigDict(extra="allow")
     style: Optional[StyleIn] = None
     items: Optional[list[ItemIn]] = Field(
@@ -214,7 +224,8 @@ class Reason(BaseModel):
     season_name: str
     score: Optional[float] = Field(None, description="네 지표 가중 평균 0~1")
     data_nature: dict[str, str]
-    attributes: Optional[dict[str, Any]] = Field(None, description="LLM agent: 상품 소재·핏과 트렌드 소재·핏, matched_materials, fit_match, filter")
+    attributes: Optional[dict[str, Any]] = Field(None, description="LLM agent: 상품 소재·핏과 착샷 속 같은 영역 옷의 소재·핏(outfit_materials, outfit_fit), "
+                                                                       "matched_materials, materials_match·fit_match(true/false/null=미확인), tier(A/B/C)")
     decided_by: Optional[str] = Field(None, description="llm (LLM agent가 고름)")
     llm_reason: Optional[str] = Field(None, description="LLM이 finish에 쓴 이유 (숫자는 도구 결과에 있는 것만)")
 
@@ -240,8 +251,10 @@ class TrendResult(BaseModel):
     search: dict[str, Any] = Field(description="이 트렌드로 찾은 조건: trend_colors(기준 색), trend_color_basis, user_colors, user_colors_excluded, trend_categories, "
                                                "areas(짝 영역), colors(후보 색), color_overlap, excluded_categories. "
                                                "LLM agent면 mode=llm, steps(부른 도구·조건·후보 수), relaxed(완화한 트렌드 조건), "
-                                               "trend_materials, trend_fit, trend_attributes_source(trend_item/llm_inferred), "
-                                               "attribute_filter, pair_combine, segments(찾은 고객군, []=전체), "
+                                               "outfit_reference(소재·핏 기준으로 쓴 무신사 스냅 착샷: status used/skipped, skip_reason, "
+                                               "product_id, image_url, score, garments(영역별 visible·materials·fit, LLM 이미지 판단), "
+                                               "areas_removed(착샷에 없어 뺀 짝 영역)), "
+                                               "attribute_tier(재고 단계 tier A/B/C, counts, relaxed), pair_combine, segments(찾은 고객군, []=전체), "
                                                "segment_basis(segment/gender/item_gender/all)")
     limitations: list[str]
     errors: list[Error] = []

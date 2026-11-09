@@ -17,17 +17,27 @@ agent 코드는 이 파일을 모른다. load_llm()이 환경변수를 보고 �
     시간 초과                       TimeoutError    → timeout            (TIMEOUT 504)
     키 오류·권한·모델 없음·연결 실패   LLMUnavailable  → llm_unavailable    (SOURCE_UNAVAILABLE 503)
     그 밖의 API 오류, 읽을 수 없는 응답 LLMError        → invalid_response   (INTERNAL_ERROR 500)
+
+이미지 분석 see() (2026-11-09, 무신사 스냅 착샷)
+    이미지는 URL 그대로 보낸다(detail=low, 비용 절감). 답은 JSON 객체(response_format=json_object).
+    OpenAI가 URL을 열지 못하면(400) 03이 직접 내려받아(http/https, 10초, 5MB까지, image/*만) base64로 다시 보낸다.
+    그래도 안 되면 ImageUnavailable → agent는 착샷 반영만 생략한다.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+import urllib.request
 
-from stock_agent.llm import LLMError, LLMReply, LLMUnavailable, ToolCall
+from stock_agent.llm import ImageUnavailable, LLMError, LLMReply, LLMUnavailable, ToolCall
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_TIMEOUT = 30.0
 MAX_RETRIES = 2
+IMAGE_DETAIL = "low"
+FETCH_TIMEOUT = 10
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def to_openai_messages(system: str, messages: list[dict]) -> list[dict]:
@@ -80,13 +90,50 @@ def from_openai_response(resp) -> LLMReply:
     return LLMReply(tool_calls=calls, text=getattr(msg, "content", None) or "")
 
 
+def fetch_image(url: str) -> str:
+    """이미지 URL → data URL(base64). 열 수 없으면 ImageUnavailable."""
+    if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        raise ImageUnavailable("http/https 이미지 URL이 아닙니다")
+    req = urllib.request.Request(url, headers={"User-Agent": "stock-agent/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as r:
+            ctype = r.headers.get_content_type()
+            data = r.read(MAX_IMAGE_BYTES + 1)
+    except Exception as e:
+        raise ImageUnavailable(f"이미지를 내려받지 못했습니다: {type(e).__name__}") from e
+    if not ctype.startswith("image/"):
+        raise ImageUnavailable(f"이미지가 아닙니다: {ctype}")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ImageUnavailable("이미지가 5MB보다 큽니다")
+    return f"data:{ctype};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _is_bad_request(e: Exception) -> bool:
+    return type(e).__name__ == "BadRequestError" or getattr(e, "status_code", None) == 400
+
+
+def parse_json_reply(resp) -> dict:
+    try:
+        content = resp.choices[0].message.content
+    except (AttributeError, IndexError, TypeError) as e:
+        raise LLMError(f"응답에 choices가 없습니다: {e}") from e
+    try:
+        out = json.loads(content or "")
+    except json.JSONDecodeError as e:
+        raise LLMError(f"이미지 분석 답이 JSON이 아닙니다: {str(content)[:200]!r}") from e
+    if not isinstance(out, dict):
+        raise LLMError("이미지 분석 답이 객체가 아닙니다")
+    return out
+
+
 class OpenAILLM:
-    """OpenAI Chat Completions. client를 넘기면 그것을 쓴다(테스트용)."""
+    """OpenAI Chat Completions. client를 넘기면 그것을 쓴다(테스트용). fetch: 이미지 내려받기(테스트용)."""
 
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL, timeout: float = DEFAULT_TIMEOUT,
-                 client=None):
+                 client=None, fetch=fetch_image):
         self.model = model
         self.timeout = timeout
+        self.fetch = fetch
         if client is None:
             try:
                 from openai import OpenAI
@@ -105,6 +152,30 @@ class OpenAILLM:
         except Exception as e:
             raise _map_error(e) from e
         return from_openai_response(resp)
+
+    def _see_once(self, system: str, prompt: str, url: str):
+        return self.client.chat.completions.create(
+            model=self.model, temperature=0, response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": [{"type": "text", "text": prompt},
+                                                   {"type": "image_url",
+                                                    "image_url": {"url": url, "detail": IMAGE_DETAIL}}]}])
+
+    def see(self, system: str, prompt: str, image_url: str) -> dict:
+        """착샷 이미지 → JSON 답(dict). URL을 못 열면 직접 내려받아 한 번 더, 그래도 안 되면 ImageUnavailable."""
+        try:
+            resp = self._see_once(system, prompt, image_url)
+        except Exception as e:
+            if not _is_bad_request(e):
+                raise _map_error(e) from e
+            data_url = self.fetch(image_url)          # ImageUnavailable이면 그대로 올라감
+            try:
+                resp = self._see_once(system, prompt, data_url)
+            except Exception as e2:
+                if _is_bad_request(e2):
+                    raise ImageUnavailable(f"OpenAI가 이미지를 읽지 못했습니다: {type(e2).__name__}") from e2
+                raise _map_error(e2) from e2
+        return parse_json_reply(resp)
 
 
 def _map_error(e: Exception) -> Exception:

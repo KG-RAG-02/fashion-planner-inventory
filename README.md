@@ -1,7 +1,7 @@
 # stock-agent (과잉재고 에이전트)
 
-VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드마다 **LLM agent**가 도구(짝 카테고리·어울리는 색·재고 조회·소재/핏 거르기·순위)를
-골라 부르며 조건을 정하고, 과잉재고 중 **트렌드마다 상품 1개(사진 포함)**와 상위 50개 속성 요약을 반환한다.
+VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드마다 **LLM agent**가 무신사 스냅 착샷에서 함께 입은 옷의 소재·핏을 보고,
+도구(짝 카테고리·어울리는 색·재고 조회·순위)를 골라 부르며 조건을 정해, 과잉재고 중 **트렌드마다 상품 1개(사진 포함)**와 상위 50개 속성 요약을 반환한다.
 
 ```
 01 사용자 쿼리 ──▶ 02 쿼리 전처리·트렌드 분석 ──(결과 그대로)──▶ 03 상품 재고 (stock-agent) ──▶ 05 새 상품 기획·최종 기획서
@@ -13,7 +13,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 누가 05에 넘기는지(02가 받은 응답을 넘기는지, 03이 직접 부르는지)는 아직 정하지 않았다. 요청·응답 형식은 [`contracts/`](contracts/README.md)(초안).
 
 - LLM은 OpenAI `gpt-4o-mini`(`stock_agent/llm_openai.py`). agent는 교체 가능한 인터페이스(`stock_agent/llm.py`)만 알고, 키가 없으면 트렌드마다 `SOURCE_UNAVAILABLE`(`reason: no_llm`) 오류
-- OpenAI로 트렌드 정의·설명과 H&M 후보 상품 정보(상품 ID·카테고리·색·재고·판매 수치)가 전송된다(팀 확인 완료, 재고 수치는 가상 데이터)
+- OpenAI로 트렌드 정의·설명, H&M 후보 상품 정보(상품 ID·카테고리·색·재고·판매 수치), 02의 무신사 스냅 착샷 이미지(URL, 열지 못하면 내려받은 이미지)가 전송된다(팀 확인 완료, 재고 수치는 가상 데이터)
 - LLM이 실패하면 규칙 방식으로 대신 내지 않고 오류로 돌려준다(평가할 수 있게)
 - 규칙 방식(`mode="rule"`)은 비교 기준선·정확도 검증용으로 남겨 둔다
 
@@ -102,7 +102,7 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 | `applied_filters.categories.include` / `exclude` | `target_category` / `exclude_categories` (`minor`, 없으면 `major`) |
 | `applied_filters.attributes` 중 color | `target_colors` (소재·핏 등 다른 사용자 속성은 쓰지 않음) |
 | `applied_filters.gender` | `gender` → 고객군 |
-| `trends` | 그대로. `similar_products`·`evidence_ids`·`image_urls` 등은 쓰지 않고 LLM에도 보내지 않음 |
+| `trends` | 그대로. `similar_products` 중 `snap_garment` 착샷 1장만 이미지 분석에 씀(아래). `evidence_ids`·`image_urls` 등은 쓰지 않음 |
 
 **성별 → 고객군**: `여` → Ladieswear + Divided, `남` → Menswear + Divided, `공용` → 전체.
 요청 성별이 없으면 트렌드마다 Item `gender`로 정한다(여러 성별이면 합치고, `공용`이 있거나 모두 비면 전체).
@@ -124,7 +124,7 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 트렌드 1개를 처리하는 규칙 (`stock_agent/trend_input.py`, `stock_agent/agent.py`):
 
 - 트렌드 카테고리: 아이템의 `category_minor`, 없으면 `category_major`
-- 트렌드 소재·핏: vocabulary_v1에 없는 값과 Item `approx`에 든 값(근사 매핑)은 쓰지 않고 limitations에 기록
+- 트렌드 아이템 자신의 소재·핏은 재고를 거르는 데 쓰지 않는다 (새 상품의 소재로 짝 재고를 거르면 코디 논리에 맞지 않음, 2026-11-09). 소재·핏 기준은 아래 착샷
 - 기준 색 (사용자 쿼리가 가장 중요해서 사용자 색이 먼저)
   - 사용자 색(`target_colors`)이 있으면 트렌드 아이템 **전체**의 색과 비교: 겹치는 사용자 색이 있으면 그 색만(안 겹치는 사용자 색은 빼고 limitations에 기록), 하나도 안 겹치면 사용자 색 전부(limitations에 "트렌드 아이템 색에 없음" 기록)
   - 없으면 트렌드 색: 사용자 카테고리 아이템의 색 → 없으면 아이템 전체의 색 → 없으면 색 조건 없이 21색 전체. 개수 제한 없음
@@ -133,24 +133,36 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 - 카테고리와 색이 모두 없는 트렌드는 그 트렌드만 오류
 - 사용자 카테고리가 여러 개면 각 짝의 교집합(없으면 합집합). 제외 카테고리는 짝 영역·후보에서 뺀다
 
-LLM agent (`stock_agent/llm_agent.py`): 위 규칙으로 정한 기준 색·카테고리에서 시작해, LLM이 도구를 골라 부르고 결과를 보고 다음 행동을 정한다.
+**착샷 소재·핏** (`stock_agent/outfit.py`, 2026-11-09 결정): 새 상품(예: 시폰 블라우스)과 함께 팔 재고는
+"트렌드 아이템과 비슷한 무신사 스냅 속 모델이 그 옷과 **함께 입은** 하의·아우터"의 소재·핏을 기준으로 고른다.
+02는 같은 스냅 속 다른 옷의 속성을 주지 않으므로 03 LLM(gpt-4o-mini 이미지 입력)이 착샷을 보고 뽑는다.
+
+- 착샷 고르기: 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products` 중 `kind: snap_garment`이고 `image_url`이 있는 것 → `score`(트렌드 아이템과의 일치도)가 가장 높은 1장
+- 착샷 반영을 생략하는 경우(소재·핏 조건 없이 카테고리·색으로만 찾고 limitations에 기록): `catalog_item`(판매 상품)만 있음(`no_snap`), 아이템만 잘라낸 사진(`not_full_outfit`), 이미지를 열 수 없음(`image_error`), 이미지를 못 보는 LLM(`no_vision`)
+- 뽑는 값: 영역(상의·하의·아우터·원피스)마다 보이는지·소재(vocabulary_v1 26개)·핏(하의 스키니·노멀·와이드·루즈·벨보텀, 그 밖 타이트·노멀·루즈·오버사이즈). 슬림은 하의면 스키니. 세이프는 재고 DB에 없어 뽑지 않음. 어휘 밖 값은 버리고 limitations에 기록
+- 짝 영역: 착샷에 없는 짝 영역은 뺀다(예: 아우터를 안 입음 → 하의만). 보이는 짝 영역이 하나도 없으면 원래 짝 영역 그대로
+- 재고 단계 (코드가 정함, LLM이 바꿀 수 없음): **A** 소재·핏 모두 일치 → 없으면 **B** 소재 일치(핏을 풂) → 없으면 **C** 카테고리·색만 맞는 전체(소재까지 풂). C에서는 소재 정보가 없는 재고(미확인)와 다른 소재 재고를 같게 보고 과잉재고 순위로 고른다. 데님은 카테고리 청바지도 일치로 본다
+- 착샷 분석 중 LLM 자체가 실패하면(시간 초과·연결·답 형식 오류) 다른 LLM 실패와 같이 그 트렌드는 오류. 이미지 URL 문제는 생략하고 진행
+- OpenAI가 이미지 URL을 못 열면 03이 직접 내려받아(http/https, 10초, 5MB, image/*) base64로 다시 보낸다(컨테이너가 인터넷에 나갈 수 있어야 함)
+- 착샷을 쓰면 근거 `E-006`(무신사 스냅 착샷 URL)이 붙는다. 무신사 이미지를 OpenAI로 보내는 것은 팀 확인 완료
+- 규칙 방식(`mode="rule"`)은 착샷을 쓰지 않는다(LLM이 없음)
+
+LLM agent (`stock_agent/llm_agent.py`): 착샷 분석 뒤, 위 규칙으로 정한 기준 색·카테고리에서 시작해 LLM이 도구를 골라 부르고 결과를 보고 다음 행동을 정한다.
 
 | 도구 | 하는 일 |
 |---|---|
-| `find_categories` | 짝 영역 정하기. 사용자 카테고리 여러 개의 교집합/합집합 선택. 제외 영역은 자동으로 빠짐 |
+| `find_categories` | 짝 영역 정하기. 사용자 카테고리 여러 개의 교집합/합집합 선택. 제외 영역과 착샷에 없는 영역은 자동으로 빠짐 |
 | `find_colors` | 기준 색과 어울리는 색 + 기준 색 자체(톤온톤). `max_overlap`(가장 많이 겹치는 색) 또는 `any`(하나라도 어울리는 색) |
-| `get_inventory` | 영역·색 조건으로 재고 후보 조회, 후보 수와 속성 분포 |
-| `filter_attributes` | 소재·핏으로 거르기. 트렌드 아이템에 있으면 그 안에서, 없으면 LLM이 트렌드 설명을 보고 추론. 정보가 없는 상품(미확인)은 남기고 정보가 있는데 다른 상품만 뺌(일치·미확인 수를 돌려줌) |
-| `rank_candidates` | 과잉재고 순위 상위 몇 개 |
+| `get_inventory` | 앞 두 도구 결과 **전부**로 재고 후보 조회(영역·색을 좁힐 수 없음). 착샷 소재·핏이 있으면 단계 A/B/C를 정해 그 단계 후보만 남김. 후보 수·단계·단계별 수·속성 분포 |
+| `rank_candidates` | 정해진 단계 안에서 과잉재고 순위 상위 몇 개 |
 | `finish` | LLM이 고른 상품과 이유를 받아 검사하고 끝냄. 1위가 아닌 상품이면 `why_not_higher`(더 높은 순위 대신 고른 이유)가 필수. 응답은 기존 코드로 `product`·`trend_result`를 만듦 |
 
-- 순위는 과잉재고 순서라 기본은 1위다. LLM이 1위가 아닌 상품을 고르면 더 높은 순위 상품과 실제로 다른 점(사진 없음, 트렌드 소재·핏 일치 여부 등)을 `why_not_higher`에 써야 하고, 없으면 `invalid_final`. 이유는 `reason.llm_why_not_higher`에 남는다(1위면 `null`)
-
+- 순위는 과잉재고 순서라 기본은 1위다. LLM이 1위가 아닌 상품을 고르면 더 높은 순위 상품과 실제로 다른 점(사진 없음 등)을 `why_not_higher`에 써야 하고, 없으면 `invalid_final`. 이유는 자유 문장으로 받아 `reason.llm_why_not_higher`에 남기고(1위면 `null`) 평가에서 본다. 영역 차이·소재·핏·모든 후보에 공통인 점은 이유가 될 수 없다고 LLM에게 알린다(코드는 이유가 있는지와 숫자만 검사)
+- `get_inventory`의 `areas`·`colors`는 생략하면 앞 결과 전부. 일부만 주면(좁히면) `rule_violation`이고 다시 고르게 한다 (2026-11-09 결정: 어울리는 색과 톤온톤을 함께 봄. 색 규칙을 바꾸려면 `find_colors`를 다시 부름)
 - 규칙에 맞지 않는 호출(`rule_violation`, `invalid_final`)은 실행하지 않고 오류를 LLM에게 돌려줘 다시 고르게 한다. 트렌드당 2번까지, 3번째 위반에서 실패. 막힌 호출도 `search.steps`에 `error`(`reason`, `message`)와 함께 남고, 다시 고른 경우 limitations에 적는다
-- LLM이 `get_inventory`에서 짝 영역·찾을 색을 일부만 고르면(좁히면) `search.narrowed`와 limitations에 남기고, summary는 실제로 쓴 색 기준으로 쓴다. 짝 영역 안의 영역 차이는 `why_not_higher`의 이유가 될 수 없다고 LLM에게 알린다
-- 후보가 0개면 **트렌드 쪽 조건만** 완화(트렌드 색·트렌드 카테고리·소재·핏·색 규칙). 사용자 조건(`target_category`, `target_colors`)은 완화하지 않음
-- LLM이 규칙을 어기거나 실패하면 그 트렌드는 오류(`product: null`). 원인 `reason`: `no_llm`, `llm_unavailable`(키·권한·모델 이름·네트워크), `timeout`, `invalid_response`(도구를 안 부름·없는 도구·인자 오류), `rule_violation`(사용자 조건 변경, 제외 카테고리 다시 넣기, 21색·어휘 밖 값, 도구 순서), `step_limit`(도구 12번 초과), `invalid_final`(순위 결과에 없는 상품, 후보가 있는데 안 고름, 1위가 아닌데 `why_not_higher` 없음, 이유에 근거 없는 숫자)
-- 응답 `search`에 `mode: "llm"`, `steps`(부른 도구·조건·후보 수), `relaxed`(완화한 조건, 무엇을·무엇에서·무엇으로·왜), `trend_materials`·`trend_fit`·`trend_attributes_source`(`trend_item`/`llm_inferred`), `attribute_filter`(거른 소재·핏, `counts`: 소재·핏별 일치·미확인 수), `narrowed`(LLM이 앞 도구 결과보다 좁혀 쓴 영역·색, 무엇에서·무엇으로·왜, 톤온톤만인지). `reason`에 `attributes`(소재·핏 맞음, `materials_match`·`fit_match`: true/false/null=미확인), `decided_by: "llm"`, `llm_reason`, `llm_why_not_higher`
+- 후보가 0개면 **트렌드 쪽 조건만** 완화(트렌드 색·트렌드 카테고리·색 규칙). 사용자 조건(`target_category`, `target_colors`)은 완화하지 않음. 착샷 소재·핏은 단계로 코드가 완화
+- LLM이 규칙을 어기거나 실패하면 그 트렌드는 오류(`product: null`). 원인 `reason`: `no_llm`, `llm_unavailable`(키·권한·모델 이름·네트워크), `timeout`, `invalid_response`(도구를 안 부름·없는 도구·인자 오류·착샷 분석 답 형식 오류), `rule_violation`(사용자 조건 변경, 제외 카테고리 다시 넣기, 21색 밖 값, 영역·색 좁히기, 도구 순서), `step_limit`(도구 12번 초과), `invalid_final`(순위 결과에 없는 상품, 후보가 있는데 안 고름, 1위가 아닌데 `why_not_higher` 없음, 이유에 근거 없는 숫자)
+- 응답 `search`에 `mode: "llm"`, `steps`(부른 도구·조건·후보 수·단계), `relaxed`(완화한 트렌드 조건, 무엇을·무엇에서·무엇으로·왜), `outfit_reference`(쓴 착샷: `status` used/skipped/failed, `skip_reason`, `product_id`, `image_url`, `score`, `garments` 영역별 소재·핏, `areas_removed`), `attribute_tier`(`tier` A/B/C, `counts` 단계별 수, `relaxed` 푼 조건 fit/materials). `reason`에 `attributes`(상품 소재·핏과 착샷 같은 영역 옷의 `outfit_materials`·`outfit_fit`, `materials_match`·`fit_match`: true/false/null=미확인, `tier`), `decided_by: "llm"`, `llm_reason`, `llm_why_not_higher`
 
 ### 응답
 
@@ -188,7 +200,7 @@ LLM agent (`stock_agent/llm_agent.py`): 위 규칙으로 정한 기준 색·카�
 
 ```
 stock_agent/   season.py  attributes.py  synthetic.py  overstock.py  trend_input.py  trend_request.py  agent.py
-               llm.py  llm_openai.py  llm_agent.py  multi.py  errors.py  api.py  schemas.py
+               llm.py  llm_openai.py  llm_agent.py  outfit.py  multi.py  errors.py  api.py  schemas.py
 contracts/   요청·응답 JSON Schema, 예시 (초안)
 scripts/     데이터 생성·실행·검증 스크립트
 tests/       단위·SQL·API·계약 테스트 (duckdb·fastapi·jsonschema가 없으면 해당 테스트는 건너뜀)

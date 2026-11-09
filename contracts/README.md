@@ -34,8 +34,9 @@ API 경로는 `POST /v1/inventory-products`이고, 서버를 띄우면 `/docs`�
 | `applied_filters.attributes` 중 `type: color` | 사용자 색 |
 | `applied_filters.attributes` 중 그 밖(소재·핏 등) | 쓰지 않음 |
 | `applied_filters.gender` | 고객군 (아래) |
-| `trends[].style`, `trends[].items` | 트렌드 색·카테고리·소재·핏 |
-| `trends[].items[].similar_products`, `evidence`, `limitations` 등 | 쓰지 않음 (LLM에도 보내지 않음) |
+| `trends[].style`, `trends[].items` | 트렌드 색·카테고리 (아이템 자신의 소재·핏은 재고를 거르는 데 쓰지 않음) |
+| `trends[].items[].similar_products` | `kind: snap_garment`이고 `image_url`이 있는 것 중 `score`가 가장 높은 착샷 1장 (아래) |
+| `evidence`, `limitations` 등 | 쓰지 않음 (LLM에도 보내지 않음) |
 
 **성별 → 고객군** (H&M 고객군)
 
@@ -48,7 +49,7 @@ API 경로는 `POST /v1/inventory-products`이고, 서버를 띄우면 `/docs`�
 - 요청 성별이 없으면 트렌드마다 Item `gender`로 정합니다. 여러 성별이면 고객군을 합치고, `공용`이 있거나 모두 비어 있으면 전체입니다.
 - 정한 결과는 `trend_results[i].search.segments`, `segment_basis`(`gender` / `item_gender` / `all`)와 limitations에 나옵니다.
 
-**트렌드 소재·핏**: Item `approx`에 든 값(근사 매핑, 예: 원문 새틴 → `material:실크`)은 쓰지 않고 limitations에 적습니다. 02는 표준 값만 보내지만, 혹시 vocabulary_v1에 없는 값이 오면 같은 방식으로 뺍니다.
+**착샷 소재·핏** (2026-11-09): 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products` 중 `snap_garment` 착샷(score 최고 1장)을 03 LLM이 보고, 모델이 함께 입은 하의·아우터 등의 소재·핏을 뽑습니다. 착샷에 없는 짝 영역은 빼고, 재고는 A(소재·핏 일치) → B(소재 일치) → C(카테고리·색만) 순으로 단계를 정해 그 안에서 과잉재고 순위로 고릅니다. 스냅이 없거나(`catalog_item`만), 아이템만 잘라낸 사진이거나, 이미지를 열 수 없으면 소재·핏 조건 없이 찾고 limitations에 적습니다. 02 `image_url`은 OpenAI로 전송됩니다(팀 확인 완료).
 
 **사용자 색**: 트렌드 아이템 색이 비어 있으면(02가 색을 확인하지 못함) "트렌드 아이템 색이 확인되지 않아(미확인)", 색은 있는데 안 겹치면 "트렌드 아이템 색에 없습니다"로 limitations에 구분해 적습니다. 두 경우 모두 사용자 색과 어울리는 색으로 찾습니다.
 
@@ -57,10 +58,10 @@ API 경로는 `POST /v1/inventory-products`이고, 서버를 띄우면 `/docs`�
 ## 응답
 
 - 색: 기준 색과 어울리는 색 + 기준 색 자체(톤온톤)에서 찾습니다. 상품 색이 기준 색과 같으면 `reason.color.tone_on_tone`에 그 색이 있습니다.
-- LLM이 짝 영역·찾을 색을 일부만 골라 조회하면 `search.narrowed`(`condition`, `from`, `to`, `why`, 색이면 `tone_on_tone_only`)와 limitations에 남습니다.
+- LLM은 짝 영역·찾을 색을 일부만 골라 조회할 수 없습니다(어울리는 색과 톤온톤을 함께 봄). 좁히려는 호출은 실행되지 않고 다시 고르게 합니다.
 - LLM이 규칙에 맞지 않게 부른 도구 호출도 `search.steps`에 `error`(`reason`, `message`)와 함께 남습니다.
 - 상품 선택: 순위는 과잉재고 순서라 기본은 1위입니다. LLM이 1위가 아닌 상품을 고르면 더 높은 순위 대신 고른 이유가 `trend_results[i].reason.llm_why_not_higher`에 있습니다(1위면 `null`).
-- 소재·핏으로 거를 때 정보가 없는 상품(미확인)은 빼지 않습니다. 소재·핏별 일치·미확인 수는 `search.attribute_filter.counts`(`{"materials": {"matched", "unknown"}, "fit": ...}`, 거르지 않은 속성은 null), 상품별 결과는 `reason.attributes.materials_match`·`fit_match`(true/false/null=미확인)입니다.
+- 착샷: `search.outfit_reference`(`status` used/skipped/failed, `skip_reason` no_snap/not_full_outfit/image_error/no_vision, `product_id`, `image_url`, `score`, `garments` 영역별 `visible`·`materials`·`fit`(LLM 이미지 판단), `areas_removed`), `search.attribute_tier`(`tier` A/B/C, `counts`, `relaxed` fit/materials, 착샷 조건이 없으면 null). 상품별 비교는 `reason.attributes`(`outfit_materials`, `outfit_fit`, `materials_match`·`fit_match` true/false/null=미확인, `tier`). 착샷을 쓰면 근거 `E-006`(`locator` = 착샷 URL)이 붙습니다.
 
 - `products[i]` ↔ `trend_results[i]`. 트렌드마다 상품 1개(사진 포함). 못 고르면 `null`.
 - **팀 공통 envelope의 `findings`와 최상위 `limitations`는 쓰지 않습니다.** 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 있습니다.

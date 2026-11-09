@@ -12,6 +12,11 @@
 
 도구 형식: [{"name", "description", "parameters": JSON Schema}] (Anthropic·OpenAI 둘 다 이 모양으로 바꾸기 쉬움)
 
+이미지 분석 (2026-11-09, 무신사 스냅 착샷)
+    LLM.see(system, prompt, image_url) → dict (JSON 답)
+    이미지를 볼 수 없는 LLM은 NotImplementedError → agent는 착샷 반영을 생략(no_vision)
+    이미지 URL을 열 수 없으면 ImageUnavailable → agent는 착샷 반영을 생략(image_error)
+
 LLM이 실패하면 아래 예외를 던진다. agent가 llm_failed 오류의 원인(reason)으로 옮긴다.
     TimeoutError    → timeout
     LLMUnavailable  → llm_unavailable (키 오류·권한·모델 없음·연결 실패)
@@ -39,6 +44,10 @@ class LLMUnavailable(LLMError):
     """LLM에 연결할 수 없음 (키 오류, 권한, 모델 없음, 네트워크)."""
 
 
+class ImageUnavailable(Exception):
+    """이미지 URL을 열 수 없음 (만료·차단·이미지 아님). LLM 실패가 아니라 데이터 문제라 착샷 반영만 생략한다."""
+
+
 @dataclass
 class ToolCall:
     name: str
@@ -54,6 +63,8 @@ class LLMReply:
 
 class LLM(Protocol):
     def next(self, system: str, messages: list[dict], tools: list[dict]) -> LLMReply: ...
+
+    def see(self, system: str, prompt: str, image_url: str) -> dict: ...
 
 
 def read_dotenv(path: str | Path = ".env") -> None:
@@ -94,15 +105,39 @@ class UnavailableLLM:
     def next(self, system, messages, tools):
         raise LLMUnavailable(self.message)
 
+    def see(self, system, prompt, image_url):
+        raise LLMUnavailable(self.message)
+
 
 # ---------------------------------------------------------------- 테스트·점검용
 
-class ScriptedLLM:
-    """steps: 각 차례에 돌려줄 것. ToolCall / [ToolCall, ...] / LLMReply / 예외(던짐) / 함수(messages → 위 중 하나)."""
+def _vision(answers: list | None, seen: list, system, prompt, image_url):
+    """가짜 LLM의 see: answers가 None이면 이미지를 못 보는 LLM. 답은 dict / 예외 / 함수(image_url → 위 중 하나)."""
+    seen.append({"system": system, "prompt": prompt, "image_url": image_url})
+    if answers is None:
+        raise NotImplementedError("이미지를 볼 수 없는 LLM")
+    if not answers:
+        raise LLMError("가짜 LLM: 남은 이미지 답이 없습니다")
+    a = answers.pop(0)
+    if callable(a):
+        a = a(image_url)
+    if isinstance(a, BaseException):
+        raise a
+    return a
 
-    def __init__(self, steps):
+
+class ScriptedLLM:
+    """steps: 각 차례에 돌려줄 것. ToolCall / [ToolCall, ...] / LLMReply / 예외(던짐) / 함수(messages → 위 중 하나).
+    vision: see()가 차례로 돌려줄 답 (None이면 이미지를 못 보는 LLM)."""
+
+    def __init__(self, steps, vision: list | None = None):
         self.steps = list(steps)
+        self.vision = None if vision is None else list(vision)
+        self.seen: list[dict] = []             # see()로 받은 것 (검사용)
         self.calls: list[list[dict]] = []      # 받은 messages (검사용)
+
+    def see(self, system, prompt, image_url):
+        return _vision(self.vision, self.seen, system, prompt, image_url)
 
     def next(self, system, messages, tools):
         self.calls.append([dict(m) for m in messages])
@@ -137,13 +172,20 @@ def _tool_history(messages: list[dict]) -> tuple[list[tuple[str, dict]], list[To
 class PolicyLLM:
     """정해진 순서로 도구를 부르는 가짜 LLM (점검용). 상태 없이 메시지 기록만 보고 다음 도구를 정한다.
 
-    find_categories → find_colors → get_inventory → (트렌드 소재·핏이 있으면 filter_attributes)
-    → rank_candidates → 이미지 있는 최상위로 finish.
+    find_categories → find_colors → get_inventory(앞 결과 그대로) → rank_candidates → 이미지 있는 최상위로 finish.
     - 후보가 0개이고 트렌드 색이 있으면 트렌드 색 조건을 풀어(빈 기준 색) 한 번 더 찾는다.
       사용자 색이 있으면 색은 풀지 않는다 (사용자 조건은 완화하지 않음)
-    - 소재·핏으로 거르니 0개면 소재·핏 조건을 풀고(빈 목록으로 다시 거름) 순위로 간다
+    - 착샷 소재·핏 단계(A/B/C)는 코드가 정한다
+    vision: see()가 차례로 돌려줄 답 (None이면 이미지를 못 보는 LLM → 착샷 반영 생략)
     실패했을 때 대신 쓰는 용도가 아니다.
     """
+
+    def __init__(self, vision: list | None = None):
+        self.vision = None if vision is None else list(vision)
+        self.seen: list[dict] = []
+
+    def see(self, system, prompt, image_url):
+        return _vision(self.vision, self.seen, system, prompt, image_url)
 
     @staticmethod
     def _call(name, **args):
@@ -161,21 +203,13 @@ class PolicyLLM:
                 return self._call("finish", article_id=None, reason="제외 카테고리를 빼니 찾을 영역이 없습니다.")
             return self._call("find_colors", base_colors=task["base_colors"])
         if name == "find_colors":
-            return self._call("get_inventory", areas=last("find_categories").get("areas", []), colors=r.get("colors", []))
+            return self._call("get_inventory")
         if name == "get_inventory":
             if r.get("n_candidates", 0) == 0:
                 relaxed = any(c.name == "find_colors" and c.args.get("base_colors") == [] for c in calls)
                 if task["base_colors"] and not task["user_colors"] and not relaxed:
                     return self._call("find_colors", base_colors=[], note="후보가 없어 트렌드 색 조건을 풂")
                 return self._call("finish", article_id=None, reason="조건에 맞는 후보가 없습니다.")
-            mats, fits = task["trend_materials"], task["trend_fit"]
-            if mats or fits:
-                return self._call("filter_attributes", materials=mats, fit=fits)
-            return self._call("rank_candidates", top_k=10)
-        if name == "filter_attributes":
-            if r.get("n_candidates", 0) == 0:
-                return self._call("filter_attributes", materials=[], fit=[],
-                                  note="소재·핏으로 거르니 후보가 없어 소재·핏 조건을 풂")
             return self._call("rank_candidates", top_k=10)
         if name == "rank_candidates":
             items = r.get("candidates", [])
