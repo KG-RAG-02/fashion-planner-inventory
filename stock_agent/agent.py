@@ -659,7 +659,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
     search["areas"] = areas
     search["excluded_categories"] = c.excluded
 
-    limitations = [SAMPLE_WARNING, *period.warnings, segment_note(c), *ti.attr_notes]
+    limitations = [SAMPLE_WARNING, *period.warnings, segment_note(c)]
     limitations += pairing_notes(am, areas, c)
     if c.season_source == "inferred":
         limitations.append(f"시즌 {_season_label(period)}은 사용자 입력이 아니라 쿼리 전처리 단계가 정한 값입니다.")

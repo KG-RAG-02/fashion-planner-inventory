@@ -20,12 +20,6 @@
     b. 하나도 안 겹치면 → 사용자 색 전부. agent가 limitations에 "트렌드 아이템에 없음"을 적는다 (user_colors)
     어울리는 색은 overstock.get_matching_colors가 "트렌드 색과 어울리는 색 중 가장 많이 겹치는 색"으로 고른다.
 
-트렌드 소재·핏 (materials·fits·attr_notes)
-    아이템의 materials(또는 material)·fit 값을 모은다. 사용자 카테고리 아이템을 먼저 보고, 없으면 아이템 전체.
-    vocabulary_v1에 없는 값과 02가 근사 매핑으로 표시한 값(approx)은 빼고 attr_notes에 적는다 (규칙 방식 limitations).
-    2026-11-09부터 LLM agent는 이 값으로 재고를 거르지 않는다. 새 상품 자신의 소재로 짝 재고를 거르면 코디 논리에
-    맞지 않아서, 무신사 스냅 착샷에서 함께 입은 옷의 소재·핏을 쓴다 (outfit.py).
-
 LLM에게 보내는 트렌드 (llm_trend)
     02 트렌드에서 similar_products(무신사 유사 상품)·image_urls·evidence_ids·request_match·점수를 빼고,
     스타일 정의·설명과 아이템 속성만 남긴다. 소재·핏은 위 규칙으로 정리한 값.
@@ -58,9 +52,6 @@ class TrendInput:
     user_colors: list[str] = field(default_factory=list)   # 02 사용자 색 (받은 그대로)
     user_colors_excluded: list[str] = field(default_factory=list)   # 트렌드 아이템에 없어 뺀 사용자 색 (a일 때)
     item_colors: list[str] = field(default_factory=list)   # 트렌드 아이템 전체의 색 (사용자 색 비교용)
-    materials: list[str] = field(default_factory=list)     # 트렌드 아이템의 소재 (없으면 [])
-    fits: list[str] = field(default_factory=list)          # 트렌드 아이템의 핏 (없으면 [])
-    attr_notes: list[str] = field(default_factory=list)    # 쓰지 않은 소재·핏 설명 (limitations)
 
 
 def _as_list(v) -> list:
@@ -143,24 +134,6 @@ def _unique(xs) -> list:
     return out
 
 
-def _attrs(items: list[dict]) -> tuple[list[str], list[str]]:
-    cleaned = [clean_item_attrs(it) for it in items]
-    return _unique(m for ms, _, _ in cleaned for m in ms), _unique(f for _, fs, _ in cleaned for f in fs)
-
-
-def _attr_notes(items: list[dict]) -> list[str]:
-    nv, ap = [], []
-    for it in items:
-        d = clean_item_attrs(it)[2]
-        nv += d["not_vocab"]
-        ap += d["approx"]
-    out = []
-    if nv:
-        out.append(f"트렌드 아이템의 소재·핏 중 표준 어휘(vocabulary_v1)에 없는 값은 쓰지 않았습니다: {', '.join(_unique(nv))}")
-    if ap:
-        out.append(f"트렌드 아이템의 소재·핏 중 근사 매핑(approx) 값은 쓰지 않았습니다: {', '.join(_unique(ap))}")
-    return out
-
 
 def read_trend(trend: dict, target_area, user_colors: list[str] | None = None) -> TrendInput:
     """02 트렌드 1개 → TrendInput. target_area는 사용자 카테고리의 영역 1개 또는 목록(없으면 None),
@@ -172,10 +145,6 @@ def read_trend(trend: dict, target_area, user_colors: list[str] | None = None) -
     categories = _unique(it.get("category_minor") or it.get("category_major") for it in items)
 
     own = [it for it in items if targets and item_area(it) in targets]
-    own_mats, own_fits = _attrs(own)
-    all_mats, all_fits = _attrs(items)
-    mats = own_mats or all_mats
-    fits = own_fits or all_fits
     own_colors = _unique(c for it in own for c in _as_list(it.get("colors")))
     if own_colors:
         colors, basis, src = own_colors, "user_category_items", own
@@ -185,12 +154,10 @@ def read_trend(trend: dict, target_area, user_colors: list[str] | None = None) -
     color_items = _unique(it.get("category_minor") or it.get("category_major") for it in src
                           if _as_list(it.get("colors")))
     name, sid = style.get("name"), style.get("id")
-    notes = _attr_notes(items)
 
     user = _unique(user_colors or [])
     if not user:
-        return TrendInput(sid, name, colors, basis, categories, color_items, materials=mats, fits=fits,
-                          attr_notes=notes)
+        return TrendInput(sid, name, colors, basis, categories, color_items)
 
     item_colors = _unique(c for it in items for c in _as_list(it.get("colors")))
     in_trend = {normalize_color(c) or c for c in item_colors}     # 표기가 달라도 같은 21색이면 같은 색
@@ -199,5 +166,5 @@ def read_trend(trend: dict, target_area, user_colors: list[str] | None = None) -
                                    if any((normalize_color(c) or c) in cs for c in _as_list(it.get("colors"))))
     if hit:
         return TrendInput(sid, name, hit, "user_colors_in_trend", categories, hit_items(hit),
-                          user, [c for c in user if c not in hit], item_colors, mats, fits, notes)
-    return TrendInput(sid, name, user, "user_colors", categories, [], user, [], item_colors, mats, fits, notes)
+                          user, [c for c in user if c not in hit], item_colors)
+    return TrendInput(sid, name, user, "user_colors", categories, [], user, [], item_colors)

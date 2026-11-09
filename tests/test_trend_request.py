@@ -137,7 +137,7 @@ def test_request_gender_beats_item_gender():
     assert "요청 성별(여)" in segment_note(c)
 
 
-# ---------------------------------------------------------------- 소재·핏 정리, LLM에 보내는 트렌드
+# ---------------------------------------------------------------- LLM에 보내는 트렌드
 
 def test_clean_item_attrs_drops_not_vocab_and_approx():
     item = {"materials": ["시폰", "새틴", "플리스", "기모"], "fit": "타이트",
@@ -145,13 +145,6 @@ def test_clean_item_attrs_drops_not_vocab_and_approx():
     mats, fits, dropped = clean_item_attrs(item)
     assert mats == ["시폰"] and fits == []
     assert dropped == {"not_vocab": ["새틴", "기모"], "approx": ["플리스", "타이트"]}
-
-
-def test_read_trend_attr_notes():
-    ti = read_trend(RES["trends"][0], ["상의"])
-    assert ti.materials == ["시폰"] and ti.fits == ["루즈"]
-    assert any("근사" in n and "실크" in n for n in ti.attr_notes)
-    assert not any("표준 어휘" in n for n in ti.attr_notes)      # 02는 표준 값만 보냄 (근사 값도 표준 값)
 
 
 def test_llm_trend_trims():
@@ -195,7 +188,6 @@ def test_trend_result_end_to_end_rule(con, tmp_path):
     assert tr["search"]["segments"] == ["Ladieswear", "Divided"] and tr["search"]["segment_basis"] == "gender"
     ids = {e["evidence_id"] for e in r["evidence"]}
     assert tr["evidence_ids"] and set(tr["evidence_ids"]) <= ids
-    assert any("근사" in x for x in tr["limitations"])
 
 
 def test_segment_list_filters(con, tmp_path):
