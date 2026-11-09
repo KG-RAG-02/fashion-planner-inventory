@@ -1,0 +1,726 @@
+"""stock-agent LLM agent — 트렌드 1개 → 과잉재고 상품 1개 (2026-11-08 결정)
+
+LLM이 도구를 골라 부르고, 결과를 보고 다음 행동을 정한다(자율 추론 → 도구 선택 → 반복).
+도구는 agent.py·overstock.py의 분석 함수를 감싼 것이고, 최종 응답 모양(product, trend_result)은 규칙 방식과 같다.
+
+LLM이 정하는 것
+    - 카테고리 조합: 사용자 카테고리 여러 개의 짝을 교집합/합집합 중 무엇으로 볼지, 트렌드 카테고리 중 무엇을 쓸지
+    - 색 조합: 기준 색과 "가장 많이 겹치는 색"만 볼지, "하나라도 어울리는 색"까지 볼지
+    - 소재·핏: 트렌드 아이템에 있으면 그것으로, 없으면 트렌드 설명을 보고 추론해서 후보를 거를지
+    - 후보가 0개일 때 트렌드 쪽 조건(트렌드 색·트렌드 카테고리·소재·핏)을 완화할지
+    - 순위 상위 후보 중 어떤 상품을 고를지
+
+LLM이 못 하는 것 (어기면 llm_failed / rule_violation)
+    - 사용자 조건 완화: target_category·target_colors는 바꿀 수 없다
+    - 제외 카테고리(exclude_categories)를 다시 넣기
+    - 21색이 아닌 색, 없는 카테고리, 어휘에 없는 소재·핏 쓰기
+    - 트렌드 아이템에 없는 색·카테고리·소재·핏을 트렌드 조건으로 쓰기 (트렌드에 소재·핏이 없을 때만 추론)
+    - 순서 어기기: find_categories·find_colors 전에 get_inventory 등
+
+LLM이 실패하면 규칙 방식으로 대신 내지 않고 오류로 돌려준다 (평가할 수 있게, 2026-11-08 결정)
+    code: llm_failed (안쪽 코드. API 응답에서는 errors.to_team이 no_llm·llm_unavailable → SOURCE_UNAVAILABLE,
+          timeout → TIMEOUT, 그 밖 → INTERNAL_ERROR로 바꾸고 원인은 reason에 둔다), reason:
+        no_llm            LLM이 연결되지 않음 (LLM_API_KEY 없음)
+        llm_unavailable   LLM에 연결할 수 없음 (키 오류·권한·모델 이름·네트워크)
+        timeout           LLM 응답 시간 초과
+        invalid_response  도구를 안 부름, 없는 도구, 인자 형식 오류, LLM 오류
+        rule_violation    위 "못 하는 것"을 어김 (오류를 LLM에게 돌려주고 MAX_RULE_RETRIES번까지 다시 시도, 그다음 위반에서 실패)
+        step_limit        도구 호출이 MAX_STEPS를 넘음
+        invalid_final     finish의 상품이 마지막 순위 결과에 없음, 후보가 있는데 고르지 않음, 이유에 근거 없는 숫자,
+                          1위가 아닌 상품인데 why_not_higher(더 높은 순위 대신 고른 이유)가 없음
+    이때 product는 null, trend_result.status는 error, search.steps에 실패 전까지의 기록이 남는다.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+import pandas as pd
+
+from stock_agent import agent as A
+from stock_agent.attributes import to_vocab
+from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image
+from stock_agent.llm import LLM, LLMReply, LLMUnavailable
+from stock_agent.overstock import (
+    COMBINES,
+    KF_COLORS,
+    TOP_N,
+    get_matching_colors,
+    peer_relative_trend,
+    rank_overstock,
+    resolve_pair_areas,
+    summarize_attributes,
+)
+from stock_agent.season import SEASON_LABELS_KO
+from stock_agent.trend_input import FITS, MATERIALS, USER_COLOR_BASES, TrendInput, llm_trend
+
+MAX_STEPS = 12            # 트렌드 1개에 부를 수 있는 도구 수
+MAX_TOP_K = 20
+COLOR_MODES = ("max_overlap", "any")
+FAIL_REASONS = ("no_llm", "llm_unavailable", "timeout", "invalid_response", "rule_violation", "step_limit",
+                "invalid_final")
+# 규칙 위반은 바로 실패시키지 않고 LLM에게 오류를 돌려줘 다시 고르게 한다 (2026-11-09 결정).
+# 막힌 호출은 실행되지 않으므로 규칙 밖 결과는 나오지 않는다. 트렌드당 MAX_RULE_RETRIES번까지, 그다음 위반에서 실패.
+RETRYABLE = ("rule_violation", "invalid_final")
+MAX_RULE_RETRIES = 2
+
+SYSTEM = """당신은 VOGUE 패션 MD 파이프라인의 03 재고 agent입니다.
+목표: 트렌드 1개에 대해, 사용자가 기획하는 카테고리와 함께 입을 수 있고 트렌드와 어울리는 과잉재고 상품 1개를 고릅니다.
+
+일하는 방법
+1. find_categories로 찾을 짝 영역을 정합니다. 사용자 카테고리가 여러 개면 교집합/합집합 중 무엇이 맞을지 판단하세요.
+2. find_colors로 찾을 색을 정합니다. base_colors는 작업의 base_colors에서 시작합니다.
+3. get_inventory로 후보를 조회합니다.
+4. 트렌드 소재·핏(trend_materials, trend_fit)이 있으면 filter_attributes로 거르는 것을 고려하세요.
+   비어 있으면 트렌드 설명(trend)을 보고 어울리는 소재·핏을 추론해 거를 수 있습니다(어휘 안에서만).
+   소재·핏 정보가 없는 상품(미확인)은 빠지지 않고, 정보가 있는데 다른 상품만 빠집니다.
+5. 후보가 0개이면 트렌드 쪽 조건만 완화합니다(트렌드 색 줄이기·빼기, mode=any, 트렌드 카테고리 줄이기, 소재·핏 줄이기).
+   완화할 때는 note에 이유를 쓰세요.
+6. rank_candidates로 순위를 보고, finish로 상품 1개와 이유를 냅니다. 순위는 과잉재고 순서(많이 남았는데 안 팔리는 순)이므로
+   기본은 1위입니다. 1위가 아닌 상품을 고르면 why_not_higher에 더 높은 순위 상품들 대신 고른 구체적 이유를 쓰세요.
+   이유는 도구 결과에서 그 상품과 더 높은 순위 상품이 실제로 다른 점이어야 합니다
+   (예: 더 높은 순위 상품에 사진이 없음, 트렌드 소재·핏과 일치하는데 더 높은 순위 상품은 미확인·불일치, 트렌드 카테고리와 더 맞음).
+   모든 후보에 공통인 점(예: 모두 같은 소재)은 이유가 될 수 없습니다.
+   find_categories가 정한 짝 영역은 모두 사용자 카테고리와 어울리는 영역이므로, 영역 차이(예: 하의가 아니라 아우터라서)는
+   이유가 될 수 없습니다. 특정 영역만 보고 싶으면 get_inventory에서 그 영역만 고르고 note에 이유를 쓰세요(기록됩니다).
+   이미지가 있는 상품을 우선하세요.
+   모든 완화 뒤에도 후보가 0개일 때만 finish(article_id=null)로 끝냅니다.
+
+지켜야 할 것
+- 사용자 조건(target_categories, target_colors)은 절대 완화하지 않습니다. 제외 카테고리는 다시 넣지 않습니다.
+- 색은 21색, 소재·핏은 주어진 어휘만 씁니다.
+- finish의 reason·why_not_higher에 숫자를 쓸 때는 도구 결과에 나온 숫자만 씁니다.
+- 항상 도구를 부르세요. 도구 없이 글로만 답하면 실패로 처리됩니다.
+- 규칙에 맞지 않는 호출은 실행되지 않고 도구 결과로 오류(error, message)가 돌아옵니다. 메시지를 보고 규칙에 맞게 다시 부르세요.
+  규칙 위반은 트렌드마다 몇 번까지만 허용됩니다."""
+
+_STR_LIST = {"type": "array", "items": {"type": "string"}}
+_NOTE = {"type": "string", "description": "이 선택(특히 완화)의 이유"}
+TOOLS = [
+    {"name": "find_categories",
+     "description": "찾을 짝 영역(상의·하의·아우터·원피스)을 정한다. 제외 영역은 자동으로 빠진다. "
+                    "사용자 카테고리가 있으면 base_categories는 비우거나 사용자 카테고리 그대로여야 한다.",
+     "parameters": {"type": "object", "properties": {
+         "base_categories": {**_STR_LIST, "description": "짝을 정할 카테고리. 생략하면 사용자 카테고리, 없으면 트렌드 카테고리 전부. "
+                                                         "트렌드 카테고리일 때만 일부를 고르거나 []로 전체 영역을 볼 수 있다"},
+         "combine": {"type": "string", "enum": list(COMBINES),
+                     "description": "여러 카테고리의 짝 합치기. auto=교집합, 없으면 합집합"},
+         "note": _NOTE}}},
+    {"name": "find_colors",
+     "description": "기준 색과 어울리는 색(조합표 v1)과 기준 색 자체(톤온톤)를 찾는다. 사용자 색이 있으면 base_colors는 작업의 base_colors 그대로여야 한다. "
+                    "트렌드 색이면 일부만 쓰거나 []로 색 조건을 풀 수 있다.",
+     "parameters": {"type": "object", "required": ["base_colors"], "properties": {
+         "base_colors": _STR_LIST,
+         "mode": {"type": "string", "enum": list(COLOR_MODES),
+                  "description": "max_overlap=기준 색과 가장 많이 겹치는 색만(기본), any=하나라도 어울리는 색 전부"},
+         "note": _NOTE}}},
+    {"name": "get_inventory",
+     "description": "영역·색 조건으로 재고 후보를 조회한다(시즌·고객군·재고>0·제외 카테고리는 자동 적용). "
+                    "areas는 find_categories 결과 안에서, colors는 find_colors 결과 안에서 고른다. 일부만 고르면(좁히면) "
+                    "응답에 기록되므로 note에 이유를 쓴다. 후보 수와 속성 분포를 돌려준다.",
+     "parameters": {"type": "object", "required": ["areas", "colors"], "properties": {
+         "areas": _STR_LIST, "colors": _STR_LIST, "note": _NOTE}}},
+    {"name": "filter_attributes",
+     "description": "마지막 get_inventory 후보를 소재(하나라도 포함)·핏(그중 하나)으로 거른다. 매번 get_inventory 결과에서 다시 거른다. "
+                    "정보가 없는 상품(미확인)은 남기고 정보가 있는데 다른 상품만 뺀다. 결과에 소재·핏별 일치(matched)·미확인(unknown) 수. "
+                    "둘 다 []면 거르지 않는다.",
+     "parameters": {"type": "object", "properties": {
+         "materials": {**_STR_LIST, "description": f"소재 어휘: {', '.join(MATERIALS)}"},
+         "fit": {**_STR_LIST, "description": f"핏 어휘: {', '.join(FITS)}"},
+         "note": _NOTE}}},
+    {"name": "rank_candidates",
+     "description": "지금 후보를 과잉재고 순위(재고 금액·낮은 판매율·판매 감소·시즌 판매 비중)로 매겨 상위 top_k개를 돌려준다.",
+     "parameters": {"type": "object", "properties": {
+         "top_k": {"type": "integer", "minimum": 1, "maximum": MAX_TOP_K}}}},
+    {"name": "finish",
+     "description": "최종 상품을 낸다. article_id는 마지막 rank_candidates 결과 안에 있어야 한다. "
+                    "후보가 0개일 때만 article_id=null. 1위가 아닌 상품이면 why_not_higher가 필수다.",
+     "parameters": {"type": "object", "required": ["reason"], "properties": {
+         "article_id": {"type": ["string", "null"]},
+         "reason": {"type": "string", "description": "고른 이유 (숫자는 도구 결과에 나온 것만)"},
+         "why_not_higher": {"type": "string",
+                            "description": "1위가 아닌 상품을 고를 때 필수: 더 높은 순위 상품들 대신 이 상품을 고른 이유. "
+                                           "도구 결과에서 실제로 다른 점만 (모든 후보에 공통인 점은 안 됨)"}}}},
+]
+TOOL_NAMES = [t["name"] for t in TOOLS]
+
+
+class AgentFailed(Exception):
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason, self.message = reason, message
+
+
+def _bad_args(msg):
+    return AgentFailed("invalid_response", msg)
+
+
+def _violation(msg):
+    return AgentFailed("rule_violation", msg)
+
+
+def _str_list(args: dict, key: str, required: bool = False) -> list[str] | None:
+    if key not in args or args[key] is None:
+        if required:
+            raise _bad_args(f"{key}가 없습니다")
+        return None
+    v = args[key]
+    if isinstance(v, str):
+        v = [v]
+    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+        raise _bad_args(f"{key}는 문자열 목록이어야 합니다: {v!r}")
+    return list(dict.fromkeys(x.strip() for x in v if x.strip()))
+
+
+def _counts(s: pd.Series, top: int = 10) -> dict:
+    return {str(k): int(v) for k, v in s.dropna().value_counts().head(top).items()}
+
+
+def _dist(cand: pd.DataFrame) -> dict:
+    if cand.empty:
+        return {}
+    mats = cand["materials"].explode()
+    return {"area": _counts(cand["kf_area"]), "category": _counts(cand["kf_category"]),
+            "color": _counts(cand["kf_color"]), "material": _counts(mats),
+            "fit": _counts(cand["fit"].fillna("정보 없음"))}
+
+
+class ToolBox:
+    """도구 상태 (트렌드 1개). 각 도구는 LLM에게 보낼 결과 dict를 돌려주고, 기록을 steps에 남긴다."""
+
+    def __init__(self, c: A.Common, ti: TrendInput, con, image_dir):
+        self.c, self.ti, self.con, self.image_dir = c, ti, con, image_dir
+        self.steps: list[dict] = []
+        self.violations: list[dict] = []      # 다시 시도하게 한 규칙 위반
+        self.am = None                 # 마지막 find_categories
+        self.cat_call: dict = {}
+        self.areas: list[str] | None = None
+        self.color_call: dict | None = None
+        self.allowed_colors: list[str] | None = None
+        self.inv: dict | None = None   # 마지막 get_inventory {areas, colors, note}
+        self.cand_all: pd.DataFrame | None = None
+        self.cand: pd.DataFrame | None = None
+        self.attr_filter: dict | None = None
+        self.ranked: pd.DataFrame | None = None
+        self.shortlist: list[str] = []
+        self.final: dict | None = None
+        self.errors: list[dict] = []
+        self.extra_limits: list[str] = []
+        self.trend_period = {"recent": ("", ""), "prev": ("", "")}
+        self.results: list[dict] = []   # LLM에게 보낸 결과 (finish 이유의 숫자 검사용)
+
+    # ---------------------------------------------------------- 도구
+    def find_categories(self, args):
+        c, ti = self.c, self.ti
+        base = _str_list(args, "base_categories")
+        combine = args.get("combine") or "auto"
+        if combine not in COMBINES:
+            raise _bad_args(f"combine은 {', '.join(COMBINES)} 중 하나여야 합니다: {combine!r}")
+        if c.targets:
+            if base not in (None, []) and set(A.areas_of(base)) != set(c.target_areas):
+                raise _violation(f"사용자 카테고리({', '.join(c.targets)})는 바꿀 수 없습니다: {base}")
+            am = resolve_pair_areas(list(c.targets), None, combine)
+            used = list(c.targets)
+        else:
+            if base is None:
+                base = list(ti.categories)
+            unknown = [x for x in base if x not in ti.categories]
+            if unknown:
+                raise _violation(f"트렌드 카테고리에 없는 카테고리는 쓸 수 없습니다: {', '.join(unknown)}")
+            am = resolve_pair_areas(None, base, combine)
+            used = base
+        self.am, self.cat_call = am, {"base_categories": used, "combine": combine, "note": args.get("note")}
+        self.areas = A.exclude_areas(am.areas, c)
+        return {"areas": self.areas, "basis": am.basis, "given_areas": am.given, "fallback": am.fallback,
+                "excluded_areas": [a for a in am.areas if a in c.exclude_areas],
+                "excluded_categories": list(c.exclude_categories)}
+
+    def find_colors(self, args):
+        ti = self.ti
+        base = _str_list(args, "base_colors", required=True)
+        mode = args.get("mode") or "max_overlap"
+        if mode not in COLOR_MODES:
+            raise _bad_args(f"mode는 {', '.join(COLOR_MODES)} 중 하나여야 합니다: {mode!r}")
+        if ti.color_basis in USER_COLOR_BASES:
+            if set(base) != set(ti.colors):
+                raise _violation(f"사용자 색 기준({', '.join(ti.colors)})은 바꿀 수 없습니다: {base}")
+        else:
+            unknown = [x for x in base if x not in ti.colors]
+            if unknown:
+                raise _violation(f"트렌드 색에 없는 색은 기준 색으로 쓸 수 없습니다: {', '.join(unknown)}")
+        if base:
+            cm = get_matching_colors(base)
+            if not cm.colors:
+                raise _violation(f"알 수 있는 색이 없습니다: {', '.join(base)}")
+            colors = cm.colors if mode == "max_overlap" else list(cm.counts) + [x for x in cm.tone_on_tone
+                                                                                if x not in cm.counts]
+            out = {"colors": colors, "mode": mode, "overlap": cm.overlap, "n_base": cm.n_trend,
+                   "tone_on_tone": cm.tone_on_tone,
+                   "unknown": cm.unknown, "counts": cm.counts}
+        else:
+            cm, colors = None, list(KF_COLORS)
+            out = {"colors": colors, "mode": "none", "message": "기준 색이 없어 21색 전체를 씁니다"}
+        self.color_call = {"base_colors": base, "mode": mode if base else "none", "cm": cm, "note": args.get("note")}
+        self.allowed_colors = colors
+        return out
+
+    def get_inventory(self, args):
+        if self.areas is None or self.allowed_colors is None:
+            raise _violation("get_inventory 전에 find_categories와 find_colors를 불러야 합니다")
+        areas = _str_list(args, "areas", required=True)
+        colors = _str_list(args, "colors", required=True)
+        bad_a = [a for a in areas if a not in self.areas]
+        if bad_a:
+            ex = [a for a in bad_a if a in self.c.exclude_areas]
+            raise _violation(f"제외 카테고리는 다시 넣을 수 없습니다: {', '.join(ex)}" if ex
+                             else f"find_categories 결과({', '.join(self.areas)})에 없는 영역: {', '.join(bad_a)}")
+        bad_c = [x for x in colors if x not in self.allowed_colors]
+        if bad_c:
+            raise _violation(f"find_colors 결과에 없는 색(21색이 아니거나 어울리지 않는 색): {', '.join(bad_c)}. "
+                             f"쓸 수 있는 색: {', '.join(self.allowed_colors)}")
+        if not areas or not colors:
+            raise _bad_args("areas와 colors는 1개 이상이어야 합니다")
+        c = self.c
+        cand = A.drop_excluded(A._to_vocab_frame(A.get_inventory_status(self.con, areas, colors, c.period,
+                                                                         segment=c.segments)), c)
+        if not cand.empty:
+            try:
+                tr = A.get_sales_trend(self.con, cand["article_id"].tolist())
+                self.trend_period = {k: tuple(d.isoformat() for d in v) for k, v in tr.attrs["period"].items()}
+                cand = cand.merge(tr[["article_id", "recent_sold", "prev_sold"]], on="article_id", how="left")
+                cand = peer_relative_trend(cand)
+            except Exception as e:  # 추세만 실패하면 나머지 지표로 순위 (규칙 방식과 같음)
+                if not any(x["code"] == "trend_failed" for x in self.errors):
+                    self.errors.append({"code": "trend_failed", "message": f"최근 추세 계산 실패: {e}"})
+                    self.extra_limits.append("최근 판매 추세를 계산하지 못해 순위에서 추세를 중립값으로 두었습니다.")
+                cand["trend"] = 0.0
+        self.inv = {"areas": areas, "colors": colors, "note": args.get("note")}
+        self.cand_all = self.cand = cand.reset_index(drop=True)
+        self.attr_filter, self.ranked, self.shortlist = None, None, []
+        return {"n_candidates": int(len(cand)), "distribution": _dist(cand)}
+
+    def filter_attributes(self, args):
+        if self.cand_all is None:
+            raise _violation("filter_attributes 전에 get_inventory를 불러야 합니다")
+        ti = self.ti
+        mats = _str_list(args, "materials") or []
+        fits = _str_list(args, "fit") or []
+        bad = [m for m in mats if m not in MATERIALS] + [f for f in fits if f not in FITS]
+        if bad:
+            raise _violation(f"어휘에 없는 소재·핏: {', '.join(bad)}")
+        if ti.materials and any(m not in ti.materials for m in mats):
+            raise _violation(f"트렌드 소재({', '.join(ti.materials)})에 없는 소재는 쓸 수 없습니다: {mats}")
+        if ti.fits and any(f not in ti.fits for f in fits):
+            raise _violation(f"트렌드 핏({', '.join(ti.fits)})에 없는 핏은 쓸 수 없습니다: {fits}")
+        cand = self.cand_all
+        # 정보가 없는 상품(미확인)은 남기고, 정보가 있는데 다른 상품만 뺀다 (2026-11-09 결정, 02와 같은 원칙)
+        m_state = cand["materials"].map(lambda ms: material_state(ms, mats))
+        f_state = cand["fit"].map(lambda f: fit_state(f, fits))
+        keep = (m_state != "mismatched") & (f_state != "mismatched")
+        self.cand = cand[keep].reset_index(drop=True)
+        count = lambda st, on: ({"matched": int((keep & (st == "matched")).sum()),   # noqa: E731
+                                 "unknown": int((keep & (st == "unknown")).sum())} if on else None)
+        counts = {"materials": count(m_state, mats), "fit": count(f_state, fits)}   # 남은 후보 중 속성별 일치·미확인
+        self.attr_filter = {"materials": mats, "fit": fits, "note": args.get("note"),
+                            "materials_source": ("trend_item" if ti.materials else "llm_inferred") if mats else None,
+                            "fit_source": ("trend_item" if ti.fits else "llm_inferred") if fits else None,
+                            "counts": counts}
+        self.ranked, self.shortlist = None, []
+        return {"n_candidates": int(len(self.cand)), "before": int(len(self.cand_all)), "counts": counts,
+                "distribution": _dist(self.cand)}
+
+    def rank_candidates(self, args):
+        if self.cand is None:
+            raise _violation("rank_candidates 전에 get_inventory를 불러야 합니다")
+        k = args.get("top_k", 10)
+        if not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= MAX_TOP_K:
+            raise _bad_args(f"top_k는 1~{MAX_TOP_K} 정수여야 합니다: {k!r}")
+        self.ranked = rank_overstock(self.cand, n=len(self.cand))
+        top = self.ranked.head(k)
+        self.shortlist = top["article_id"].tolist()
+        rows = []
+        for r in top.itertuples(index=False):
+            rows.append({"article_id": r.article_id, "rank": int(r.rank), "category": r.kf_category,
+                         "area": r.kf_area, "color": r.kf_color,
+                         "materials": list(r.materials) if r.materials is not None else [],
+                         "fit": r.fit if isinstance(r.fit, str) else None, "stock_qty": int(r.stock_qty),
+                         "sell_through": A._round(r.sell_through), "score": A._round(r.score),
+                         "has_image": has_image(self.image_dir, r.article_id)})
+        return {"n_candidates": int(len(self.ranked)), "candidates": rows}
+
+    def finish(self, args):
+        aid, reason = args.get("article_id"), args.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise _bad_args("finish에 reason이 없습니다")
+        if aid is not None and not isinstance(aid, str):
+            raise _bad_args(f"article_id는 문자열 또는 null이어야 합니다: {aid!r}")
+        extra = A.numbers_in(reason) - A.allowed_numbers(self.results)
+        if extra:
+            raise AgentFailed("invalid_final", f"finish 이유에 도구 결과에 없는 숫자가 있습니다: {sorted(extra)}")
+        if aid is None:
+            no_area = self.areas == []          # 제외 카테고리를 빼니 찾을 영역이 없음
+            if not no_area and (self.cand is None or len(self.cand) > 0):
+                raise AgentFailed("invalid_final", "후보를 조회하지 않았거나 후보가 있는데 상품을 고르지 않았습니다")
+        elif aid not in self.shortlist:
+            raise AgentFailed("invalid_final", f"마지막 rank_candidates 결과에 없는 상품입니다: {aid}")
+        why = args.get("why_not_higher")
+        if why is not None and not isinstance(why, str):
+            raise _bad_args(f"why_not_higher는 문자열이어야 합니다: {why!r}")
+        why = (why or "").strip() or None
+        rank = None
+        if aid is not None:
+            rank = int(self.ranked.loc[self.ranked["article_id"] == aid, "rank"].iloc[0])
+            if rank > 1 and not why:
+                raise AgentFailed("invalid_final", f"1위가 아닌 {rank}위 상품을 골랐는데 why_not_higher(더 높은 순위 대신 고른 이유)가 없습니다")
+            if why:
+                extra = A.numbers_in(why) - A.allowed_numbers(self.results)
+                if extra:
+                    raise AgentFailed("invalid_final", f"why_not_higher에 도구 결과에 없는 숫자가 있습니다: {sorted(extra)}")
+        self.final = {"article_id": aid, "reason": reason.strip(), "why_not_higher": why if rank and rank > 1 else None}
+        return {"ok": True}
+
+    def call(self, name: str, args) -> dict:
+        if not isinstance(args, dict):
+            raise _bad_args(f"{name} 인자는 객체여야 합니다")
+        try:
+            out = getattr(self, name)(args)
+        except ValueError as e:     # 모르는 카테고리 등
+            raise _violation(str(e)) from e
+        log_args = {k: v for k, v in args.items()}
+        self.steps.append({"step": len(self.steps) + 1, "tool": name, "args": log_args,
+                           "n_candidates": out.get("n_candidates"),
+                           **({"areas": out["areas"]} if name == "find_categories" else {}),
+                           **({"colors": out["colors"]} if name == "find_colors" else {})})
+        self.results.append(out)
+        return out
+
+    # ---------------------------------------------------------- 결과 정리
+    def narrowed(self) -> list[dict]:
+        """마지막 get_inventory에서 앞 도구 결과보다 좁혀 쓴 영역·색 (완화가 아니라 LLM의 선택이라 따로 기록)."""
+        if not self.inv:
+            return []
+        out = []
+        for key, allowed in (("areas", self.areas), ("colors", self.allowed_colors)):
+            used = self.inv[key]
+            if allowed and set(used) < set(allowed):
+                one = {"condition": key, "from": list(allowed), "to": list(used), "why": self.inv.get("note")}
+                if key == "colors":
+                    cm = (self.color_call or {}).get("cm")
+                    one["tone_on_tone_only"] = bool(cm and set(used) <= set(cm.tone_on_tone))
+                out.append(one)
+        return out
+
+    def relaxed(self) -> list[dict]:
+        """트렌드 쪽 조건 중 최종 조회에서 완화한 것."""
+        ti, out = self.ti, []
+        if not self.c.targets and self.cat_call and ti.categories:
+            used = self.cat_call["base_categories"]
+            if set(used) != set(ti.categories):
+                out.append({"condition": "trend_categories", "from": list(ti.categories), "to": used,
+                            "why": self.cat_call.get("note")})
+        cc = self.color_call
+        if cc:
+            if ti.color_basis not in USER_COLOR_BASES and set(cc["base_colors"]) != set(ti.colors):
+                out.append({"condition": "trend_colors", "from": list(ti.colors), "to": cc["base_colors"],
+                            "why": cc.get("note")})
+            if cc["mode"] == "any":
+                out.append({"condition": "color_rule", "from": "max_overlap", "to": "any", "why": cc.get("note")})
+        af = self.attr_filter or {"materials": [], "fit": [], "note": None}
+        for key, have, used in (("trend_materials", ti.materials, af["materials"]), ("trend_fit", ti.fits, af["fit"])):
+            if have and set(used) != set(have):
+                out.append({"condition": key, "from": list(have), "to": used,
+                            "why": af.get("note") or (self.inv or {}).get("note")})
+        return out
+
+
+def _task(c: A.Common, ti: TrendInput, trend: dict, max_steps: int) -> dict:
+    return {
+        "season": A._season_label(c.period), "segments": list(c.segments) or "전체",
+        "segment_basis": c.segment_basis,
+        "target_categories": list(c.targets), "exclude_categories": c.excluded,
+        "user_colors": list(ti.user_colors),
+        "base_colors": list(ti.colors), "color_basis": ti.color_basis,
+        "trend_categories": list(ti.categories),
+        "trend_materials": list(ti.materials), "trend_fit": list(ti.fits),
+        "trend": llm_trend(trend),
+        "vocabulary": {"colors": list(KF_COLORS), "materials": MATERIALS, "fit": FITS},
+        "max_steps": max_steps,
+    }
+
+
+def _color_notes(ti: TrendInput, cc: dict | None) -> list[str]:
+    """사용자 색·겹침 설명 (규칙 방식과 같은 문장)."""
+    out = A.user_color_notes(ti)
+    cm = cc and cc.get("cm")
+    if cm is not None:
+        if cm.unknown:
+            out.append(f"K-Fashion 색으로 바꿀 수 없는 트렌드 색은 제외했습니다: {', '.join(cm.unknown)}")
+        label = "사용자 색" if ti.color_basis in USER_COLOR_BASES else "트렌드 색"
+        if cc["mode"] == "max_overlap" and cm.n_trend > 1 and cm.overlap < cm.n_trend:
+            out.append(f"{label} {cm.n_trend}개 모두와 어울리는 색이 없어, 가장 많은 {cm.overlap}개와 "
+                       f"어울리는 색({', '.join(cm.matching)})으로 찾았습니다.")
+    elif cc is not None and not ti.colors:      # 트렌드 색을 푼 경우는 완화 문장에 적음
+        out.append("트렌드에 색이 없어 색 조건 없이 21색 전체에서 찾았습니다.")
+    return out
+
+
+def _narrowed_note(x: dict) -> str:
+    name = {"areas": "짝 영역", "colors": "찾을 색"}[x["condition"]]
+    tone = " (같은 색, 톤온톤만)" if x.get("tone_on_tone_only") else ""
+    why = f" (LLM 메모: {x['why']})" if x.get("why") else ""
+    return f"LLM이 {name}을 좁혔습니다: {', '.join(x['from'])} 중 {', '.join(x['to'])}만{tone}.{why}"
+
+
+def _relaxed_note(r: dict) -> str:
+    name = {"trend_categories": "트렌드 카테고리", "trend_colors": "트렌드 색", "color_rule": "색 규칙",
+            "trend_materials": "트렌드 소재", "trend_fit": "트렌드 핏"}[r["condition"]]
+    fmt = lambda v: ", ".join(v) if isinstance(v, list) and v else ("없음" if isinstance(v, list) else  # noqa: E731
+                                                                   {"max_overlap": "가장 많이 겹치는 색",
+                                                                    "any": "하나라도 어울리는 색"}.get(v, v))
+    why = f" (LLM 메모: {r['why']})" if r.get("why") else ""
+    return f"후보를 찾으려고 {name} 조건을 완화했습니다: {fmt(r['from'])} → {fmt(r['to'])}.{why}"
+
+
+ATTR_FILTER_KEYS = ("materials", "fit", "materials_source", "fit_source", "counts")
+
+
+def material_state(ms, wanted: list[str]) -> str | None:
+    """상품 소재 vs 거를 소재: matched / mismatched / unknown(상품에 소재 정보 없음). 거를 소재가 없으면 None."""
+    if not wanted:
+        return None
+    have = [m for m in (list(ms) if ms is not None else []) if isinstance(m, str)]
+    if not have:
+        return "unknown"
+    return "matched" if any(m in wanted for m in have) else "mismatched"
+
+
+def fit_state(f, wanted: list[str]) -> str | None:
+    """상품 핏 vs 거를 핏: matched / mismatched / unknown(핏 정보 없음). 거를 핏이 없으면 None."""
+    if not wanted:
+        return None
+    if not isinstance(f, str) or not f:
+        return "unknown"
+    return "matched" if f in wanted else "mismatched"
+
+
+def attribute_reason(row, ti: TrendInput, af: dict | None) -> dict:
+    mats = [to_vocab(m) for m in row.materials] if row.materials is not None else []
+    fit = row.fit if isinstance(row.fit, str) else None
+    t_mats = (af or {}).get("materials") or list(ti.materials)
+    t_fit = (af or {}).get("fit") or list(ti.fits)
+    return {"product_materials": mats, "product_fit": fit,
+            "trend_materials": t_mats, "trend_fit": t_fit,
+            "matched_materials": [m for m in mats if m in t_mats],
+            "materials_match": {"matched": True, "mismatched": False}.get(material_state(mats, t_mats)),   # None = 미확인 또는 비교 안 함
+            "fit_match": (fit in t_fit) if (fit and t_fit) else None,
+            "filter": None if not af else {k: af[k] for k in ATTR_FILTER_KEYS}}
+
+
+def run_agent_trend(req: dict, c: A.Common, ti: TrendInput, trend: dict, con, llm: LLM | None,
+                    now: datetime | None = None, image_dir: str | None = None, max_steps: int = MAX_STEPS) -> dict:
+    """LLM agent로 트렌드 1개 처리. 응답 모양은 agent.run_trend와 같고 search에 mode·steps·relaxed가 더 있다."""
+    now = now or datetime.now(timezone.utc)
+    image_dir = image_dir or DEFAULT_IMAGE_DIR
+    period = c.period
+    season_basis = A._season_basis(c)
+    search = {"mode": "llm", "trend_colors": ti.colors, "trend_color_basis": ti.color_basis,
+              "trend_color_items": ti.color_items, "user_colors": ti.user_colors,
+              "user_colors_excluded": ti.user_colors_excluded, "trend_categories": ti.categories,
+              "excluded_categories": c.excluded, "areas": None, "colors": None, "color_overlap": None,
+              "trend_materials": ti.materials, "trend_fit": ti.fits,
+              "trend_attributes_source": "trend_item" if (ti.materials or ti.fits) else None,
+              "attribute_filter": None, "steps": [], "relaxed": [],
+              "segments": list(c.segments), "segment_basis": c.segment_basis}
+
+    def trend_error(code: str, message: str, **extra) -> dict:
+        tr = A._trend_result(ti, "error", message, search, errors=[{"code": code, "message": message, **extra}])
+        return A._output(req, "error", None, tr, season_basis)
+
+    # 입력 오류는 LLM 전에 (규칙 방식과 같은 검사)
+    if not ti.colors and not c.targets and not ti.categories:
+        return trend_error("missing_fields",
+                           "카테고리와 트렌드 색이 모두 없습니다 (사용자 카테고리, 트렌드 아이템의 "
+                           "category_major·category_minor·colors 중 하나는 있어야 합니다). "
+                           "02 결과의 items가 담겼는지 확인하세요.")
+    try:
+        resolve_pair_areas(list(c.targets), ti.categories)
+    except ValueError as e:
+        return trend_error("invalid_input", str(e))
+    if ti.colors and not get_matching_colors(ti.colors).colors:
+        return trend_error("invalid_input", f"알 수 있는 트렌드 색이 없습니다: {', '.join(ti.colors)}")
+
+    box = ToolBox(c, ti, con, image_dir)
+
+    def failed(reason: str, message: str) -> dict:
+        search["steps"] = box.steps
+        msg = f"LLM agent 실패({reason}): {message}"
+        return trend_error("llm_failed", msg, reason=reason)
+
+    if llm is None:
+        return failed("no_llm", "LLM이 연결되지 않았습니다. stock_agent.llm.load_llm()에 LLM을 연결하세요.")
+
+    messages: list[dict] = [{"role": "user", "content": json.dumps(_task(c, ti, trend, max_steps), ensure_ascii=False,
+                                                                   default=str)}]
+    try:
+        while box.final is None:
+            try:
+                reply = llm.next(SYSTEM, messages, TOOLS)
+            except TimeoutError as e:
+                raise AgentFailed("timeout", f"LLM 응답 시간 초과 ({e})") from e
+            except LLMUnavailable as e:
+                raise AgentFailed("llm_unavailable", f"LLM 연결 실패 ({e})") from e
+            except AgentFailed:
+                raise
+            except Exception as e:
+                raise AgentFailed("invalid_response", f"LLM 오류: {type(e).__name__}: {e}") from e
+            if not isinstance(reply, LLMReply) or not reply.tool_calls:
+                raise AgentFailed("invalid_response", "LLM이 도구를 부르지 않고 답했습니다")
+            messages.append({"role": "assistant", "content": reply.text,
+                             "tool_calls": [{"id": t.id, "name": t.name, "args": t.args} for t in reply.tool_calls]})
+            for t in reply.tool_calls:
+                if len(box.steps) >= max_steps:
+                    raise AgentFailed("step_limit", f"도구 호출이 {max_steps}번을 넘었습니다")
+                if t.name not in TOOL_NAMES:
+                    raise AgentFailed("invalid_response", f"없는 도구: {t.name!r}")
+                try:
+                    out = box.call(t.name, t.args)
+                except AgentFailed as e:
+                    # 실패한 호출도 steps에 남긴다 (무엇을 하려다 막혔는지)
+                    box.steps.append({"step": len(box.steps) + 1, "tool": t.name, "args": dict(t.args or {})
+                                      if isinstance(t.args, dict) else t.args, "n_candidates": None,
+                                      "error": {"reason": e.reason, "message": e.message}})
+                    if e.reason not in RETRYABLE:
+                        raise
+                    box.violations.append({"tool": t.name, "reason": e.reason, "message": e.message})
+                    if len(box.violations) > MAX_RULE_RETRIES:
+                        raise AgentFailed(e.reason, f"{e.message} (규칙 위반 {len(box.violations)}번째, "
+                                                    f"다시 시도는 {MAX_RULE_RETRIES}번까지)") from e
+                    out = {"error": e.reason, "message": e.message,
+                           "retries_left": MAX_RULE_RETRIES - len(box.violations) + 1,
+                           "hint": "이 호출은 실행되지 않았습니다. 메시지를 보고 규칙에 맞게 다시 부르세요."}
+                messages.append({"role": "tool", "id": t.id, "name": t.name,
+                                 "content": json.dumps(out, ensure_ascii=False, default=str)})
+                if box.final is not None:
+                    break
+    except AgentFailed as e:
+        return failed(e.reason, e.message)
+
+    # ---------------------------------------------------------- 응답 조립 (규칙 방식과 같은 모양)
+    cc, af, am = box.color_call, box.attr_filter, box.am
+    relaxed = box.relaxed()
+    areas = box.inv["areas"] if box.inv else (box.areas or [])
+    colors = box.inv["colors"] if box.inv else (box.allowed_colors or [])
+    n_cand = 0 if box.cand is None else int(len(box.cand))
+    narrowed = box.narrowed()
+    search.update({"steps": box.steps, "relaxed": relaxed, "narrowed": narrowed, "areas": areas, "colors": colors,
+                   "color_overlap": cc["cm"].overlap if cc and cc.get("cm") is not None else None,
+                   "attribute_filter": af and {k: af[k] for k in ATTR_FILTER_KEYS},
+                   "pair_combine": box.cat_call.get("combine")})
+    if af and not search["trend_attributes_source"] and (af["materials"] or af["fit"]):
+        search["trend_attributes_source"] = "llm_inferred"
+
+    limitations = [A.SAMPLE_WARNING, *period.warnings, A.segment_note(c), *ti.attr_notes]
+    if c.season_source == "inferred":
+        limitations.append(f"시즌 {A._season_label(period)}은 사용자 입력이 아니라 쿼리 전처리 단계가 정한 값입니다.")
+    limitations.append("LLM agent가 도구를 골라 조건을 정하고 상품을 골랐습니다 (search.steps).")
+    limitations += A.pairing_notes(am, box.areas, c)
+    if box.areas == []:
+        limitations.append(f"제외 카테고리({', '.join(c.excluded)})를 빼니 찾을 짝 영역이 없습니다.")
+    if am.basis == "all":
+        limitations.append("카테고리 입력이 없어 상의·하의·아우터·원피스 전체에서 찾았습니다.")
+    elif am.basis == "trend":
+        limitations.append(f"사용자 카테고리가 없어 트렌드 카테고리({', '.join(am.given)})의 짝으로 찾았습니다.")
+    limitations += _color_notes(ti, cc)
+    limitations += [_relaxed_note(r) for r in relaxed]
+    limitations += [_narrowed_note(x) for x in narrowed]
+    if af and any(v and v["unknown"] for v in af["counts"].values()):
+        parts = [f"{name}: 일치 {v['matched']:,}개·미확인 {v['unknown']:,}개"
+                 for name, v in (("소재", af["counts"]["materials"]), ("핏", af["counts"]["fit"])) if v]
+        limitations.append("소재·핏으로 거를 때 정보가 없는 상품(미확인)은 빼지 않고 정보가 있는데 다른 상품만 뺐습니다 "
+                           f"(남은 후보 {n_cand:,}개 중 {', '.join(parts)}).")
+    if af and (af["materials"] or af["fit"]) and "llm_inferred" in (af["materials_source"], af["fit_source"]):
+        limitations.append("트렌드 아이템에 소재·핏이 없어 LLM이 트렌드 설명을 보고 추론한 소재·핏으로 걸렀습니다.")
+    limitations += box.extra_limits
+    if box.violations:
+        limitations.append(f"LLM이 규칙에 맞지 않는 호출을 해 다시 골랐습니다({len(box.violations)}번: "
+                           + "; ".join(f"{v['tool']} {v['reason']}" for v in box.violations) + "). 자세한 내용은 search.steps")
+
+    aid = box.final["article_id"]
+    row = image = None
+    if aid is not None:
+        r = box.ranked[box.ranked["article_id"] == aid].iloc[0]
+        row = SimpleNamespace(**r.to_dict())
+        if has_image(image_dir, aid):
+            image = load_image(image_dir, aid)
+        else:
+            limitations.append("LLM이 고른 상품에 H&M 이미지가 없어 사진 없이 반환합니다.")
+
+    ti_used = replace(ti, colors=cc["base_colors"]) if cc else ti
+    reason = None
+    if row is not None:
+        reason = A.build_reason(row, am, list(c.targets), ti_used, SEASON_LABELS_KO[period.season])
+        if cc and cc["mode"] == "none":
+            reason["color"]["rule"] = "색 조건 없음"
+        elif cc and cc["mode"] == "any":
+            reason["color"]["rule"] = reason["color"]["rule"].replace("어울리는 색 중 가장 많이 겹치는 색", "하나라도 어울리는 색")
+        reason["attributes"] = attribute_reason(row, ti, af)
+        reason["decided_by"] = "llm"
+        reason["llm_reason"] = box.final["reason"]
+        reason["llm_why_not_higher"] = box.final.get("why_not_higher")    # 1위면 null
+
+    attr = None
+    if row is not None:
+        shortlist = box.ranked.head(TOP_N)
+        attr = {"scope": f"상위 {len(shortlist)}개 후보", **summarize_attributes(shortlist)}
+    facts = {
+        "season_label": A._season_label(period), "target": c.target or "카테고리 미지정",
+        "area_basis": am.basis, "given_areas": am.given, "areas": areas,
+        "trend_colors": ti_used.colors,
+        "colors_relaxed": bool(ti.colors) and not ti_used.colors,
+        "used_colors": next((x["to"] for x in narrowed if x["condition"] == "colors"), None),
+        "color_mode": cc["mode"] if cc else None,
+        "color_label": "사용자 색" if ti.color_basis in USER_COLOR_BASES else "트렌드 색",
+        "n_candidates": n_cand, "n_items": 0 if row is None else 1,
+        "top1_rank": None if row is None else int(row.rank),
+        "top1_category": None if row is None else to_vocab(row.kf_category),
+        "top1_color": None if row is None else row.kf_color,
+        "top1_stock_qty": None if row is None else int(row.stock_qty),
+        "reason_detail": None if reason is None else A.reason_detail(reason),
+    }
+    summary, warn = A.safe_summary(A.TemplateSummarizer(), facts)
+    limitations += warn
+
+    errors = box.errors
+    status = "no_results" if row is None else ("partial" if errors else "ok")
+    tr = A._trend_result(ti, status, summary, search, rank=None if row is None else int(row.rank), reason=reason,
+                         attribute_summary=attr, limitations=limitations, errors=errors)
+    product = None if row is None else A.build_product(row, period, image)
+    fetched_at = now.astimezone(timezone.utc).isoformat(timespec="seconds") if now.tzinfo else now.isoformat(timespec="seconds")
+    resp = A._output(req, status, product, tr, season_basis,
+                     evidence=A._evidence(fetched_at, period, areas, colors, box.trend_period,
+                                          with_images=image is not None))
+    problems = A.validate_output(resp)
+    if problems:
+        return A.error_output(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))
+    return resp
+
+
+def run_agent(request: dict, con, llm: LLM | None, now: datetime | None = None, image_dir: str | None = None,
+              max_steps: int = MAX_STEPS) -> dict:
+    """요청 1건(트렌드 1개) → 응답. agent.run과 같은 입력, LLM agent로 처리."""
+    from stock_agent.trend_input import read_trend
+    req = request or {}
+    err, c = A.check_common(req)
+    if err:
+        return err
+    trend = req.get("trend")
+    if not isinstance(trend, dict):
+        return A.error_output(req, "missing_fields",
+                              "필수 입력이 없습니다: trend. 02 트렌드 분석 결과의 트렌드 1개({style, items})를 "
+                              f"trend 필드에 담아 주세요. {A._missing_detail(req, ['trend'])}")
+    c = A.trend_common(c, trend)
+    ti = read_trend(trend, list(c.target_areas), list(c.user_colors))
+    return run_agent_trend(req, c, ti, trend, con, llm, now, image_dir, max_steps)

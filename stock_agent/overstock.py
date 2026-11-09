@@ -1,6 +1,6 @@
 """과잉재고 분석 함수 (#E)
 
-호출 순서 (에이전트가 코드에서 고정 순서로 부른다)
+호출 순서 (규칙 방식은 이 순서로 부른다. LLM agent는 llm_agent.py의 도구로 감싸 LLM이 골라 부른다)
 1. get_matching_categories  짝 카테고리
 2. get_matching_colors      조합 색상표로 어울리는 색
 3. get_inventory_status     후보 상품 + 재고·판매율·시즌 판매 비중 (SQL)
@@ -13,7 +13,6 @@ SQL 값은 모두 파라미터로 넘긴다. DB는 읽기 전용 연결을 받�
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -58,32 +57,76 @@ class AreaMatch:
     fallback: bool = False     # 트렌드 카테고리의 공통 짝이 없어 합집합으로 넓혔는지
 
 
-def resolve_pair_areas(target: str | None, trend_categories: list[str] | None) -> AreaMatch:
-    """짝 영역 정하기 (2026-11-06 팀 합의).
+COMBINES = ("auto", "intersection", "union")
 
-    1) 사용자 카테고리(02)가 있으면 그 짝. 03은 사용자 카테고리가 든 트렌드만 넘기므로 트렌드 카테고리는 쓰지 않는다
-    2) 없고 트렌드 카테고리(03)가 있으면 각 짝의 교집합(받은 카테고리는 뺌).
+
+def areas_of(categories) -> list[str]:
+    """카테고리 목록(영역 또는 세부) → 영역 목록 (중복 제거, 나온 순서). 모르는 카테고리는 ValueError."""
+    if isinstance(categories, str):
+        categories = [categories]
+    out: list[str] = []
+    for c in categories or []:
+        a = get_matching_categories(c)[0]
+        if a not in out:
+            out.append(a)
+    return out
+
+
+def combine_pairs(given: list[str], basis: str, combine: str = "auto") -> AreaMatch:
+    """영역 여러 개의 짝 합치기.
+
+    intersection  각 짝의 교집합(받은 영역은 뺌). 비면 빈 목록
+    union         각 짝의 합집합. 사용자 카테고리면 받은 영역은 빼고(비면 그대로), 트렌드면 받은 영역도 넣는다
+    auto          교집합, 비면 합집합 (fallback=True)
+    """
+    if combine not in COMBINES:
+        raise ValueError(f"combine은 {', '.join(COMBINES)} 중 하나여야 합니다: {combine!r}")
+    order = list(MATCHING_AREAS)
+    sets = [set(MATCHING_AREAS[a]) for a in given]
+    common = set.intersection(*sets) - set(given)
+    union = set.union(*sets)
+    if basis == "trend":
+        union |= set(given)
+    elif union - set(given):
+        union -= set(given)
+    pick = lambda s: [a for a in order if a in s]  # noqa: E731
+    if combine == "intersection" or (combine == "auto" and common):
+        return AreaMatch(pick(common), basis, given)
+    return AreaMatch(pick(union), basis, given, fallback=combine == "auto")
+
+
+def resolve_pair_areas(target, trend_categories: list[str] | None, combine: str = "auto") -> AreaMatch:
+    """짝 영역 정하기 (2026-11-06 팀 합의, 2026-11-08 사용자 카테고리 여러 개).
+
+    1) 사용자 카테고리(02)가 있으면 그 짝. 02는 사용자 카테고리가 든 트렌드만 넘기므로 트렌드 카테고리는 쓰지 않는다.
+       여러 개면 각 짝의 교집합, 없으면 합집합
+    2) 없고 트렌드 카테고리(02)가 있으면 각 짝의 교집합(받은 카테고리는 뺌).
        공통 짝이 없으면(예: 상의·하의·아우터, 네 영역 전부) 트렌드 카테고리와 그 짝을 모두 후보로 두고
        순위로 하나를 고른다
     3) 둘 다 없으면 전체 영역
+    target은 문자열 1개 또는 목록.
     """
-    if target:
-        area, pairs = get_matching_categories(target)
-        return AreaMatch(list(pairs), "user", [area])
+    given = areas_of(target)
+    if given:
+        if len(given) == 1 and combine == "auto":
+            return AreaMatch(list(MATCHING_AREAS[given[0]]), "user", given)
+        return combine_pairs(given, "user", combine)
     if trend_categories:
-        given: list[str] = []
-        for c in trend_categories:
-            a = get_matching_categories(c)[0]
-            if a not in given:
-                given.append(a)
-        sets = [set(MATCHING_AREAS[a]) for a in given]
-        order = list(MATCHING_AREAS)
-        common = set.intersection(*sets) - set(given)
-        if common:
-            return AreaMatch([a for a in order if a in common], "trend", given)
-        union = set.union(*sets) | set(given)
-        return AreaMatch([a for a in order if a in union], "trend", given, fallback=True)
+        return combine_pairs(areas_of(trend_categories), "trend", combine)
     return AreaMatch(list(MATCHING_AREAS), "all", [])
+
+
+def split_exclude(exclude) -> tuple[list[str], list[str]]:
+    """제외 카테고리 → (뺄 영역, 뺄 세부 카테고리). 모르는 카테고리는 ValueError."""
+    areas, cats = [], []
+    for c in exclude or []:
+        if c in MATCHING_AREAS:
+            areas.append(c) if c not in areas else None
+        elif c in CATEGORY_TO_AREA:
+            cats.append(c) if c not in cats else None
+        else:
+            raise ValueError(f"제외할 수 없는 카테고리: {c!r} (영역 상의·하의·아우터·원피스 또는 세부 카테고리)")
+    return areas, cats
 
 
 # ---------------------------------------------------------------- 2. 어울리는 색
@@ -146,20 +189,24 @@ def normalize_color(text: str) -> str | None:
 
 @dataclass(frozen=True)
 class ColorMatch:
-    colors: list[str]          # 후보로 쓸 어울리는 색
+    colors: list[str]          # 찾을 색 전부 = matching + tone_on_tone
     unknown: list[str]         # K-Fashion 색으로 못 바꾼 트렌드 색
-    threshold: int             # 몇 개 이상의 트렌드 색과 어울려야 하는지
-    fallback: bool             # 다수결 결과가 없어 합집합으로 넓혔는지
-    counts: dict[str, int]     # 후보 색별로 어울리는 트렌드 색 수
+    overlap: int               # 후보 색이 어울리는 트렌드 색 수 (가장 많이 겹치는 수)
+    n_trend: int               # 알아본 트렌드 색 수 (중복 제거)
+    counts: dict[str, int]     # 색별로 어울리는 트렌드 색 수 (1개 이상인 색 전부)
+    matching: list[str] = ()   # 조합표로 어울리는 색 중 가장 많이 겹치는 색
+    tone_on_tone: list[str] = ()   # 기준 색 자체 (matching에 이미 있으면 뺌)
 
 
 def get_matching_colors(trend_colors: list[str]) -> ColorMatch:
-    """트렌드 색 → 어울리는 색 (다수결).
+    """트렌드 색 → 후보 색 (트렌드 색과 어울리는 색 중 가장 많이 겹치는 색, 2026-11-08 결정).
 
-    - 트렌드 색 k개 중 절반 이상(ceil(k/2))과 어울리는 색만 후보로 쓴다.
-      k=1 → 그 색의 조합 색 전부, k=2 → 둘 중 하나와 어울리는 색, k=3 → 2개 이상
-    - 다수결을 만족하는 색이 없으면 합집합으로 넓힌다(fallback=True).
-    - 트렌드 색 자체가 다른 트렌드 색의 조합 색이면 후보에 들어간다(톤온톤 허용).
+    - 21색마다 트렌드 색 몇 개와 어울리는지(조합표 v1) 센다.
+    - 그 수가 가장 큰 색만 후보로 쓴다. 최대가 같은 색이 여러 개면 모두 쓴다.
+      예) 트렌드 색 2개: 둘 다와 어울리는 색이 있으면 그 색만, 없으면 각각과 어울리는 색 전부
+    - 최대값은 항상 1 이상이라 후보가 비지 않는다(기준을 넓히는 단계가 필요 없음).
+    - 트렌드 색 개수 제한은 없다.
+    - 기준 색 자체도 항상 찾는다(톤온톤, 2026-11-09 결정). colors = 어울리는 색 + 기준 색(어울리는 색에 없는 것만).
     순서: 처음 나온 순서 유지, 중복 제거.
     """
     known, unknown = [], []
@@ -175,12 +222,10 @@ def get_matching_colors(trend_colors: list[str]) -> ColorMatch:
         for p in COLOR_PAIRS[k]:
             counts[p] = counts.get(p, 0) + 1
 
-    threshold = math.ceil(len(known) / 2) if known else 0
-    colors = [c for c, n in counts.items() if n >= threshold]
-    fallback = False
-    if not colors and counts:
-        colors, fallback = list(counts), True
-    return ColorMatch(colors, unknown, threshold, fallback, counts)
+    overlap = max(counts.values()) if counts else 0
+    matching = [c for c, n in counts.items() if n == overlap]
+    tone = [k for k in known if k not in matching]
+    return ColorMatch(matching + tone, unknown, overlap, len(known), counts, matching, tone)
 
 
 # ---------------------------------------------------------------- 3. 후보 재고
@@ -203,7 +248,7 @@ def inventory_sql(period: SeasonPeriod) -> str:
           AND list_contains(?::VARCHAR[], a.kf_color)
           AND list_has_any(a.season_fit, ?::VARCHAR[])
           AND s.stock_qty > 0
-          AND (?::VARCHAR IS NULL OR a.segment = ?::VARCHAR)
+          AND (?::VARCHAR[] IS NULL OR list_contains(?::VARCHAR[], a.segment))
     ),
     season_sales AS (
         SELECT article_id,
@@ -222,11 +267,16 @@ def inventory_sql(period: SeasonPeriod) -> str:
 
 
 def get_inventory_status(con, areas: list[str], colors: list[str], period: SeasonPeriod,
-                         segment: str | None = None) -> pd.DataFrame:
-    """짝 영역·어울리는 색·시즌에 맞고 재고가 있는 상품과 지표."""
+                         segment: str | list[str] | tuple[str, ...] | None = None) -> pd.DataFrame:
+    """짝 영역·어울리는 색·시즌에 맞고 재고가 있는 상품과 지표.
+
+    segment: 고객군 1개 또는 목록. None·빈 목록이면 전체 고객군.
+    """
     _, season_params = period.sql_filter("t_dat")
     kf_seasons = SEASON_TO_KF[period.season]
-    params = [areas, colors, kf_seasons, segment, segment, *season_params, DATA_END]
+    segs = [segment] if isinstance(segment, str) else list(segment or [])
+    segs = segs or None
+    params = [areas, colors, kf_seasons, segs, segs, *season_params, DATA_END]
     return con.execute(inventory_sql(period), params).df()
 
 

@@ -1,9 +1,9 @@
 """상품 속성 보강 (#C)
 
 H&M articles의 값을 K-Fashion 어휘로 바꾼다.
-- 카테고리: product_type_name (+ 상품명·설명 키워드) → (영역, 세부 카테고리)
+- 카테고리: product_type_name (+ 상품명·설명 키워드) → (영역, 세부 카테고리). 이름은 vocabulary_v1 (예: 티셔츠)
 - 색: colour_group_name → K-Fashion 컬러 20종
-- 소재: detail_desc 키워드 → K-Fashion 소재 25종
+- 소재: detail_desc 키워드 → K-Fashion 소재 26종 (트렌드 팀 vocabulary_v1 표기, 여러 이름은 '/')
 - 핏: detail_desc 키워드 → K-Fashion 핏
 - 시즌 적합성: 카테고리·소재 규칙 → 입을 수 있는 계절 목록
 
@@ -30,8 +30,8 @@ def _s(x) -> str:
 # product_type_name → (영역, 카테고리). 키워드로 다시 나누는 타입은 _refine에서 처리.
 _TYPE_MAP: dict[str, tuple[str, str]] = {
     # 상의
-    "T-shirt": ("상의", "티셔츠·캐주얼상의"),
-    "Polo shirt": ("상의", "티셔츠·캐주얼상의"),
+    "T-shirt": ("상의", "티셔츠"),
+    "Polo shirt": ("상의", "티셔츠"),
     "Top": ("상의", "탑"),
     "Vest top": ("상의", "탑"),
     "Bodysuit": ("상의", "탑"),            # 아동은 _refine에서 [확장]
@@ -108,7 +108,7 @@ def map_category(segment: str, product_type: str, prod_name: str = "", desc: str
     if product_type == "Sweater" and (
         _SWEATSHIRT.search(text) or (_JERSEY.search(text) and not _KNIT.search(text))
     ):
-        return ("상의", "티셔츠·캐주얼상의")
+        return ("상의", "티셔츠")
     if product_type == "Top" and segment == "Sport" and _BRALETTE.search(text):
         return ("상의", "브라탑")
     if product_type == "Trousers" and re.search(r"\bskirt\b", _s(prod_name).lower()):
@@ -167,9 +167,9 @@ _MATERIALS: list[tuple[str, re.Pattern]] = [
     ("데님", re.compile(r"\bdenim\b")),
     ("레이스", re.compile(r"\blace\b")),                  # lace-up은 아래에서 먼저 지움
     ("가죽", re.compile(r"\bleather\b")),                 # imitation/faux leather는 아래에서 먼저 지움
-    ("울·캐시미어", re.compile(r"\b(wool|cashmere)\b")),
+    ("울/캐시미어", re.compile(r"\b(wool|cashmere)\b")),
     ("메시", re.compile(r"\bmesh\b")),
-    ("시퀸·글리터", re.compile(r"\b(sequins?|glitter)\b")),
+    ("시퀸/글리터", re.compile(r"\b(sequins?|glitter)\b")),
     ("스웨이드", re.compile(r"\bsuede\b")),                 # imitation/faux suede는 아래에서 먼저 지움
     ("자카드", re.compile(r"\bjacquard\b")),
     ("린넨", re.compile(r"\blinen\b")),
@@ -180,9 +180,10 @@ _MATERIALS: list[tuple[str, re.Pattern]] = [
     ("실크", re.compile(r"\bsilk\b")),
     ("코듀로이", re.compile(r"\bcorduroy\b")),
     ("무스탕", re.compile(r"\b(mouton|shearling)\b")),
-    ("비닐·PVC", re.compile(r"\b(vinyl|pvc)\b")),
+    ("비닐/PVC", re.compile(r"\b(vinyl|pvc)\b")),
     ("네오프렌", re.compile(r"\b(neoprene|scuba)\b")),
     ("앙고라", re.compile(r"\bangora\b")),
+    ("헤어니트", re.compile(r"\bmohair\b")),               # 털이 긴 니트. H&M 설명에는 mohair로만 나옴
     ("트위드", re.compile(r"\btweed\b")),
 ]
 
@@ -237,9 +238,25 @@ def extract_fit(desc: str | None, area: str | None) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------- 예전 표기 → vocabulary_v1
+
+# 2026-11-08 트렌드 팀 vocabulary_v1에 맞춰 이름을 바꿨다. 예전 이름으로 만든 DB도 응답은 새 이름으로 나가게 한다
+OLD_NAMES = {
+    "티셔츠·캐주얼상의": "티셔츠",
+    "울·캐시미어": "울/캐시미어",
+    "시퀸·글리터": "시퀸/글리터",
+    "비닐·PVC": "비닐/PVC",
+}
+
+
+def to_vocab(name):
+    """예전 카테고리·소재 이름 → vocabulary_v1 이름. 그 밖은 그대로."""
+    return OLD_NAMES.get(name, name) if isinstance(name, str) else name
+
+
 # ---------------------------------------------------------------- 시즌 적합성
 
-_WARM_MATERIALS = {"울·캐시미어", "퍼", "무스탕", "플리스", "코듀로이", "벨벳", "트위드", "앙고라"}
+_WARM_MATERIALS = {"울/캐시미어", "퍼", "무스탕", "플리스", "코듀로이", "벨벳", "트위드", "앙고라", "헤어니트"}
 _COOL_MATERIALS = {"린넨", "시폰", "메시"}
 _WINTER_CATS = {"패딩", "코트"}
 _SUMMER_TYPES = {"Shorts", "Vest top", "Sarong"}

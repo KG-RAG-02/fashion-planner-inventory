@@ -3,3 +3,4 @@ pandas>=2.2
 numpy>=1.26
 fastapi>=0.110
 uvicorn>=0.29
+openai>=1.40

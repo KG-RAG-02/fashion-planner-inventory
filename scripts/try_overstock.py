@@ -37,8 +37,8 @@ area, areas = get_matching_categories(args.target)
 cm = get_matching_colors(args.colors)
 colors, unknown = cm.colors, cm.unknown
 print(f"1. 요청 영역 {area} → 짝 영역 {areas}")
-print(f"2. 트렌드 색 {args.colors} → 어울리는 색 {colors} (기준: {cm.threshold}개 이상"
-      + (", 합집합으로 넓힘" if cm.fallback else "") + ")" + (f"  (알 수 없는 색: {unknown})" if unknown else ""))
+print(f"2. 트렌드 색 {args.colors} → 어울리는 색 {colors} (트렌드 색 {cm.n_trend}개 중 {cm.overlap}개와 어울림, "
+      f"어울리는 색 중 가장 많이 겹치는 색)" + (f"  (알 수 없는 색: {unknown})" if unknown else ""))
 print(f"   시즌 기준: {period.basis}")
 
 cand = get_inventory_status(con, areas, colors, period, segment=args.segment)

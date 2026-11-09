@@ -1,12 +1,81 @@
 {
-  "schema_version": "1.0",
   "request_id": "req_trends_example_001",
-  "season": {"value": "2027-SS", "source": "user"},
-  "target_category": "상의",
-  "segment": "Ladieswear",
+  "status": "ok",
+  "applied_filters": {
+    "season": {
+      "year": 2027,
+      "season": "SS",
+      "raw": "내년 봄여름",
+      "origin": "user_requested"
+    },
+    "categories": {
+      "include": [
+        {
+          "raw": "상의",
+          "major": "상의",
+          "minor": null
+        }
+      ],
+      "exclude": []
+    },
+    "gender": "여",
+    "attributes": []
+  },
   "trends": [
-    {"trend_id": "t1", "name": "정제된 맥시멀리스트", "trend_colors": [], "trend_categories": ["재킷", "셔츠"]},
-    {"trend_id": "t2", "name": "발레코어", "trend_colors": ["라이트핑크", "화이트"], "trend_categories": ["상의"]},
-    {"trend_id": "t3", "name": "버터 옐로", "trend_colors": ["옐로우"], "trend_categories": ["상의"]}
-  ]
+    {
+      "style": {
+        "id": "style_007",
+        "name": "정제된 맥시멀리스트",
+        "definition": "장식을 절제해 겹쳐 입는 맥시멀리즘"
+      },
+      "items": [
+        {
+          "name": "자수 재킷",
+          "category_major": "아우터",
+          "category_minor": "재킷",
+          "colors": []
+        },
+        {
+          "name": "프릴 셔츠",
+          "category_major": "상의",
+          "category_minor": "셔츠",
+          "colors": []
+        }
+      ]
+    },
+    {
+      "style": {
+        "id": "style_012",
+        "name": "발레코어",
+        "definition": "발레복에서 온 가볍고 여린 실루엣"
+      },
+      "items": [
+        {
+          "name": "리본 블라우스",
+          "category_major": "상의",
+          "category_minor": "블라우스",
+          "colors": [
+            "핑크",
+            "화이트"
+          ],
+          "materials": [
+            "시폰"
+          ],
+          "fit": "루즈",
+          "gender": "여"
+        },
+        {
+          "name": "튤 스커트",
+          "category_major": "하의",
+          "category_minor": "스커트",
+          "colors": [
+            "화이트"
+          ],
+          "gender": "여"
+        }
+      ]
+    }
+  ],
+  "evidence": [],
+  "limitations": []
 }

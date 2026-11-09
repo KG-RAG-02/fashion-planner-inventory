@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vogue:contracts:stock-agent:inventory-request:1.0",
+  "title": "stock-agent 요청 = 02 쿼리 전처리·트렌드 결과(TrendAnalysisResult) 그대로 (초안, 팀 합의 전)",
+  "description": "POST /v1/inventory-products. 02가 자기 결과를 그대로 보낸다. 03이 쓰는 필드만 적었고, 그 밖의 02 필드(evidence, limitations, similar_products 등)는 받아도 쓰지 않는다. applied_filters가 없으면 400 INVALID_REQUEST.",
+  "type": "object",
+  "required": [
+    "request_id",
+    "status",
+    "applied_filters",
+    "trends"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "no_results",
+        "error"
+      ],
+      "description": "no_results → DB를 조회하지 않고 no_results. error → INVALID_REQUEST(reason=upstream_error)"
+    },
+    "applied_filters": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/applied_filters"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trends": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/trend"
+      }
+    },
+    "evidence": {
+      "type": "array"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "applied_filters": {
+      "type": "object",
+      "properties": {
+        "season": {
+          "$ref": "#/$defs/season_request"
+        },
+        "categories": {
+          "type": "object",
+          "properties": {
+            "include": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/category_ref"
+              },
+              "description": "→ target_category (minor, 없으면 major). raw만 있는 항목은 쓰지 않음"
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/category_ref"
+              },
+              "description": "→ exclude_categories"
+            }
+          }
+        },
+        "gender": {
+          "anyOf": [
+            {
+              "enum": [
+                "여",
+                "남",
+                "공용"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "여 → Ladieswear+Divided, 남 → Menswear+Divided, 공용 → 전체. 없으면 트렌드마다 Item gender"
+        },
+        "attributes": {
+          "type": "array",
+          "description": "type=color만 쓴다(→ target_colors). material·fit 등은 쓰지 않음",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "color",
+                  "material",
+                  "pattern",
+                  "detail",
+                  "fit"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "season_request": {
+      "type": "object",
+      "required": [
+        "year",
+        "season"
+      ],
+      "properties": {
+        "year": {
+          "type": "integer"
+        },
+        "season": {
+          "enum": [
+            "SS",
+            "FW"
+          ]
+        },
+        "raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "user_requested",
+            "default_next"
+          ]
+        }
+      }
+    },
+    "category_ref": {
+      "type": "object",
+      "required": [
+        "raw"
+      ],
+      "properties": {
+        "raw": {
+          "type": "string"
+        },
+        "major": {
+          "anyOf": [
+            {
+              "enum": [
+                "상의",
+                "하의",
+                "아우터",
+                "원피스"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minor": {
+          "anyOf": [
+            {
+              "enum": [
+                "탑",
+                "블라우스",
+                "티셔츠",
+                "니트웨어",
+                "셔츠",
+                "브라탑",
+                "후드티",
+                "청바지",
+                "팬츠",
+                "스커트",
+                "레깅스",
+                "조거팬츠",
+                "코트",
+                "재킷",
+                "점퍼",
+                "패딩",
+                "베스트",
+                "가디건",
+                "짚업",
+                "드레스",
+                "점프수트"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "trend": {
+      "type": "object",
+      "required": [
+        "style",
+        "items"
+      ],
+      "properties": {
+        "style": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "definition": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": "array"
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trend_item"
+          }
+        }
+      }
+    },
+    "trend_item": {
+      "type": "object",
+      "description": "03이 쓰는 Item 필드. 소재·핏은 vocabulary_v1 값만 쓰고, approx에 든 값은 쓰지 않는다(limitations에 적음).",
+      "properties": {
+        "category_major": {
+          "anyOf": [
+            {
+              "enum": [
+                "상의",
+                "하의",
+                "아우터",
+                "원피스"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "category_minor": {
+          "anyOf": [
+            {
+              "enum": [
+                "탑",
+                "블라우스",
+                "티셔츠",
+                "니트웨어",
+                "셔츠",
+                "브라탑",
+                "후드티",
+                "청바지",
+                "팬츠",
+                "스커트",
+                "레깅스",
+                "조거팬츠",
+                "코트",
+                "재킷",
+                "점퍼",
+                "패딩",
+                "베스트",
+                "가디건",
+                "짚업",
+                "드레스",
+                "점프수트"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "21색 (vocabulary_v1 Color)"
+        },
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gender": {
+          "anyOf": [
+            {
+              "enum": [
+                "여",
+                "남",
+                "공용"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approx": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "예: material:플리스"
+        }
+      }
+    }
+  }
+}

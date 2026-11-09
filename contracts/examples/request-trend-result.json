@@ -1,0 +1,96 @@
+{
+  "request_id": "req_example_010",
+  "status": "ok",
+  "applied_filters": {
+    "season": {
+      "year": 2027,
+      "season": "SS",
+      "raw": "내년 봄여름",
+      "origin": "user_requested"
+    },
+    "categories": {
+      "include": [
+        {
+          "raw": "블라우스",
+          "major": "상의",
+          "minor": "블라우스"
+        }
+      ],
+      "exclude": []
+    },
+    "gender": "여",
+    "attributes": [
+      {
+        "type": "color",
+        "value": "화이트"
+      }
+    ]
+  },
+  "trends": [
+    {
+      "style": {
+        "id": "style_012",
+        "name": "발레코어",
+        "name_origin": "article",
+        "seasons": [
+          "2027SS"
+        ],
+        "definition": "발레복에서 온 가볍고 여린 실루엣",
+        "description": [
+          {
+            "text": "시폰·새틴 소재와 리본 디테일",
+            "evidence_ids": [
+              "ev_01"
+            ]
+          }
+        ],
+        "focus_core": [
+          "color",
+          "material"
+        ],
+        "focus_supporting": [],
+        "focus_evidence_ids": []
+      },
+      "items": [
+        {
+          "id": "item_031",
+          "name": "리본 블라우스",
+          "category_major": "상의",
+          "category_minor": "블라우스",
+          "colors": [
+            "핑크",
+            "화이트"
+          ],
+          "materials": [
+            "시폰",
+            "실크"
+          ],
+          "fit": "루즈",
+          "gender": "여",
+          "approx": [
+            "material:실크"
+          ],
+          "evidence_ids": [
+            "ev_01"
+          ],
+          "similar_products": []
+        },
+        {
+          "id": "item_032",
+          "name": "튤 스커트",
+          "category_major": "하의",
+          "category_minor": "스커트",
+          "colors": [
+            "화이트"
+          ],
+          "materials": [],
+          "fit": null,
+          "gender": "여",
+          "similar_products": []
+        }
+      ]
+    }
+  ],
+  "evidence": [],
+  "limitations": []
+}

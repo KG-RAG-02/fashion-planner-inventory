@@ -1,6 +1,6 @@
 """H&M 원본(Parquet) → data/stock.duckdb
 
-04가 쓰는 articles, transactions만 올린다. customers는 쓰지 않아 올리지 않는다.
+03이 쓰는 articles, transactions만 올린다. customers는 쓰지 않아 올리지 않는다.
 실행: python scripts/build_db.py   (이후 build_attributes.py, build_stock_v1.py)
 """
 

@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req_example_010",
+  "agent_id": "stock-agent",
+  "status": "no_results",
+  "summary": "트렌드 분석 결과가 없어(no_results) 재고를 조회하지 않았습니다. 트렌드 분석 한계: 2027SS에 해당하는 트렌드가 없습니다.",
+  "products": [],
+  "trend_results": [],
+  "season_basis": null,
+  "evidence": [],
+  "errors": []
+}

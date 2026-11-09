@@ -63,46 +63,60 @@ def test_normalize_color(text, expected):
 
 def test_matching_colors_architecture_example():
     m = get_matching_colors(["라이트핑크", "화이트"])
-    colors, unknown = m.colors, m.unknown
-    assert unknown == [] and m.threshold == 1 and not m.fallback
-    # 아키텍처 예시: 라이트블루(스카이블루)·그레이·베이지가 들어 있어야 함
-    assert {"스카이블루", "그레이", "베이지"} <= set(colors)
-    assert len(colors) == len(set(colors))
+    assert m.unknown == [] and m.n_trend == 2 and m.overlap == 2
+    # 둘 다와 어울리는 색: 라이트블루(스카이블루)·그레이·베이지·네이비 + 기준 색 자체(톤온톤)
+    assert m.matching == ["그레이", "스카이블루", "베이지", "네이비"]
+    assert m.tone_on_tone == ["핑크", "화이트"]
+    assert m.colors == ["그레이", "스카이블루", "베이지", "네이비", "핑크", "화이트"]
 
 
 def test_matching_colors_reports_unknown():
     m = get_matching_colors(["무지개", "블랙"])
-    assert m.unknown == ["무지개"] and m.colors == COLOR_PAIRS["블랙"]
+    assert m.unknown == ["무지개"] and m.matching == COLOR_PAIRS["블랙"] and m.overlap == 1
+    assert m.colors == COLOR_PAIRS["블랙"] + ["블랙"]
 
 
-def test_matching_colors_majority_for_three():
+def test_matching_colors_takes_only_max_overlap():
+    # 네이비만 세 색 모두와 어울림 → 네이비만 후보
     m = get_matching_colors(["화이트", "핑크", "그레이"])
-    assert m.threshold == 2 and not m.fallback
-    assert set(m.colors) == {"네이비", "스카이블루", "베이지", "그레이", "블랙", "화이트"}
-    assert m.counts["네이비"] == 3 and m.counts["라벤더"] == 1
-    assert "화이트" in m.colors                         # 톤온톤 허용
+    assert m.overlap == 3 and m.matching == ["네이비"] and m.colors == ["네이비", "화이트", "핑크", "그레이"]
+    assert m.counts["스카이블루"] == 2 and m.counts["라벤더"] == 1
 
 
-def test_matching_colors_two_is_union():
-    m = get_matching_colors(["핑크", "화이트"])
-    assert m.threshold == 1
-    assert set(m.colors) == set(COLOR_PAIRS["핑크"]) | set(COLOR_PAIRS["화이트"])
+def test_matching_colors_ties_all_kept():
+    # 블랙·옐로우: 둘 다와 어울리는 색은 화이트·그레이 (각 2) → 둘 다 후보
+    m = get_matching_colors(["블랙", "옐로우"])
+    assert m.overlap == 2 and m.matching == ["화이트", "그레이"] and m.colors == ["화이트", "그레이", "블랙", "옐로우"]
 
 
-def test_matching_colors_falls_back_to_union(monkeypatch):
-    # 지금 조합표로는 3~6색 어떤 조합도 다수결 결과가 남아서, 가짜 표로 확인
+def test_matching_colors_two_without_common_is_union(monkeypatch):
+    # 둘 다와 어울리는 색이 없으면 최대가 1 → 각각과 어울리는 색 전부
+    # (지금 조합표는 어떤 두 색이든 화이트 등 공통 색이 있어서 가짜 표로 확인)
     import stock_agent.overstock as ov
     fake = {k: [] for k in ov.KF_COLORS}
-    fake.update({"레드": ["블랙"], "그린": ["베이지"], "퍼플": ["그레이"]})
+    fake.update({"레드": ["블랙", "베이지"], "그린": ["카키"]})
     monkeypatch.setattr(ov, "COLOR_PAIRS", fake)
-    m = ov.get_matching_colors(["레드", "그린", "퍼플"])
-    assert m.fallback and m.threshold == 2
-    assert m.colors == ["블랙", "베이지", "그레이"]
+    m = ov.get_matching_colors(["레드", "그린"])
+    assert m.overlap == 1 and m.matching == ["블랙", "베이지", "카키"]
+    assert m.colors == ["블랙", "베이지", "카키", "레드", "그린"]
+
+
+def test_matching_colors_many_trend_colors_never_empty():
+    m = get_matching_colors(["레드", "그린", "퍼플", "민트", "오렌지", "와인", "골드"])
+    assert m.n_trend == 7 and m.colors and all(m.counts[c] == m.overlap for c in m.matching)
+    assert all(n <= m.overlap for n in m.counts.values())
 
 
 def test_duplicate_trend_colors_count_once():
     m = get_matching_colors(["라이트핑크", "핑크"])   # 둘 다 핑크
-    assert m.threshold == 1 and m.colors == COLOR_PAIRS["핑크"]
+    assert m.n_trend == 1 and m.overlap == 1 and m.matching == COLOR_PAIRS["핑크"]
+    assert m.colors == COLOR_PAIRS["핑크"] + ["핑크"]
+
+
+def test_base_color_already_matching_not_duplicated():
+    # 화이트·핑크·그레이: 기준 색끼리 서로 어울려도(counts에 있음) colors에는 한 번만
+    m = get_matching_colors(["화이트", "핑크", "그레이"])
+    assert len(m.colors) == len(set(m.colors))
 
 
 # ---- 4. 추세
@@ -203,3 +217,16 @@ def test_peer_relative_trend():
     assert out.loc["x1", "trend_basis"] == "peer_relative"
     # 아우터는 묶음 판매가 30개 미만 → 후보 전체를 또래로 씀 (y1도 판매 적어 중립)
     assert out.loc["y1", "peer_trend"] == out.loc["x1", "peer_trend"] or out.loc["y1", "trend"] == 0
+
+
+# ---- 사용자 카테고리 여러 개·제외
+def test_multi_target_pairs_and_exclude():
+    from stock_agent.overstock import resolve_pair_areas, split_exclude
+    am = resolve_pair_areas(["상의", "아우터"], None)
+    assert am.areas == ["하의"] and am.basis == "user" and am.given == ["상의", "아우터"] and not am.fallback
+    am = resolve_pair_areas(["원피스", "아우터"], None)          # 공통 짝 없음 → 합집합(사용자 영역 뺌)
+    assert am.areas == ["상의", "하의"] and am.fallback
+    assert resolve_pair_areas("상의", None, "intersection").areas == ["하의", "아우터"]
+    assert split_exclude(["하의", "스커트", "하의"]) == (["하의"], ["스커트"])
+    with pytest.raises(ValueError):
+        split_exclude(["신발"])

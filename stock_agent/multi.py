@@ -1,152 +1,225 @@
-"""트렌드 여러 개 → 트렌드마다 재고 1위 1개 (총 n개)
+"""트렌드 n개 → agent.run()을 트렌드마다 돌려 결과 n개를 이어 붙인다 (2026-11-08 결정)
 
-03 트렌드 분석은 한 시즌에 트렌드를 1개 이상 넘긴다. 트렌드마다 agent.run()을 한 번씩 돌리고,
-결과를 팀 공통 envelope 하나로 합친다. 한 트렌드를 처리하는 규칙은 agent.run() 그대로다.
+02 트렌드 분석은 트렌드를 목록(trends)으로 넘긴다. 1개여도 목록이다.
+트렌드 1개를 처리하는 규칙은 모두 agent.py·llm_agent.py에 있고, 여기서는 돌리고 이어 붙이기만 한다.
 
-요청 (시즌·사용자 카테고리·고객군은 02가 주는 공통 값, 트렌드별 색·카테고리는 03이 줌)
-    {
-      "request_id": "req_123", "season": "2027-SS", "target_category": "상의", "segment": "Ladieswear",
-      "trends": [
-        {"trend_id": "t1", "name": "정제된 맥시멀리스트", "trend_colors": [], "trend_categories": ["재킷", "셔츠"]},
-        {"trend_id": "t2", "name": "발레코어", "trend_colors": ["라이트핑크", "화이트"], "trend_categories": ["상의"]}
-      ]
-    }
+입구 (2026-11-08 결정: 바깥에서는 02 형식만 받는다)
+    run_request(02 결과)   API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다.
+                          trend_request.py가 내부 형식으로 바꾼 뒤 run_internal을 부른다.
+    run_internal(내부 형식) 안쪽 함수. 02 결과를 바꾼 모양:
+        {"request_id": "req_123",
+         "season": {"year": 2027, "season": "SS", "origin": "user_requested"},
+         "target_category": ["상의"], "exclude_categories": [...], "target_colors": [...], "gender": "여",
+         "trends": [{"style": {...}, "items": [...]}, ...]}
+        (segment는 안쪽 테스트·규칙 방식 검증용으로 고객군을 직접 줄 때만)
 
 응답
-    products        트렌드마다 1개 (상품에 trend_id, trend_name). 같은 상품이 여러 트렌드에 나올 수 있음
-    trend_results   트렌드별 status, summary, limitations, attribute_summary, errors
-    evidence        트렌드별 근거. evidence_id = stock-agent:<trend_id>:E-001 (트렌드마다 조회 조건이 달라서)
-    limitations     모든 트렌드에 공통인 것만. 트렌드별 경고는 trend_results에
-    status          모두 ok → ok / 일부 실패·결과 없음 → partial / 모두 결과 없음 → no_results / 모두 오류 → error
+    products        [상품 or null, ...]   트렌드 순서대로 n개. 상품을 못 고른 트렌드는 null
+    trend_results   [trend_result, ...]   n개. trend_results[i] ↔ products[i] (product_index = i)
+                    trend_results[i].evidence_ids = 그 트렌드의 근거 ID (evidence에서 찾음)
+    evidence        트렌드마다 E-001~E-005. 이어 붙이면 ID가 겹쳐서 앞에 트렌드 ID를 붙임
+                    (stock-agent:style_007:E-001), 항목마다 style_id
+    status          모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 그 밖(상품 0개) → no_results
+    summary         전체 한 줄 (트렌드별 문장은 trend_results[].summary)
+    errors          공통 입력 오류, 또는 모든 트렌드가 오류일 때 한 줄 (트렌드별 오류는 trend_results[].errors)
+                    code는 팀 공통 코드, 03 안쪽 코드는 reason (errors.py)
 
-요청에 trends가 없으면 run_request()는 agent.run()을 그대로 부른다(트렌드 1개 형식).
+공통 envelope의 findings·최상위 limitations는 쓰지 않는다 (2026-11-08 결정). 상품은 products, 트렌드별 결과는 trend_results.
+
+같은 상품을 여러 트렌드가 고르면 products에 그대로 여러 번 들어간다(중복 허용).
+
+mode (2026-11-08)
+    agent  기본. 트렌드마다 LLM agent(llm_agent.run_agent). LLM이 없거나 실패하면 그 트렌드는 오류(팀 코드는 errors.py)
+           (규칙 방식으로 대신 내지 않음)
+    rule   규칙 방식(agent.run). LLM 결과와 비교하는 기준선·정확도 검증(scripts/validate_requests.py)용
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from stock_agent.agent import NS, REQUIRED, SEASON_HINT, _envelope, _error, _missing_detail, run, validate_response
+from stock_agent.agent import (
+    AGENT_ID,
+    NS,
+    SCHEMA_VERSION,
+    STATUSES,
+    check_common,
+    check_product,
+    check_trend_result,
+    run,
+)
+from stock_agent.errors import pick, to_team
+from stock_agent.llm_agent import MAX_STEPS, run_agent
+from stock_agent.trend_request import from_trend_result, is_trend_result
 
-TREND_FIELDS = ("trend_colors", "trend_categories")
-
-
-def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None) -> dict:
-    """API·스크립트의 입구. trends가 있으면 트렌드별로, 없으면 트렌드 1개 형식으로."""
-    req = request or {}
-    if "trends" in req:
-        return run_multi(req, con, image_dir=image_dir, now=now)
-    return run(req, con, image_dir=image_dir, now=now)
-
-
-def _trend_id(t: dict, i: int) -> str:
-    return str(t.get("trend_id") or f"t{i + 1}")
-
-
-def _rename_evidence(resp: dict, tid: str) -> dict:
-    """E-001 → <tid>:E-001. 트렌드마다 조회 조건(색·영역)이 달라 근거를 따로 둔다."""
-    old = f"{NS}:"
-    new = f"{NS}:{tid}:"
-    fix = lambda e: e.replace(old, new, 1) if e.startswith(old) else e  # noqa: E731
-    for ev in resp.get("evidence", []):
-        ev["evidence_id"] = fix(ev["evidence_id"])
-        ev["trend_id"] = tid
-    for p in resp.get("products", []):
-        p["evidence_ids"] = [fix(e) for e in p.get("evidence_ids", [])]
-    for f in resp.get("findings", []):
-        f["evidence_ids"] = [fix(e) for e in f.get("evidence_ids", [])]
-        f["trend_id"] = tid
-    return resp
+MODES = ("agent", "rule")
 
 
-def run_multi(request: dict, con, image_dir: str | None = None, now: datetime | None = None) -> dict:
-    req = request or {}
+def error_response(req: dict, code: str, message: str, **extra) -> dict:
+    return {"schema_version": SCHEMA_VERSION, "request_id": req.get("request_id"), "agent_id": AGENT_ID,
+            "status": "error", "summary": message, "products": [], "trend_results": [], "season_basis": None,
+            "evidence": [], "errors": [to_team({"code": code, "message": message, **extra})]}
+
+
+def no_results_response(req: dict, message: str) -> dict:
+    return {"schema_version": SCHEMA_VERSION, "request_id": req.get("request_id"), "agent_id": AGENT_ID,
+            "status": "no_results", "summary": message, "products": [], "trend_results": [],
+            "season_basis": None, "evidence": [], "errors": []}
+
+
+def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None,
+                llm=None, mode: str = "agent", max_steps: int = MAX_STEPS) -> dict:
+    """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다."""
+    if mode not in MODES:
+        raise ValueError(f"mode는 {', '.join(MODES)} 중 하나: {mode!r}")
+    res = request if isinstance(request, dict) else {}
+    if not is_trend_result(res):
+        return error_response(res, "invalid_input",
+                              "02 트렌드 결과(TrendAnalysisResult) 형식이 아닙니다: applied_filters가 없습니다. "
+                              f"02 결과(request_id, status, applied_filters, trends)를 그대로 보내 주세요. "
+                              f"(받은 필드: {', '.join(sorted(res)) or '(없음)'})")
+    try:
+        req, upstream, note = from_trend_result(res)
+    except ValueError as e:
+        return error_response(res, "invalid_input", str(e))
+    if upstream == "no_results":
+        return no_results_response(req, note)
+    if upstream == "error":
+        return error_response(req, "upstream_error", note)
+    input_notes = req.pop("_input_notes", [])
+    if not req.get("season"):
+        return error_response(req, "missing_fields",
+                              "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 "
+                              "(사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
+                              f"받은 applied_filters: {res.get('applied_filters')!r}")
+    return run_internal(req, con, image_dir=image_dir, now=now, llm=llm, mode=mode, max_steps=max_steps,
+                        input_notes=input_notes)
+
+
+def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | None = None,
+                 llm=None, mode: str = "agent", max_steps: int = MAX_STEPS, input_notes: list[str] | None = None) -> dict:
+    """내부 형식 요청 → 응답. 트렌드가 1개여도 같은 형식으로 돌려준다."""
+    if mode not in MODES:
+        raise ValueError(f"mode는 {', '.join(MODES)} 중 하나: {mode!r}")
+    req = req if isinstance(req, dict) else {}
+    input_notes = input_notes or []
     trends = req.get("trends")
     if not isinstance(trends, list) or not trends:
-        return _error(req, "missing_fields",
-                      "필수 입력이 없습니다: trends가 비어 있습니다. 트렌드 분석(03) 결과의 트렌드 목록을 "
-                      "trends 필드에 담아 주세요 (각 항목: trend_id, name, trend_colors, trend_categories).")
+        msg = ("필수 입력이 없습니다: trends가 비어 있습니다. 트렌드 분석(02) 결과의 trends 목록을 그대로 담아 주세요 "
+               "(각 항목: {style: {id, name}, items: [{category_major, category_minor, colors}]}).")
+        return error_response(req, "missing_fields", msg)
     if not all(isinstance(t, dict) for t in trends):
-        return _error(req, "invalid_input", "trends의 각 항목은 {trend_id, name, trend_colors, trend_categories} 객체여야 합니다.")
+        return error_response(req, "invalid_input", "trends의 각 항목은 {style, items} 객체여야 합니다.")
 
-    # 공통 필수 값(request_id, season)은 트렌드마다 같으니 한 번만 검사
-    missing = [k for k in REQUIRED if not req.get(k)]
-    if missing:
-        msg = f"필수 입력이 없습니다: {', '.join(missing)}. {_missing_detail(req, missing)}"
-        return _error(req, "missing_fields", msg + (" " + SEASON_HINT if "season" in missing else ""))
+    # 공통 값(request_id, season, 사용자 카테고리)은 트렌드마다 같으니 한 번만 검사
+    err, _ = check_common(req)
+    if err:
+        return error_response(req, err["errors"][0]["code"], err["errors"][0]["message"])
 
-    # 위에 trend_colors·trend_categories가 있어도 쓰지 않음: 트렌드별 값만 씀
-    common = {k: v for k, v in req.items() if k != "trends" and k not in TREND_FIELDS}
-    results = []
+    common = {k: v for k, v in req.items() if k != "trends"}
+    products, trend_results, evidence, used = [], [], [], set()
+    season_basis = None
     for i, t in enumerate(trends):
-        tid, name = _trend_id(t, i), t.get("name")
-        sub = {**common, **{k: t[k] for k in TREND_FIELDS if k in t}}
-        resp = _rename_evidence(run(sub, con, image_dir=image_dir, now=now), tid)
-        for p in resp["products"]:
-            p["trend_id"], p["trend_name"] = tid, name
-        results.append((tid, name, resp))
+        one = {**common, "trend": t}
+        out = (run(one, con, image_dir=image_dir, now=now) if mode == "rule"
+               else run_agent(one, con, llm, now=now, image_dir=image_dir, max_steps=max_steps))
+        tr = out["trend_result"]
+        tr["product_index"] = i
+        tr["limitations"] = [*tr["limitations"], *input_notes]
+        tr["errors"] = [to_team(e) for e in tr["errors"]]
+        products.append(out["product"])
+        trend_results.append(tr)
+        season_basis = season_basis or out["season_basis"]
+        tid = tr["style"]["id"] or f"t{i + 1}"
+        if tid in used:                         # 같은 style.id가 두 번 오면 근거 ID가 겹치지 않게
+            tid = f"{tid}#{i + 1}"
+        used.add(tid)
+        ev = [{**e, "evidence_id": e["evidence_id"].replace(f"{NS}:", f"{NS}:{tid}:", 1), "style_id": tid}
+              for e in out["evidence"]]
+        tr["evidence_ids"] = [e["evidence_id"] for e in ev]
+        evidence += ev
 
-    statuses = [r["status"] for _, _, r in results]
+    statuses = [tr["status"] for tr in trend_results]
     if all(s == "ok" for s in statuses):
         status = "ok"
-    elif any(r["products"] for _, _, r in results):
-        status = "partial"                     # 일부 트렌드만 성공
+    elif any(p is not None for p in products):
+        status = "partial"
     elif all(s == "error" for s in statuses):
-        status = "error"                       # 모두 오류 (예: 공통 입력인 시즌이 없음)
+        status = "error"
     else:
-        status = "no_results"                  # 상품 0개, 오류만은 아님
+        status = "no_results"
 
-    # 모든 트렌드에 공통인 경고만 위로 (가상 데이터, 시즌 대체 등)
-    lim_sets = [r["limitations"] for _, _, r in results if r["status"] != "error"]
-    common_lims = [x for x in lim_sets[0] if all(x in s for s in lim_sets[1:])] if lim_sets else []
+    errors = []
+    if status == "error":
+        errs = [e for tr in trend_results for e in tr["errors"]]
+        detail = "; ".join(f"{_label(tr, i)}: {tr['errors'][0]['message']}" for i, tr in enumerate(trend_results))
+        code = pick(e["code"] for e in errs)
+        reasons = {e.get("reason") for e in errs if e["code"] == code}
+        errors.append({"code": code,
+                       "message": f"모든 트렌드를 처리하지 못했습니다. {detail}",
+                       "reason": reasons.pop() if len(reasons) == 1 else "mixed",
+                       "style_ids": [tr["style"]["id"] for tr in trend_results]})
 
-    # 같은 오류가 여러 트렌드에서 나면(예: 시즌 없음) 한 번만, 어느 트렌드인지는 trend_ids로
-    merged: dict[tuple, dict] = {}
-    for tid, _, r in results:
-        for e in r["errors"]:
-            key = (e["code"], e["message"])
-            merged.setdefault(key, {**e, "trend_ids": []})["trend_ids"].append(tid)
-    errors = list(merged.values())
-
-    first_ok = next((r for _, _, r in results if r.get("season_basis")), None)
-    resp = _envelope(
-        req, status, _summary(results),
-        products=[p for _, _, r in results for p in r["products"]],
-        season_basis=first_ok["season_basis"] if first_ok else None,
-        findings=[f for _, _, r in results for f in r["findings"]],
-        evidence=[e for _, _, r in results for e in r["evidence"]],
-        limitations=common_lims,
-        errors=errors,
-    )
-    resp["trend_results"] = [{
-        "trend_id": tid, "trend_name": name, "status": r["status"], "summary": r["summary"],
-        "n_products": len(r["products"]),
-        "attribute_summary": r.get("attribute_summary"),
-        "limitations": [x for x in r["limitations"] if x not in common_lims],
-        "errors": r["errors"],
-    } for tid, name, r in results]
-
+    resp = {"schema_version": SCHEMA_VERSION, "request_id": req.get("request_id"), "agent_id": AGENT_ID,
+            "status": status, "summary": _summary(products, trend_results, season_basis),
+            "products": products, "trend_results": trend_results, "season_basis": season_basis,
+            "evidence": evidence, "errors": errors}
     problems = validate_response(resp)
     if problems:
-        return _error(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))
+        return error_response(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))
     return resp
 
 
-def _summary(results) -> str:
-    """트렌드별 1위를 한 문장으로. 숫자는 각 트렌드 응답에서만 가져온다."""
+def _label(tr: dict, i: int) -> str:
+    sid, name = tr["style"]["id"] or f"t{i + 1}", tr["style"]["name"]
+    return f"{sid}({name})" if name else sid
+
+
+def _summary(products, trend_results, season_basis) -> str:
+    """트렌드별 1위를 한 문장으로. 숫자는 각 트렌드 결과에서만 가져온다."""
     picked, failed = [], []
-    for tid, name, r in results:
-        label = f"{tid}({name})" if name else tid
-        if r["products"]:
-            p = r["products"][0]
+    for i, (p, tr) in enumerate(zip(products, trend_results)):
+        label = _label(tr, i)
+        if p is not None:
             picked.append(f"{label} → {p['category']}({p['attributes'].get('color')}) 재고 "
                           f"{p['inventory']['quantity']:,}개")
         else:
-            why = "조건에 맞는 재고 없음" if r["status"] == "no_results" else "입력 오류"
+            code = tr["errors"][0]["code"] if tr["errors"] else "INTERNAL_ERROR"
+            why = ("조건에 맞는 재고 없음" if tr["status"] == "no_results" else
+                   "입력 오류" if code == "INVALID_REQUEST" else f"처리 오류({code})")
             failed.append(f"{label} {why}")
-    season = next((r["season_basis"]["season"] for _, _, r in results if r.get("season_basis")), "")
-    head = f"{season} " if season else ""
-    text = f"{head}트렌드 {len(results)}개에 대해 재고 상품 {len(picked)}개를 골랐습니다(가상 재고)"
+    head = f"{season_basis['season']} " if season_basis else ""
+    text = f"{head}트렌드 {len(trend_results)}개에 대해 재고 상품 {len(picked)}개를 골랐습니다(가상 재고)"
     text += (": " + ", ".join(picked)) if picked else ""
-    text += "." + (f" 고르지 못한 트렌드: {', '.join(failed)}." if failed else "")
-    return text
+    return text + "." + (f" 고르지 못한 트렌드: {', '.join(failed)}." if failed else "")
+
+
+def validate_response(resp: dict) -> list[str]:
+    """최종 응답의 최소 형식 검사 (팀 JSON Schema가 확정되기 전까지)."""
+    p = []
+    for k, t in {"schema_version": str, "request_id": str, "agent_id": str, "status": str, "summary": str,
+                 "products": list, "trend_results": list, "evidence": list, "errors": list}.items():
+        if not isinstance(resp.get(k), t):
+            p.append(f"{k} 형식 오류")
+    if resp.get("status") not in STATUSES:
+        p.append("status 값 오류")
+    prods, trs = resp.get("products") or [], resp.get("trend_results") or []
+    if len(prods) != len(trs):
+        p.append("products와 trend_results 개수가 다름")
+    for i, (prod, tr) in enumerate(zip(prods, trs)):
+        p += check_trend_result(tr, f"trend_results[{i}]")
+        if tr.get("product_index") != i:
+            p.append(f"trend_results[{i}].product_index가 {i}가 아님")
+        if not isinstance(tr.get("evidence_ids"), list):
+            p.append(f"trend_results[{i}].evidence_ids 없음")
+        if prod is not None:
+            p += check_product(prod, f"products[{i}]")
+        if (prod is None) != (tr.get("status") in ("no_results", "error")):
+            p.append(f"products[{i}] 유무와 trend_results[{i}].status가 맞지 않음")
+    ids = [e.get("evidence_id") for e in resp.get("evidence", [])]
+    if len(ids) != len(set(ids)):
+        p.append("evidence_id 중복")
+    dangling = [x for tr in trs for x in tr.get("evidence_ids") or [] if x not in set(ids)]
+    if dangling:
+        p.append(f"evidence에 없는 evidence_ids: {', '.join(dangling)}")
+    return p

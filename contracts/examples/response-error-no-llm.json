@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "request_id": "req_example_010",
+  "agent_id": "stock-agent",
+  "status": "error",
+  "summary": "2027 SS(봄·여름) 트렌드 1개에 대해 재고 상품 0개를 골랐습니다(가상 재고). 고르지 못한 트렌드: style_012(발레코어) 처리 오류(SOURCE_UNAVAILABLE).",
+  "products": [
+    null
+  ],
+  "trend_results": [
+    {
+      "style": {
+        "id": "style_012",
+        "name": "발레코어"
+      },
+      "status": "error",
+      "product_index": 0,
+      "rank": null,
+      "reason": null,
+      "summary": "LLM agent 실패(no_llm): LLM이 연결되지 않았습니다. stock_agent.llm.load_llm()에 LLM을 연결하세요.",
+      "attribute_summary": null,
+      "search": {
+        "mode": "llm",
+        "trend_colors": [
+          "화이트"
+        ],
+        "trend_color_basis": "user_colors_in_trend",
+        "trend_color_items": [
+          "블라우스",
+          "스커트"
+        ],
+        "user_colors": [
+          "화이트"
+        ],
+        "user_colors_excluded": [],
+        "trend_categories": [
+          "블라우스",
+          "스커트"
+        ],
+        "excluded_categories": [],
+        "areas": null,
+        "colors": null,
+        "color_overlap": null,
+        "trend_materials": [
+          "시폰"
+        ],
+        "trend_fit": [
+          "루즈"
+        ],
+        "trend_attributes_source": "trend_item",
+        "attribute_filter": null,
+        "steps": [],
+        "relaxed": [],
+        "segments": [
+          "Ladieswear",
+          "Divided"
+        ],
+        "segment_basis": "gender"
+      },
+      "limitations": [],
+      "errors": [
+        {
+          "code": "SOURCE_UNAVAILABLE",
+          "message": "LLM agent 실패(no_llm): LLM이 연결되지 않았습니다. stock_agent.llm.load_llm()에 LLM을 연결하세요.",
+          "reason": "no_llm"
+        }
+      ],
+      "evidence_ids": []
+    }
+  ],
+  "season_basis": {
+    "season": "2027 SS(봄·여름)",
+    "source": "user",
+    "ranges": [
+      {
+        "start": "2019-03-01",
+        "end": "2019-08-31"
+      },
+      {
+        "start": "2020-03-01",
+        "end": "2020-08-31"
+      }
+    ],
+    "n_periods": 2,
+    "basis": "2027 SS(봄·여름) 요청 → 데이터 안의 같은 시즌 2회(2019-03-01~2019-08-31, 2020-03-01~2020-08-31) 판매 패턴으로 대체"
+  },
+  "evidence": [],
+  "errors": [
+    {
+      "code": "SOURCE_UNAVAILABLE",
+      "message": "모든 트렌드를 처리하지 못했습니다. style_012(발레코어): LLM agent 실패(no_llm): LLM이 연결되지 않았습니다. stock_agent.llm.load_llm()에 LLM을 연결하세요.",
+      "reason": "no_llm",
+      "style_ids": [
+        "style_012"
+      ]
+    }
+  ]
+}

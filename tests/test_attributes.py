@@ -24,7 +24,7 @@ from stock_agent.attributes import (
         ("Ladieswear", "Cardigan", "", "", ("아우터", "가디건")),
         ("Menswear", "Hoodie", "", "Hooded jacket with a zip down the front", ("아우터", "짚업")),
         ("Menswear", "Hoodie", "", "Top in sweatshirt fabric with a lined hood", ("상의", "후드티")),
-        ("Divided", "Sweater", "", "Top in sweatshirt fabric", ("상의", "티셔츠·캐주얼상의")),
+        ("Divided", "Sweater", "", "Top in sweatshirt fabric", ("상의", "티셔츠")),
         ("Ladieswear", "Sweater", "", "Jumper in a soft knit", ("상의", "니트웨어")),
         ("Ladieswear", "Dress", "", "", ("원피스", "드레스")),
         ("Ladieswear", "Bikini top", "", "", ("수영복", "수영복")),
@@ -54,7 +54,7 @@ def test_map_color():
 
 
 def test_materials_basic():
-    assert extract_materials("Jumper in a soft knit containing some wool") == ["니트", "울·캐시미어"]
+    assert extract_materials("Jumper in a soft knit containing some wool") == ["니트", "울/캐시미어"]
     assert extract_materials("5-pocket jeans in washed denim made from cotton blend") == ["면", "데님"]
     assert extract_materials(None) == []
 
@@ -81,7 +81,7 @@ def test_fit_uses_area_vocabulary():
         ("수영복", "수영복", [], "Swimsuit", ["여름"]),
         ("하의", "팬츠", ["면"], "Shorts", ["여름"]),
         ("아우터", "패딩", [], "Jacket", ["가을", "겨울"]),
-        ("상의", "니트웨어", ["울·캐시미어"], "Sweater", ["가을", "겨울"]),
+        ("상의", "니트웨어", ["울/캐시미어"], "Sweater", ["가을", "겨울"]),
         ("상의", "블라우스", ["시폰"], "Blouse", ["봄", "여름"]),
         ("하의", "청바지", ["데님", "면"], "Trousers", ["봄", "여름", "가을", "겨울"]),
         (None, None, [], "Sneakers", []),
@@ -118,8 +118,8 @@ def test_sample_review_fixes():
     mats = extract_materials("Jacket in woven fabric. Imitation suede elbow patches")
     assert "스웨이드" not in mats and "합성섬유" in mats
     assert "스웨이드" in extract_materials("Short suede skirt")
-    # 저지 소재 Sweater는 캐주얼상의, 니트면 니트웨어 유지
-    assert map_category("Ladieswear", "Sweater", "", "Top in supersoft jersey") == ("상의", "티셔츠·캐주얼상의")
+    # 저지 소재 Sweater는 티셔츠, 니트면 니트웨어 유지
+    assert map_category("Ladieswear", "Sweater", "", "Top in supersoft jersey") == ("상의", "티셔츠")
     assert map_category("Ladieswear", "Sweater", "", "Jumper in a knit with jersey trims") == ("상의", "니트웨어")
     # Jacket 타입이지만 트렌치코트
     assert map_category("Divided", "Jacket", "", "Trenchcoat in an airy weave") == ("아우터", "코트")
@@ -136,3 +136,13 @@ def test_top50_review_fixes():
     assert map_category("Ladieswear", "Shorts", "&DENIM Embrace denim shorts", "Denim shorts") == ("하의", "청바지")
     assert map_category("Ladieswear", "Shorts", "Henry Shorts", "Shorts in a cotton weave") == ("하의", "팬츠")
     assert map_category("Ladieswear", "Trousers", "&DENIM Skirt pencil", "Pencil skirt in denim") == ("하의", "스커트")
+
+
+def test_mohair_is_hair_knit_and_warm():
+    assert extract_materials("Jumper in a fluffy knit containing some mohair") == ["니트", "헤어니트"]
+
+
+def test_old_names_map_to_vocabulary():
+    from stock_agent.attributes import to_vocab
+    assert to_vocab("티셔츠·캐주얼상의") == "티셔츠" and to_vocab("울·캐시미어") == "울/캐시미어"
+    assert to_vocab("청바지") == "청바지" and to_vocab(None) is None
