@@ -49,7 +49,7 @@ python -m pytest
 | `LLM_TIMEOUT` | `30` | 호출 1번당 시간 제한(초). 넘으면 `TIMEOUT`(504) |
 | `STOCK_DB_PATH` | `data/stock.duckdb` | DuckDB 경로 (Docker 기본 `/data/stock.duckdb`) |
 | `STOCK_IMAGE_DIR` | `data/images` | 상품 이미지 경로 (Docker 기본 `/data/images`) |
-| `STOCK_AGENT_SERVICE_TOKEN` | 없음 | v0.1 route Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
+| `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | v0.1 route Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 
 - 로컬 실행은 현재 폴더의 `.env`를 읽는다(이미 있는 환경변수는 덮어쓰지 않음). Docker는 `--env-file .env`로 넘긴다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
@@ -95,7 +95,7 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
 | POST | `/v1/agents/stock-agent/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
 
-레거시 `/v1/inventory-products`는 기존 호출 호환을 위해 무인증으로 유지합니다. 새 `/runs`는 `STOCK_AGENT_SERVICE_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 레거시 노출은 배포 네트워크 정책으로 제한하세요.
+레거시 `/v1/inventory-products`는 기존 호출 호환을 위해 무인증으로 유지합니다. 새 `/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 레거시 노출은 배포 네트워크 정책으로 제한하세요.
 
 Project_08 client timeout은 60초이고 Stock route도 60초 전체 deadline을 적용합니다. 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
 

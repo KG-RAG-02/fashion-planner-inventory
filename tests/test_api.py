@@ -155,7 +155,7 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 
 @pytest.fixture
 def handoff_client(make_client, monkeypatch):
-    monkeypatch.setenv("STOCK_AGENT_SERVICE_TOKEN", "test-stock-token")
+    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
     with make_client(__import__("stock_agent.llm", fromlist=["PolicyLLM"]).PolicyLLM()) as c:
         yield c
 

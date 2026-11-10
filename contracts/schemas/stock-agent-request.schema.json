@@ -8,7 +8,7 @@
     "contract_version": "vogue-handoff/0.1",
     "request": {"contract_version": "vogue-handoff/0.1", "request_id": "<non-empty string>", "input": "this producer input object"},
     "response": {"contract_version": "vogue-handoff/0.1", "request_id": "<same request ID>", "producer": {"agent_id": "stock-agent", "schema_version": "1.0"}, "status": "result.status", "result": "stock-agent-result.schema.json"},
-    "authentication": "Authorization: Bearer STOCK_AGENT_SERVICE_TOKEN"
+    "authentication": "Authorization: Bearer VOGUE_AGENT_SERVICE_BEARER_TOKEN"
   },
   "type": "object",
   "required": [

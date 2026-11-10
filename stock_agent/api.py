@@ -235,11 +235,11 @@ HANDOFF_RESPONSES = {
 @app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="vogue-handoff/0.1 Stock producer 실행",
           description=("인증된 Project_08 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 stock-agent payload schema 1.0 그대로 반환됩니다. "
-                       "운영에서는 HTTPS와 STOCK_AGENT_SERVICE_TOKEN Bearer 인증이 필요합니다."))
+                       "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
 def stock_agent_runs(request: Request, body: HandoffRequest = Body(...),
                      authorization: str | None = Header(default=None)):
     # Validate the bearer header before processing any producer payload.
-    token = os.environ.get("STOCK_AGENT_SERVICE_TOKEN", "")
+    token = os.environ.get("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "") or os.environ.get("STOCK_AGENT_SERVICE_TOKEN", "")
     supplied = authorization[7:].strip() if isinstance(authorization, str) and authorization.startswith("Bearer ") else ""
     if not token or not supplied or not hmac.compare_digest(supplied, token):
         result = error_response({}, "UNAUTHORIZED", "Bearer 인증이 필요합니다.")

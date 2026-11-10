@@ -84,7 +84,7 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 ## HTTP 인증·전송 및 실행 제한
 
-- 새 `/v1/agents/stock-agent/runs`는 `STOCK_AGENT_SERVICE_TOKEN`과 일치하는 `Authorization: Bearer <token>`을 요구합니다. 누락/오류는 401 `UNAUTHORIZED`; 토큰은 코드, 응답, 로그에 기록하지 않습니다. 토큰은 Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 배포 비밀 저장소에서 동일하게 주입합니다.
+- 새 `/v1/agents/stock-agent/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 일치하는 `Authorization: Bearer <token>`을 요구합니다. 누락/오류는 401 `UNAUTHORIZED`; 토큰은 코드, 응답, 로그에 기록하지 않습니다. 토큰은 Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 배포 비밀 저장소에서 동일하게 주입합니다.
 - 기존 `/v1/inventory-products`는 구 클라이언트 호환을 위해 무인증으로 남깁니다. 운영에서 레거시 route 노출 여부는 네트워크 경계로 제한하고, 경로 정책을 바꾸려면 호출자를 먼저 전환합니다.
 - 운영은 TLS 종료 지점에서 HTTPS를 제공하고 backend로 전달할 때 Authorization header를 보존합니다. Project_08은 operational HTTPS + bearer를 요구합니다. loopback HTTP는 개발에서만 사용하며 Project_08의 `VOGUE_AGENT_HTTP_DEV_MODE=1`와 함께 사용합니다. 이 서버는 HTTP/HTTPS scheme을 강제하지 않으므로 운영 scheme 강제는 ingress/reverse proxy 배포 설정의 책임입니다.
 - Project_08 agent 요청 timeout은 60초입니다. Stock v0.1 route도 전체 HTTP 처리에 60초 deadline을 둡니다. 기존 LLM 설정은 호출당 최대 30초, SDK 재시도 최대 2회(최악 호출 예산은 30×(1+2)=90초, 이미지 fallback 포함 시 추가 호출 가능), trend당 최대 12 tool steps이며 multi는 trend 수만큼 순차 처리하므로 원래 설정만으로는 무제한 초과할 수 있습니다. 따라서 동기 handler 전체 deadline을 60초로 제한하고 초과 시 504 `TIMEOUT` envelope를 반환합니다. Python thread의 동기 처리 cancellation은 보장되지 않아 deadline 순간 이미 실행 중인 SDK/DB 호출은 서버 쪽에서 중단되지 않을 수 있습니다. 운영에서 비용 누적 방지를 완전히 보장하려면 SDK transport timeout/retries를 남은 요청 budget 이하로 줄이고, 외부 이미지 fetch timeout 10초도 같은 deadline에 포함하도록 별도 취소 지원이나 job 모델을 도입해야 합니다. 현재 구현은 응답 상한만 보장하며 이미 시작한 blocking SDK 호출의 강제 취소까지 보장하지 않습니다.
@@ -95,7 +95,7 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 - 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. Docker의 DB 기본 경로는 `/data/stock.duckdb`, 이미지 경로는 `STOCK_IMAGE_DIR=/data/images`이고, 호스트 `data/`를 `/data:ro`로 mount하면 두 리소스를 실제 사용합니다.
 - `/health`는 DB 연결과 필수 테이블(`articles`, `transactions`, `article_attrs`, `stock_v1`)이 모두 있을 때 200입니다. DB 연결/질의 실패 또는 테이블 누락이면 503입니다. 이미지 누락은 `images_found=false`로 보고하지만 503 사유는 아닙니다(상품 이미지가 null일 수 있음). `llm_connected`는 설정된 LLM client 객체의 존재만 뜻하고 자격 증명/권한/실제 연결 검증은 아닙니다.
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
-- 주요 설정: `STOCK_DB_PATH`(기본 `data/stock.duckdb`, Docker `/data/stock.duckdb`), `STOCK_IMAGE_DIR`(기본 `data/images`, Docker `/data/images`), `STOCK_AGENT_SERVICE_TOKEN`(새 route 운영 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
+- 주요 설정: `STOCK_DB_PATH`(기본 `data/stock.duckdb`, Docker `/data/stock.duckdb`), `STOCK_IMAGE_DIR`(기본 `data/images`, Docker `/data/images`), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 
