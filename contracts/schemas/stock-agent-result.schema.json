@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:vogue:contracts:stock-agent:inventory-result:1.0",
-  "title": "stock-agent 응답 (초안, 팀 합의 전)",
-  "description": "products[i] ↔ trend_results[i]. 팀 공통 envelope의 findings·최상위 limitations는 쓰지 않는다. 근거는 evidence 한 곳에 모으고 trend_results[i].evidence_ids로 가리킨다.",
+  "title": "stock-agent producer result payload schema 1.0",
+  "description": "Producer-owned Stock result payload version 1.0. It is distinct from the shared vogue-handoff/0.1 HTTP envelope. The /runs route wraps this complete object in result without moving or reconstructing producer fields. products[i] ↔ trend_results[i]; evidence is collected once and referenced by trend_results[i].evidence_ids.",
   "type": "object",
   "additionalProperties": false,
   "required": [

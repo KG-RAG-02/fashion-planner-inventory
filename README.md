@@ -10,14 +10,14 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 
 단계는 01~05이고 에이전트는 02~05의 4개다. 오케스트레이터는 없다. 02가 자기 결과(`TrendAnalysisResult`)를 그대로 03에 보낸다(push).
 04는 앞 단계 입력 없이 타사 판매 자료로 원가·마진·타사 평균가를 만든다. 03 결과는 04를 거치지 않고 05로 가며,
-누가 05에 넘기는지(02가 받은 응답을 넘기는지, 03이 직접 부르는지)는 아직 정하지 않았다. 요청·응답 형식은 [`contracts/`](contracts/README.md)(초안).
+누가 05에 넘기는지는 아직 정하지 않았다. Producer payload와 Project_08 공통 HTTP envelope의 역할은 [`contracts/`](contracts/README.md)에 구분해 기록한다.
 
 - LLM은 OpenAI `gpt-4o-mini`(`stock_agent/llm_openai.py`). agent는 교체 가능한 인터페이스(`stock_agent/llm.py`)만 알고, 키가 없으면 트렌드마다 `SOURCE_UNAVAILABLE`(`reason: no_llm`) 오류
 - OpenAI로 트렌드 정의·설명, H&M 후보 상품 정보(상품 ID·카테고리·색·재고·판매 수치), 02의 무신사 스냅 착샷 이미지(URL, 열지 못하면 내려받은 이미지)가 전송된다(팀 확인 완료, 재고 수치는 가상 데이터)
 - LLM이 실패하면 규칙 방식으로 대신 내지 않고 오류로 돌려준다(평가할 수 있게)
 - 규칙 방식(`mode="rule"`)은 비교 기준선·정확도 검증용으로 남겨 둔다
 
-- agent_id: `stock-agent`
+- producer agent_id: `stock-agent`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
 - 재고·판매가는 가상 데이터(`data_nature: sample`). 상세 규칙은 `docs/issues_draft.md`
 
 ## 1. 데이터 준비 (한 번만)
@@ -36,7 +36,7 @@ python -m pytest
 
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
-- 이미지 폴더는 환경변수 `STOCK_IMAGE_DIR`(기본 `data/images`).
+- 이미지 폴더는 환경변수 `STOCK_IMAGE_DIR`(기본 `data/images`, Docker 기본 `/data/images`).
 
 ## 2. LLM 설정 (OpenAI)
 
@@ -47,9 +47,13 @@ python -m pytest
 | `LLM_API_KEY` | 없음 | OpenAI 키. 없으면 LLM 연결 전으로 보고 `no_llm` 오류 |
 | `LLM_MODEL` | `gpt-4o-mini` | 모델 |
 | `LLM_TIMEOUT` | `30` | 호출 1번당 시간 제한(초). 넘으면 `TIMEOUT`(504) |
+| `STOCK_DB_PATH` | `data/stock.duckdb` | DuckDB 경로 (Docker 기본 `/data/stock.duckdb`) |
+| `STOCK_IMAGE_DIR` | `data/images` | 상품 이미지 경로 (Docker 기본 `/data/images`) |
+| `STOCK_AGENT_SERVICE_TOKEN` | 없음 | v0.1 route Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 
 - 로컬 실행은 현재 폴더의 `.env`를 읽는다(이미 있는 환경변수는 덮어쓰지 않음). Docker는 `--env-file .env`로 넘긴다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
+- Project_08 Stock timeout과 새 route의 HTTP deadline은 60초입니다. 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
 - `/health`의 `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
 
 ## 3. 로컬 실행
@@ -70,6 +74,7 @@ docker run --rm -p 8002:8002 --env-file .env -v "${PWD}/data:/data:ro" stock-age
 ```
 
 - `data/stock.duckdb`와 `data/images/`를 컨테이너의 `/data`에 읽기 전용(`:ro`)으로 연결한다.
+- Dockerfile은 DB `/data/stock.duckdb`, 이미지 `STOCK_IMAGE_DIR=/data/images`를 설정해 mount된 `data/images/`를 사용한다.
 - `--env-file .env`로 LLM 키를 넘긴다. 이미지 안에는 `.env`가 들어가지 않는다(`stock_agent/`만 복사).
 - 확인: 브라우저에서 http://localhost:8002/health 또는 http://localhost:8002/docs
   (`/docs`에서 POST → Try it out → Examples에서 예시 요청을 골라 Execute)
@@ -88,6 +93,13 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 |---|---|---|
 | GET | `/health` | DB 연결과 필수 테이블(articles, transactions, article_attrs, stock_v1) 확인, `llm_connected` |
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
+| POST | `/v1/agents/stock-agent/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
+
+레거시 `/v1/inventory-products`는 기존 호출 호환을 위해 무인증으로 유지합니다. 새 `/runs`는 `STOCK_AGENT_SERVICE_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 레거시 노출은 배포 네트워크 정책으로 제한하세요.
+
+Project_08 client timeout은 60초이고 Stock route도 60초 전체 deadline을 적용합니다. 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
+
+HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health`는 DB 및 필수 테이블이 정상일 때 200, DB 연결/질의 실패나 필수 테이블 누락 시 503입니다. 이미지 누락은 상태 필드로만 보고합니다. `llm_connected`는 client 객체 존재만 나타내며 원격 인증/연결 점검은 아닙니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
 
 ### 요청
 
@@ -167,8 +179,7 @@ LLM agent (`stock_agent/llm_agent.py`): 착샷 분석 뒤, 위 규칙으로 정�
 ### 응답
 
 `stock_agent/multi.py`가 트렌드마다 LLM agent(`mode="rule"`이면 `agent.run`)를 돌려 순서대로 이어 붙인다.
-**팀 공통 envelope의 `findings`와 최상위 `limitations`는 쓰지 않는다.** 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 담는다
-(팀 공통 형식은 초안이고 에이전트마다 맞게 바꾸기로 함. 02도 envelope를 쓰지 않음).
+Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 담는다. 새 HTTP route는 이 producer payload 전체를 v0.1 envelope의 `result`에 보존한다.
 
 | 필드 | 설명 |
 |---|---|
@@ -194,14 +205,14 @@ LLM agent (`stock_agent/llm_agent.py`): 착샷 분석 뒤, 위 규칙으로 정�
 - 규칙 방식: 상품은 H&M 이미지가 있는 최상위 1개(1위에 이미지가 없으면 다음 순위, `rank`는 실제 순위). LLM agent: LLM이 순위 결과(`has_image` 포함) 중에서 고름. 사진은 `image`에 base64 JPEG. 이미지가 하나도 없으면 1위를 `image: null`로.
 - 카테고리·소재 이름은 트렌드 팀 vocabulary_v1을 따른다(예: `티셔츠`, `울/캐시미어`). 예전 이름으로 만든 DB도 응답은 새 이름으로 나간다.
 
-포트(8002)·경로는 팀 공통 OpenAPI가 정해지면 맞춘다.
+HTTP route와 producer contract의 역할은 `contracts/README.md`를 따른다.
 
 ## 구조
 
 ```
 stock_agent/   season.py  attributes.py  synthetic.py  overstock.py  trend_input.py  trend_request.py  agent.py
                llm.py  llm_openai.py  llm_agent.py  outfit.py  multi.py  errors.py  api.py  schemas.py
-contracts/   요청·응답 JSON Schema, 예시 (초안)
+contracts/   producer payload JSON Schema, 예시 및 HTTP envelope 설명
 scripts/     데이터 생성·실행·검증 스크립트
 tests/       단위·SQL·API·계약 테스트 (duckdb·fastapi·jsonschema가 없으면 해당 테스트는 건너뜀)
 examples/    예시 요청 (02 트렌드 결과 형식)

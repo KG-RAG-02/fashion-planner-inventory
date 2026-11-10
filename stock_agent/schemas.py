@@ -288,6 +288,38 @@ class ErrorResponse(BaseModel):
     errors: list[Error]
 
 
+class HandoffProducer(BaseModel):
+    agent_id: str = "stock-agent"
+    schema_version: str = Field(description="Stock producer result schema version; currently 1.0")
+
+
+class HandoffRequest(BaseModel):
+    contract_version: Literal["vogue-handoff/0.1"]
+    request_id: str = Field(min_length=1)
+    input: dict[str, Any] = Field(description="Unchanged TrendAnalysisResult producer object")
+
+
+class HandoffResponse(BaseModel):
+    contract_version: Literal["vogue-handoff/0.1"] = "vogue-handoff/0.1"
+    request_id: str
+    producer: HandoffProducer
+    status: Literal["ok", "partial", "no_results", "error"]
+    result: InventoryResponse
+
+
+class HandoffErrorResponse(BaseModel):
+    """Request-level error when no valid outer request ID exists."""
+    schema_version: str = "1.0"
+    request_id: Optional[str] = None
+    agent_id: str = "stock-agent"
+    status: Literal["error"] = "error"
+    summary: str
+    products: list[Any] = []
+    trend_results: list[Any] = []
+    evidence: list[Any] = []
+    errors: list[Error]
+
+
 class Health(BaseModel):
     status: Literal["ok", "error"]
     agent_id: str

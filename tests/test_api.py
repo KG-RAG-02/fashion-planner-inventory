@@ -151,3 +151,244 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
         r = c.post("/v1/inventory-products", json=REQ)
     assert r.status_code == 503
     assert r.json()["errors"][0]["code"] == "SOURCE_UNAVAILABLE" and r.json()["errors"][0]["reason"] == "db_unavailable"
+
+
+@pytest.fixture
+def handoff_client(make_client, monkeypatch):
+    monkeypatch.setenv("STOCK_AGENT_SERVICE_TOKEN", "test-stock-token")
+    with make_client(__import__("stock_agent.llm", fromlist=["PolicyLLM"]).PolicyLLM()) as c:
+        yield c
+
+
+def _handoff(body=REQ, request_id=None, version="vogue-handoff/0.1"):
+    return {"contract_version": version, "request_id": request_id or body["request_id"], "input": body}
+
+
+def _post_handoff(client, body=None, token="test-stock-token"):
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
+    return client.post("/v1/agents/stock-agent/runs", json=body or _handoff(), headers=headers)
+
+
+def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
+    r = _post_handoff(handoff_client)
+    assert r.status_code == 200
+    env = r.json()
+    assert env["contract_version"] == "vogue-handoff/0.1"
+    assert env["request_id"] == env["result"]["request_id"] == REQ["request_id"]
+    assert env["producer"] == {"agent_id": "stock-agent", "schema_version": "1.0"}
+    assert env["status"] == env["result"]["status"] == "ok"
+    assert list(env["result"]) == ["schema_version", "request_id", "agent_id", "status", "summary", "products",
+                                    "trend_results", "season_basis", "evidence", "errors"]
+    assert env["result"]["products"][0]["sku_ids"] == ["a1"]
+
+
+@pytest.mark.parametrize("payload,version", [(REQ, "vogue-handoff/9"), (REQ, ""), ([], "vogue-handoff/0.1")])
+def test_handoff_bad_version_or_input_is_400_envelope(handoff_client, payload, version):
+    env_req = {"contract_version": version, "request_id": REQ["request_id"], "input": payload}
+    r = _post_handoff(handoff_client, env_req)
+    assert r.status_code == 400 and r.status_code != 422
+    result = r.json()["result"] if "result" in r.json() else r.json()
+    # Missing/wrong field types hit FastAPI's common 400 handler. It preserves
+    # a valid outer request ID but uses the standard producer error body.
+    assert result["request_id"] == REQ["request_id"]
+    assert result["status"] == "error"
+    assert result["errors"][0]["reason"] == "invalid_input"
+
+
+@pytest.mark.parametrize("outer,inner", [("different", REQ["request_id"]), (REQ["request_id"], ""), (REQ["request_id"], None)])
+def test_handoff_request_id_mismatch_uses_outer_id(handoff_client, outer, inner):
+    payload = {**REQ, "request_id": inner}
+    r = _post_handoff(handoff_client, _handoff(payload, request_id=outer))
+    assert r.status_code == 400
+    env = r.json()
+    assert env["request_id"] == env["result"]["request_id"] == outer
+    assert env["result"]["errors"][0]["reason"] == "invalid_input"
+
+
+def test_handoff_missing_external_id_is_400_error_payload(handoff_client):
+    r = handoff_client.post("/v1/agents/stock-agent/runs", json={
+        "contract_version": "vogue-handoff/0.1", "input": REQ},
+        headers={"Authorization": "Bearer test-stock-token"})
+    assert r.status_code == 400 and "contract_version" not in r.json()
+    assert r.json()["request_id"] is None
+    assert r.json()["errors"][0]["reason"] == "invalid_input"
+
+
+@pytest.mark.parametrize("token", [None, "wrong-token"])
+def test_handoff_requires_bearer_token(handoff_client, token):
+    r = _post_handoff(handoff_client, token=token)
+    assert r.status_code == 401
+    assert r.json()["errors"][0]["code"] == "UNAUTHORIZED"
+    assert "test-stock-token" not in r.text
+
+
+def test_handoff_no_results_and_domain_error_status_are_wrapped(handoff_client):
+    no_results = {**REQ, "status": "no_results", "trends": []}
+    r = _post_handoff(handoff_client, _handoff(no_results))
+    assert r.status_code == 200 and r.json()["status"] == r.json()["result"]["status"] == "no_results"
+    upstream_error = {**REQ, "status": "error"}
+    r = _post_handoff(handoff_client, _handoff(upstream_error))
+    assert r.status_code == 400 and r.json()["status"] == r.json()["result"]["status"] == "error"
+    assert r.json()["result"]["errors"][0]["reason"] == "upstream_error"
+
+
+def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatch):
+    import stock_agent.api as api
+    for code, expected in (("no_llm", 503), ("timeout", 504), ("internal", 500)):
+        monkeypatch.setattr(api, "_run_inventory", lambda payload, code=code: api.error_response(
+            payload, "llm_failed" if code != "internal" else code,
+            "controlled", **({"reason": code} if code != "internal" else {})))
+        r = _post_handoff(handoff_client)
+        assert r.status_code == expected
+        assert r.json()["contract_version"] == "vogue-handoff/0.1"
+        assert r.json()["status"] == r.json()["result"]["status"] == "error"
+        assert r.json()["request_id"] == r.json()["result"]["request_id"]
+
+
+def test_handoff_partial_status_is_copied(handoff_client, monkeypatch):
+    import stock_agent.api as api
+    partial = {"schema_version": "1.0", "request_id": REQ["request_id"], "agent_id": "stock-agent",
+               "status": "partial", "summary": "partial", "products": [], "trend_results": [],
+               "season_basis": None, "evidence": [], "errors": []}
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: partial)
+    r = _post_handoff(handoff_client)
+    assert r.status_code == 200 and r.json()["status"] == r.json()["result"]["status"] == "partial"
+
+
+def test_handoff_invalid_json_is_400_not_422(handoff_client):
+    r = handoff_client.post("/v1/agents/stock-agent/runs", data="{bad json", headers={
+        "Authorization": "Bearer test-stock-token", "Content-Type": "application/json"})
+    assert r.status_code == 400 and r.status_code != 422
+    assert r.json()["status"] == "error"
+
+
+def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
+    r = handoff_client.post("/v1/agents/stock-agent/runs", json={
+        "contract_version": "vogue-handoff/0.1", "request_id": REQ["request_id"]},
+        headers={"Authorization": "Bearer test-stock-token"})
+    assert r.status_code == 400 and r.status_code != 422
+    assert r.json()["result"]["errors"][0]["reason"] == "invalid_input"
+
+
+def test_handoff_openapi_and_legacy_remains_unauthenticated(handoff_client):
+    spec = handoff_client.get("/openapi.json").json()
+    op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
+    assert "422" not in op["responses"]
+    assert {"200", "400", "500", "503", "504"} <= set(op["responses"])
+    assert op["security"] == [{"BearerAuth": []}]
+    # Compatibility decision: legacy route keeps its existing unauthenticated policy.
+    r = handoff_client.post("/v1/inventory-products", json=REQ)
+    assert r.status_code == 200
+
+
+def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
+    import time
+    import stock_agent.api as api
+    monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.run_request(payload, None))[1])
+    r = _post_handoff(handoff_client)
+    assert r.status_code == 504
+    result = r.json()["result"] if "result" in r.json() else r.json()
+    assert r.json().get("request_id", result["request_id"]) == result["request_id"]
+    assert result["errors"][0]["reason"] == "timeout"
+
+
+def test_concurrent_legacy_requests_keep_duckdb_cursor_isolation(client):
+    from concurrent.futures import ThreadPoolExecutor
+    from fastapi.testclient import TestClient
+
+    # Separate clients issue simultaneous requests against the app's shared DB
+    # connection. Every response must remain valid and retain its own request ID.
+    clients = [TestClient(client.app) for _ in range(6)]
+    def send(i):
+        return clients[i].post("/v1/inventory-products", json={**REQ, "request_id": f"parallel-{i}"})
+    try:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            replies = list(pool.map(send, range(6)))
+        assert all(r.status_code == 200 for r in replies)
+        assert {r.json()["request_id"] for r in replies} == {f"parallel-{i}" for i in range(6)}
+        assert all(r.json()["status"] == "ok" for r in replies)
+    finally:
+        for c in clients:
+            c.close()
+
+
+def test_project08_http_adapter_loopback_integration(handoff_client, monkeypatch):
+    """Exercise Project_08's real adapter and envelope validator over loopback."""
+    import sys
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from pathlib import Path
+    import pytest
+
+    p08_src = Path(__file__).resolve().parents[2] / "project_08" / "src"
+    if not p08_src.is_dir():
+        pytest.skip("project_08 source checkout not available")
+    sys.path.insert(0, str(p08_src))
+    from vogue_orchestrator.connectors import agent_http_v01_adapter
+    from vogue_orchestrator.core import _unpack_handoff_response
+
+    class Bridge(BaseHTTPRequestHandler):
+        def do_POST(self):
+            raw = self.rfile.read(int(self.headers["Content-Length"]))
+            upstream = handoff_client.post(self.path, content=raw, headers={
+                "Authorization": self.headers.get("Authorization", ""),
+                "Content-Type": "application/json"})
+            self.send_response(upstream.status_code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(upstream.content)
+        def log_message(self, fmt, *args):
+            return
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Bridge)
+    except PermissionError:
+        pytest.skip("sandbox does not permit loopback socket binding")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        adapter = agent_http_v01_adapter(
+            f"http://127.0.0.1:{server.server_address[1]}", "stock-agent",
+            bearer_token="test-stock-token", dev_mode=True)
+        response = adapter({"request_id": REQ["request_id"], **REQ})
+        result, agent, version, status = _unpack_handoff_response(
+            response, REQ["request_id"], expected_agent="stock-agent")
+        assert agent == "stock-agent" and version == "1.0" and status == result["status"] == "ok"
+        assert result["request_id"] == REQ["request_id"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_project08_adapter_request_and_core_validation_in_process(handoff_client, monkeypatch):
+    """Exercise the real P08 adapter builder and core validator without sockets."""
+    import sys
+    from pathlib import Path
+    import pytest
+
+    p08_src = Path(__file__).resolve().parents[2] / "project_08" / "src"
+    if not p08_src.is_dir():
+        pytest.skip("project_08 source checkout not available")
+    sys.path.insert(0, str(p08_src))
+    import vogue_orchestrator.connectors as connectors
+    from vogue_orchestrator.core import _unpack_handoff_response
+
+    sent = {}
+    def post(url, payload, *, bearer_token=None):
+        sent.update(url=url, payload=payload, bearer_token=bearer_token)
+        env = _post_handoff(handoff_client, payload,
+                            token=bearer_token).json()
+        return env
+    monkeypatch.setattr(connectors, "_post_json", post)
+    adapter = connectors.agent_http_v01_adapter(
+        "http://localhost:8002", "stock-agent", bearer_token="test-stock-token", dev_mode=True)
+    envelope = adapter({"request_id": REQ["request_id"], **REQ})
+    result, producer, version, status = _unpack_handoff_response(
+        envelope, REQ["request_id"], expected_agent="stock-agent")
+    assert sent["payload"]["contract_version"] == "vogue-handoff/0.1"
+    assert sent["payload"]["input"] == REQ
+    assert sent["bearer_token"] == "test-stock-token"
+    assert (producer, version, status) == ("stock-agent", "1.0", "ok")
+    assert result["request_id"] == REQ["request_id"]

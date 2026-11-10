@@ -1,8 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:vogue:contracts:stock-agent:inventory-request:1.0",
-  "title": "stock-agent 요청 = 02 쿼리 전처리·트렌드 결과(TrendAnalysisResult) 그대로 (초안, 팀 합의 전)",
-  "description": "POST /v1/inventory-products. 02가 자기 결과를 그대로 보낸다. 03이 쓰는 필드만 적었고, 그 밖의 02 필드(evidence, limitations, similar_products 등)는 받아도 쓰지 않는다. applied_filters가 없으면 400 INVALID_REQUEST.",
+  "title": "stock-agent producer input = TrendAnalysisResult (payload schema 1.0)",
+  "description": "Legacy POST /v1/inventory-products accepts this object directly. POST /v1/agents/stock-agent/runs accepts the same unchanged object under input in a vogue-handoff/0.1 envelope. This producer input schema is separate from the shared HTTP envelope version. Unlisted TrendAnalysisResult fields are preserved at the HTTP boundary even when Stock does not consume them.",
+  "x-http-envelope": {
+    "route": "POST /v1/agents/stock-agent/runs",
+    "contract_version": "vogue-handoff/0.1",
+    "request": {"contract_version": "vogue-handoff/0.1", "request_id": "<non-empty string>", "input": "this producer input object"},
+    "response": {"contract_version": "vogue-handoff/0.1", "request_id": "<same request ID>", "producer": {"agent_id": "stock-agent", "schema_version": "1.0"}, "status": "result.status", "result": "stock-agent-result.schema.json"},
+    "authentication": "Authorization: Bearer STOCK_AGENT_SERVICE_TOKEN"
+  },
   "type": "object",
   "required": [
     "request_id",
