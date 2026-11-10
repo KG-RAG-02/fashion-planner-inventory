@@ -273,6 +273,9 @@ class InventoryResponse(BaseModel):
     season_basis: Optional[dict[str, Any]] = Field(None, description="대신 쓴 과거 시즌 기간과 시즌 출처")
     evidence: list[dict[str, Any]] = Field(description="트렌드마다 데이터 출처. evidence_id = stock-agent:<style.id>:E-001, style_id")
     errors: list[Error] = Field(description="공통 입력 오류. 트렌드별 오류는 trend_results[].errors")
+    input_provenance: Optional[dict[str, Any]] = Field(
+        None, description="Trend source version and the explicit Stock input-adapter provenance"
+    )
 
 
 class ErrorResponse(BaseModel):

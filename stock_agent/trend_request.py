@@ -72,9 +72,9 @@ def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
         if isinstance(a, dict) and a.get("type") == "color" and a.get("value") and a["value"] not in colors:
             colors.append(a["value"])
 
+    # schema_version belongs to TrendAnalysisResult, not Stock's internal request.
+    # The complete source object remains in Project_08's preceding Trend stage trace.
     req = {"request_id": res.get("request_id"), "trends": res.get("trends") or []}
-    if "schema_version" in res:
-        req["schema_version"] = res["schema_version"]
     if af.get("season") is not None:
         req["season"] = af["season"]
     if _cat_names(include):

@@ -169,6 +169,24 @@ def _post_handoff(client, body=None, token="test-stock-token"):
     return client.post("/v1/agents/stock-agent/runs", json=body or _handoff(), headers=headers)
 
 
+def test_handoff_accepts_trend_11_and_records_adapter_provenance(handoff_client):
+    trend = {**REQ, "schema_version": "1.1"}
+    body = _handoff({**trend, "status": "no_results", "trends": []})
+    response = _post_handoff(handoff_client, body=body)
+    assert response.status_code == 200
+    envelope = response.json()
+    assert envelope["status"] == envelope["result"]["status"] == "no_results"
+    assert envelope["result"]["input_provenance"] == {
+        "source_agent_id": "trend-analysis-agent",
+        "source_schema_version": "1.1",
+        "internal_schema_version": None,
+        "adapter_version": "stock-trend-input-adapter/1.0",
+        "transformed": True,
+        "source_payload_sha256": envelope["result"]["input_provenance"]["source_payload_sha256"],
+    }
+    assert len(envelope["result"]["input_provenance"]["source_payload_sha256"]) == 64
+
+
 def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     r = _post_handoff(handoff_client)
     assert r.status_code == 200

@@ -82,9 +82,32 @@
       "items": {
         "$ref": "#/$defs/error"
       }
+    },
+    "input_provenance": {
+      "$ref": "#/$defs/input_provenance"
     }
   },
   "$defs": {
+    "input_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_agent_id",
+        "source_schema_version",
+        "internal_schema_version",
+        "adapter_version",
+        "transformed",
+        "source_payload_sha256"
+      ],
+      "properties": {
+        "source_agent_id": {"const": "trend-analysis-agent"},
+        "source_schema_version": {"type": "string", "minLength": 1},
+        "internal_schema_version": {"type": ["string", "null"]},
+        "adapter_version": {"const": "stock-trend-input-adapter/1.0"},
+        "transformed": {"type": "boolean"},
+        "source_payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "product": {
       "type": "object",
       "additionalProperties": false,
