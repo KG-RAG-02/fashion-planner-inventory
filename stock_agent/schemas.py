@@ -327,10 +327,14 @@ class Health(BaseModel):
     status: Literal["ok", "error"]
     agent_id: str
     db: str
+    db_version: Optional[str] = None
+    message: Optional[str] = None
     missing_tables: list[str]
     images: str
-    images_found: bool
+    images_found: bool = Field(description="로컬 이미지 폴더 또는 R2 prefix 설정 여부; 원격 object는 요청 시 확인")
     llm_connected: bool = False
+    llm_model: Optional[str] = None
+    llm_error: Optional[str] = None
 
 
 RESPONSES = {

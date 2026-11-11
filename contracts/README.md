@@ -92,10 +92,10 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 ## Health, API docs 및 환경 변수
 
-- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. Docker의 DB 기본 경로는 `/data/stock.duckdb`, 이미지 경로는 `STOCK_IMAGE_DIR=/data/images`이고, 호스트 `data/`를 `/data:ro`로 mount하면 두 리소스를 실제 사용합니다.
-- `/health`는 DB 연결과 필수 테이블(`articles`, `transactions`, `article_attrs`, `stock_v1`)이 모두 있을 때 200입니다. DB 연결/질의 실패 또는 테이블 누락이면 503입니다. 이미지 누락은 `images_found=false`로 보고하지만 503 사유는 아닙니다(상품 이미지가 null일 수 있음). `llm_connected`는 설정된 LLM client 객체의 존재만 뜻하고 자격 증명/권한/실제 연결 검증은 아닙니다.
+- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 런타임은 Cloudflare R2의 비공개 bucket에서 DB object를 시작 시 임시 캐시로 내려받고, 로컬 복사본에 DuckDB read-only 연결을 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. 로컬 빌드 스크립트는 계속 `STOCK_DB_PATH`를 사용할 수 있지만 API 런타임 DB 설정은 아닙니다.
+- `/health`는 R2에서 준비한 DB 연결과 필수 테이블(`articles`, `transactions`, `article_attrs`, `stock_v1`)이 모두 있을 때 200입니다. R2 설정·인증·다운로드·DB 연결/질의 실패 또는 테이블 누락이면 503입니다. 이미지 누락은 `images_found=false`로 보고하지만 503 사유는 아닙니다(상품 이미지가 null일 수 있음). `db`는 provider 식별자만 노출하며 경로와 자격 증명은 반환하지 않습니다. `llm_connected`는 설정된 LLM client 객체의 존재만 뜻하고 자격 증명/권한/실제 연결 검증은 아닙니다.
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
-- 주요 설정: `STOCK_DB_PATH`(기본 `data/stock.duckdb`, Docker `/data/stock.duckdb`), `STOCK_IMAGE_DIR`(기본 `data/images`, Docker `/data/images`), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
+- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 

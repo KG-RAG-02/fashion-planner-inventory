@@ -26,7 +26,7 @@ def make_client(con, tmp_path, monkeypatch):
     con.execute("DETACH f")
     import stock_agent.api as api
     from stock_agent.llm import PolicyLLM
-    monkeypatch.setattr(api, "DB_PATH", str(db))
+    monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", None))
 
     def make(llm):
         monkeypatch.setattr(api, "load_llm", lambda: llm)
@@ -54,6 +54,8 @@ def test_no_llm_is_503(make_client):
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["status"] == "ok"
+    assert r.json()["db"] == "cloudflare-r2" and r.json()["db_version"] == "test-version"
+    assert "tmp" not in r.text and "stock.duckdb" not in r.text
 
 
 def test_post_ok(client):
@@ -145,12 +147,26 @@ def test_trend_result_no_results_is_200(client):
 
 def test_db_missing_is_503(tmp_path, monkeypatch):
     import stock_agent.api as api
-    monkeypatch.setattr(api, "DB_PATH", str(tmp_path / "없음.duckdb"))
+    monkeypatch.setattr(api, "prepare_database", lambda: (str(tmp_path / "missing.duckdb"), "test-version", None))
     with TestClient(api.app) as c:
         assert c.get("/health").status_code == 503
         r = c.post("/v1/inventory-products", json=REQ)
     assert r.status_code == 503
     assert r.json()["errors"][0]["code"] == "SOURCE_UNAVAILABLE" and r.json()["errors"][0]["reason"] == "db_unavailable"
+
+
+def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
+    import stock_agent.api as api
+    monkeypatch.setattr(api, "load_llm", lambda: None)
+    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with TestClient(api.app) as c:
+        response = c.get("/health")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["db"] == "cloudflare-r2"
+    assert "R2_ACCOUNT_ID" in body["message"] and "R2_BUCKET" in body["message"]
+    assert "Secret Access Key" not in response.text
 
 
 @pytest.fixture

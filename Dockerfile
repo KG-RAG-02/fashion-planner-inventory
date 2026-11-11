@@ -1,11 +1,9 @@
 # stock-agent (과잉재고 에이전트) HTTP API 이미지
-# 데이터(stock.duckdb, images/)는 도커 이미지에 넣지 않고 실행할 때 /data에 읽기 전용으로 연결한다.
+# DB와 이미지는 Cloudflare R2에서 런타임에 읽으며 이미지에 포함하지 않는다.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    STOCK_DB_PATH=/data/stock.duckdb \
-    STOCK_IMAGE_DIR=/data/images
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 COPY requirements.txt .

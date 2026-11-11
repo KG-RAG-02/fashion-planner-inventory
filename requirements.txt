@@ -4,3 +4,4 @@ numpy>=1.26
 fastapi>=0.110
 uvicorn>=0.29
 openai>=1.40
+boto3>=1.35

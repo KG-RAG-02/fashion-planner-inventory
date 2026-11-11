@@ -8,7 +8,7 @@
   GET  /docs                    설명서 (요청 예시 4개, 응답 200·400·500 형식)
 
 실행 (로컬):   uvicorn stock_agent.api:app --port 8002
-실행 (도커):   README 참고. DB 경로는 환경변수 STOCK_DB_PATH (기본 data/stock.duckdb)
+실행 (도커):   README 참고. DB는 Cloudflare R2에서 내려받아 로컬 read-only 캐시로 연다.
 레거시 경로는 기존 클라이언트 호환을 위해 유지한다.
 """
 
@@ -28,6 +28,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
+from stock_agent.llm import read_dotenv
+
+# Load .env before any module snapshots path or storage defaults.
+read_dotenv()
+
 from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
 from stock_agent.errors import http_status
 from stock_agent.multi import error_response, run_request
@@ -36,8 +41,8 @@ from stock_agent.llm import load_llm
 from stock_agent.llm import UnavailableLLM
 from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, Health, InventoryRequest, ErrorResponse,
                                 HandoffRequest, HandoffResponse)
+from stock_agent.storage import R2ObjectStore, R2Settings
 
-DB_PATH = os.environ.get("STOCK_DB_PATH", "data/stock.duckdb")
 IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
 HANDOFF_PATH = "/v1/agents/stock-agent/runs"
@@ -48,17 +53,32 @@ state: dict = {}
 _RUN_LOCK = threading.RLock()
 
 
+def prepare_database() -> tuple[str, str, R2ObjectStore]:
+    """Fetch one R2 object version into the local runtime cache."""
+    store = R2ObjectStore(R2Settings.from_env())
+    path, version = store.prepare_database()
+    return str(path), version, store
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        state["con"], state["db_error"] = duckdb.connect(DB_PATH, read_only=True), None
-    except Exception as e:          # DB 파일이 없어도 서버는 뜨고, 요청에는 SOURCE_UNAVAILABLE(503)
-        state["con"], state["db_error"] = None, f"{type(e).__name__}: {e}"
+        db_path, db_version, store = prepare_database()
+        state["con"] = duckdb.connect(db_path, read_only=True)
+        state["db_version"], state["db_error"], state["object_store"] = db_version, None, store
+    except Exception as e:          # Keep health available, but never serve requests without a ready DB.
+        state["con"], state["db_version"] = None, None
+        state["object_store"] = None
+        state["db_error"] = str(e) if type(e).__name__ in {
+            "StorageConfigurationError", "StorageUnavailable"} else type(e).__name__
     state["llm"] = load_llm()       # 아직 연결 전이면 None → 트렌드마다 SOURCE_UNAVAILABLE(reason=no_llm)
     yield
     con = state.pop("con", None)
     if con is not None:
         con.close()
+    state.pop("db_version", None)
+    state.pop("db_error", None)
+    state.pop("object_store", None)
 
 
 app = FastAPI(
@@ -141,13 +161,15 @@ def _run_inventory(request: Any) -> dict:
     """Run the unchanged TrendAnalysisResult through the producer implementation."""
     req = request if isinstance(request, dict) else {}
     if state.get("con") is None:
-        return error_response(req, "db_unavailable", f"재고 DB에 연결하지 못했습니다 ({DB_PATH}).")
+        return error_response(req, "db_unavailable", "재고 DB를 사용할 수 없습니다.")
     # DuckDB allows separate cursors per thread, but serializing the shared
     # connection keeps concurrent API work safe across supported versions.
     with _RUN_LOCK:
         con = state["con"].cursor()
         try:
-            return run_request(req, con, image_dir=IMAGE_DIR, llm=state.get("llm"))
+            store = state.get("object_store")
+            image_source = store if store is not None and store.images_configured else IMAGE_DIR
+            return run_request(req, con, image_dir=image_source, llm=state.get("llm"))
         except duckdb.Error as e:
             return error_response(req, "db_unavailable", f"재고 DB 조회 실패: {type(e).__name__}")
         except Exception as e:
@@ -195,8 +217,8 @@ async def _handoff_deadline(request: Request, call_next):
 @app.get("/health", response_model=Health, responses={503: {"description": "DB 연결 실패 또는 필수 테이블 없음"}})
 def health():
     if state.get("con") is None:
-        return _json({"status": "error", "agent_id": AGENT_ID, "db": DB_PATH,
-                      "message": f"DB 연결 실패: {state.get('db_error')}"}, 503)
+        return _json({"status": "error", "agent_id": AGENT_ID, "db": "cloudflare-r2",
+                      "message": f"DB 준비 실패: {state.get('db_error', '알 수 없는 오류')}"}, 503)
     try:
         with _RUN_LOCK:
             con = state["con"].cursor()
@@ -206,13 +228,17 @@ def health():
                 con.close()
         missing = sorted(REQUIRED_TABLES - tables)
         ok = not missing
-        # 이미지 폴더가 없어도 동작은 하지만(사진 없이 응답) 여기서 바로 알 수 있게 표시
-        return _json({"status": "ok" if ok else "error", "agent_id": AGENT_ID, "db": DB_PATH,
-                      "missing_tables": missing, "images": IMAGE_DIR,
-                      "images_found": os.path.isdir(IMAGE_DIR),
+        # R2에서는 prefix 설정만 보고, 개별 object 존재 여부는 이미지 선택 때 지연 확인한다.
+        store = state.get("object_store")
+        images_remote = bool(store and store.images_configured)
+        return _json({"status": "ok" if ok else "error", "agent_id": AGENT_ID, "db": "cloudflare-r2",
+                      "db_version": state.get("db_version"),
+                      "missing_tables": missing, "images": "cloudflare-r2" if images_remote else "local",
+                      "images_found": store.images_available if images_remote else os.path.isdir(IMAGE_DIR),
                       **_llm_status(state.get("llm"))}, 200 if ok else 503)
     except Exception as e:
-        return _json({"status": "error", "agent_id": AGENT_ID, "db": DB_PATH, "message": str(e)}, 503)
+        return _json({"status": "error", "agent_id": AGENT_ID, "db": "cloudflare-r2",
+                      "message": f"DB 상태 확인 실패: {type(e).__name__}"}, 503)
 
 
 @app.post("/v1/inventory-products", responses=RESPONSES, summary="트렌드마다 과잉재고 1위 상품 1개 (사진·추천 이유 포함)")

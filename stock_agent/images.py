@@ -13,6 +13,8 @@ import base64
 import os
 from pathlib import Path
 
+from stock_agent.storage import StorageUnavailable
+
 DEFAULT_IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", "data/images")
 
 
@@ -21,11 +23,30 @@ def image_path(image_dir: str | Path, article_id: str) -> Path:
 
 
 def has_image(image_dir: str | Path, article_id: str) -> bool:
+    remote_check = getattr(image_dir, "image_exists", None)
+    if callable(remote_check):
+        return bool(remote_check(article_id))
     return image_path(image_dir, article_id).is_file()
 
 
 def load_image(image_dir: str | Path, article_id: str) -> dict | None:
     """이미지를 base64로 읽어 응답에 넣을 dict로. 없으면 None."""
+    remote_load = getattr(image_dir, "load_image", None)
+    if callable(remote_load):
+        try:
+            raw = remote_load(article_id)
+        except StorageUnavailable:
+            return None
+        if raw is None:
+            return None
+        return {
+            "media_type": "image/jpeg",
+            "encoding": "base64",
+            "data": base64.b64encode(raw).decode("ascii"),
+            "size_bytes": len(raw),
+            "source": f"H&M images/{article_id[:3]}/{article_id}.jpg",
+            "data_nature": "fact",
+        }
     p = image_path(image_dir, article_id)
     if not p.is_file():
         return None
