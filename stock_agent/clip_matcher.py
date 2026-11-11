@@ -11,6 +11,8 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+import os
+
 import numpy as np
 import pandas as pd
 
@@ -21,7 +23,11 @@ TEXT_WEIGHT = 0.4
 THRESHOLD = 0.60
 FALLBACK_N = 20
 
-DEFAULT_INDEX_PATH = Path(__file__).parent.parent / "data" / "clip_index.npz"
+# 환경변수 STOCK_CLIP_INDEX_PATH 우선, 없으면 프로젝트 루트 data/
+DEFAULT_INDEX_PATH = Path(
+    os.environ.get("STOCK_CLIP_INDEX_PATH", "")
+    or Path(__file__).parent.parent / "data" / "clip_index.npz"
+)
 
 _model = None
 _tokenizer = None

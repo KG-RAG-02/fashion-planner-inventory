@@ -5,11 +5,14 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     STOCK_DB_PATH=/data/stock.duckdb \
-    STOCK_IMAGE_DIR=/data/images
+    STOCK_IMAGE_DIR=/data/images \
+    STOCK_CLIP_INDEX_PATH=/data/clip_index.npz
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# torch CPU-only 먼저 설치 → open-clip-torch가 CUDA 버전을 당기지 않도록
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY stock_agent ./stock_agent
 
