@@ -128,7 +128,7 @@ def main(data_dir: Path):
     out_path = data_dir / "clip_index.npz"
     np.savez(
         out_path,
-        article_ids=np.array(article_ids, dtype=object),
+        article_ids=np.array(article_ids),   # str dtype — pickle 불필요
         embeddings=np.stack(final_embs).astype(np.float32),
     )
     logger.info("저장 완료: %s (%d개)", out_path, len(article_ids))

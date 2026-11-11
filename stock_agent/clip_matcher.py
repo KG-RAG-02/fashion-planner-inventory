@@ -95,7 +95,7 @@ class ClipIndex:
     """사전 계산된 재고 후보 임베딩 인덱스 (clip_index.npz)."""
 
     def __init__(self, path: Path = DEFAULT_INDEX_PATH):
-        data = np.load(path, allow_pickle=False)
+        data = np.load(path, allow_pickle=True)
         self._ids: np.ndarray = data["article_ids"]
         self._embs: np.ndarray = data["embeddings"].astype(np.float32)
         self._id_to_idx = {str(aid): i for i, aid in enumerate(self._ids)}
