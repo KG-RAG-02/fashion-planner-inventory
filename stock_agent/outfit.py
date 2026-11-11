@@ -97,7 +97,14 @@ def pick_snap(trend: dict, target_areas) -> dict | None:
             if best is None or _score(p) > best["score"]:
                 best = {"product_id": p.get("product_id"), "image_url": url.strip(), "score": _score(p),
                         "source": p.get("source"), "item_id": it.get("id"), "item_name": it.get("name"),
-                        "item_category": it.get("category_minor") or it.get("category_major")}
+                        "item_category": it.get("category_minor") or it.get("category_major"),
+                        # CLIP 쿼리용 텍스트 필드 (ProductMatch에서)
+                        "category_minor": p.get("category_minor"),
+                        "fit": p.get("fit"),
+                        "length_body": p.get("length_body"),
+                        "patterns": p.get("patterns"),
+                        "materials": p.get("materials"),
+                        "details": p.get("details")}
     return best
 
 
