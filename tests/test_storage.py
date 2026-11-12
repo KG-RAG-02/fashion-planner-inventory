@@ -126,3 +126,27 @@ def test_image_denied_is_not_missing(tmp_path, settings):
     store = R2ObjectStore(settings, client=DeniedR2(), cache_dir=tmp_path)
     with pytest.raises(StorageUnavailable):
         store.image_exists("0999990001")
+
+
+def test_image_cache_dir_defaults_under_cache_dir_and_follows_env(tmp_path, settings, monkeypatch):
+    monkeypatch.delenv("STOCK_IMAGE_CACHE_DIR", raising=False)
+    assert R2ObjectStore(settings, client=FakeR2(), cache_dir=tmp_path / "cache").image_cache_dir == tmp_path / "cache" / "images"
+    monkeypatch.setenv("STOCK_IMAGE_CACHE_DIR", str(tmp_path / "image-cache"))
+    client = FakeR2(payload=b"jpeg")
+    store = R2ObjectStore(settings, client=client, cache_dir=tmp_path / "cache")
+    assert store.load_image("0999990001") == b"jpeg" and store.load_image("0999990001") == b"jpeg"
+    assert client.downloads == 1 and len(list((tmp_path / "image-cache").glob("*.jpg"))) == 1
+    assert store.take_image_notes() == []
+
+
+def test_unwritable_image_cache_serves_uncached_bytes_with_a_note(tmp_path, settings):
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x")                      # mkdir under a regular file fails even for root
+    client = FakeR2(payload=b"jpeg")
+    store = R2ObjectStore(settings, client=client, cache_dir=tmp_path / "cache", image_cache_dir=blocker / "images")
+    assert store.load_image("0999990001") == b"jpeg"
+    assert store.load_image("0999990001") == b"jpeg"
+    assert client.downloads == 2                 # nothing could be cached, nothing raised
+    assert store.take_image_notes() == [R2ObjectStore.IMAGE_CACHE_NOTE]
+    assert store.take_image_notes() == []
+    assert not list(tmp_path.rglob("*.part"))

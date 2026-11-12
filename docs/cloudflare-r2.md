@@ -10,7 +10,7 @@ For version updates, publish a new object version/key and restart or roll out th
 
 ## Images
 
-When `R2_IMAGE_PREFIX` is set, the API checks product image objects on demand and caches only selected images. The verified key shape is `<prefix>/<article_id first 3 digits>/<article_id>.jpg`; for example, `images/099/0999991001.jpg`. Presence checks are cached in-process for 30 seconds. A missing or unavailable image does not prevent inventory results. When the prefix is unset, `STOCK_IMAGE_DIR` remains the local fallback.
+When `R2_IMAGE_PREFIX` is set, the API checks product image objects on demand and caches only selected images. The verified key shape is `<prefix>/<article_id first 3 digits>/<article_id>.jpg`; for example, `images/099/0999991001.jpg`. Presence checks are cached in-process for 30 seconds. Fetched images are cached in `STOCK_IMAGE_CACHE_DIR` (default `$STOCK_CACHE_DIR/images`); when that directory cannot be written, for example because the DB cache is a read-only mount, the image is returned uncached and the trend result's `limitations` say so instead of failing the request. A missing or unavailable image does not prevent inventory results. When the prefix is unset, `STOCK_IMAGE_DIR` remains the local fallback.
 
 The existing producer response continues to include the selected product image as base64. The raw database and image collection are not copied into Git or the Docker image.
 

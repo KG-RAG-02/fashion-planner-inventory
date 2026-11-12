@@ -22,11 +22,16 @@ R2_VARS = ("R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_DB_KEY", "R2_IMAGE_P
            "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key")
 
 
-def ready_db_file(con, path):
-    """conftest의 작은 DB + readiness 열·articles (tests/test_api.py make_client와 같은 모양)."""
+def ready_db_file(con, path, numeric_ids=False):
+    """conftest의 작은 DB + readiness 열·articles (tests/test_api.py make_client와 같은 모양).
+
+    numeric_ids: a1 → 0000000001처럼 H&M 형식 id로 바꾼다 (R2 이미지 key는 숫자 id만 받는다).
+    """
     con.execute(f"ATTACH '{path.as_posix()}' AS f")
     for t in ("article_attrs", "stock_v1", "transactions"):
         con.execute(f"CREATE TABLE f.{t} AS SELECT * FROM {t}")
+        if numeric_ids:
+            con.execute(f"UPDATE f.{t} SET article_id = lpad(substr(article_id, 2), 10, '0')")
     con.execute("CREATE TABLE f.articles AS SELECT article_id FROM article_attrs")
     con.execute("ALTER TABLE f.stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
     con.execute("ALTER TABLE f.stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
@@ -150,3 +155,40 @@ def test_policy_with_local_file_serves_without_network_and_labels_results(local_
     assert r.status_code == 200 and result["status"] == "ok" and result["products"][0] is not None
     assert not [e for tr in result["trend_results"] for e in tr["errors"] if e.get("reason") == "no_llm"]
     assert all(POLICY_LIMITATION in tr["limitations"] for tr in result["trend_results"])
+
+
+# ---------------------------------------------------------------- image cache (R2 images)
+
+def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_path):
+    """R2 이미지 캐시가 read-only여도 사진은 캐시 없이 응답에 넣고 limitations에 적는다."""
+    import io
+    import stock_agent.api as api
+    from stock_agent.llm import PolicyLLM
+    from stock_agent.storage import R2ObjectStore, R2Settings
+
+    class ImageObjects:                          # R2 image objects (fake client, no network)
+        downloads = 0
+
+        def head_object(self, **kwargs):
+            return {"ContentLength": 4}
+
+        def get_object(self, **kwargs):
+            ImageObjects.downloads += 1
+            return {"Body": io.BytesIO(b"jpeg"), "ContentLength": 4}
+
+    for name in ("STOCK_DB_PATH", "STOCK_LLM_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
+    db = ready_db_file(con, tmp_path / "stock.duckdb", numeric_ids=True)   # R2 image keys need digit ids
+    blocker = tmp_path / "read-only-cache"
+    blocker.write_text("x")
+    store = R2ObjectStore(R2Settings("account", "bucket", "db.duckdb", "id", "secret", image_prefix="images"),
+                          client=ImageObjects(), cache_dir=tmp_path / "cache", image_cache_dir=blocker / "images")
+    monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", store))
+    monkeypatch.setattr(api, "load_llm", lambda: PolicyLLM())
+    with _client() as c:
+        r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
+    result = r.json()["result"]
+    assert r.status_code == 200 and result["status"] == "ok" and ImageObjects.downloads == 1
+    assert result["products"][0]["image"]["size_bytes"] == 4
+    assert R2ObjectStore.IMAGE_CACHE_NOTE in result["trend_results"][0]["limitations"]

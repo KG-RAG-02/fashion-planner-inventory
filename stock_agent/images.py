@@ -27,6 +27,12 @@ def has_image(image_dir: str | Path, article_id: str) -> bool:
     return image_path(image_dir, article_id).is_file()
 
 
+def take_notes(image_dir) -> list[str]:
+    """이미지 자료원이 남긴 한계 문장 (예: R2 이미지 캐시에 쓰지 못해 캐시 없이 전달함). 로컬 폴더는 없음."""
+    take = getattr(image_dir, "take_image_notes", None)
+    return list(take()) if callable(take) else []
+
+
 def load_image(image_dir: str | Path, article_id: str) -> dict | None:
     """이미지를 base64로 읽어 응답에 넣을 dict로. 없으면 None."""
     remote_load = getattr(image_dir, "load_image", None)

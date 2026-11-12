@@ -48,7 +48,7 @@ import pandas as pd
 from stock_agent import agent as A
 from stock_agent import outfit as O
 from stock_agent.attributes import to_vocab
-from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image
+from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image, take_notes
 from stock_agent.llm import LLM, ImageUnavailable, LLMReply, LLMUnavailable
 from stock_agent.overstock import (
     COMBINES,
@@ -675,6 +675,7 @@ def run_agent_trend(req: dict, c: A.Common, ti: TrendInput, trend: dict, con, ll
         row = SimpleNamespace(**r.to_dict())
         if has_image(image_dir, aid):
             image = load_image(image_dir, aid)
+            limitations += take_notes(image_dir)
         else:
             limitations.append("LLM이 고른 상품에 H&M 이미지가 없어 사진 없이 반환합니다.")
 

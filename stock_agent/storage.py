@@ -102,6 +102,12 @@ def _safe_cache_dir() -> Path:
     return root
 
 
+def _image_cache_dir(cache_dir: Path) -> Path:
+    """Where fetched R2 images are cached: ``STOCK_IMAGE_CACHE_DIR``, default ``<STOCK_CACHE_DIR>/images``."""
+    configured = os.environ.get("STOCK_IMAGE_CACHE_DIR", "").strip()
+    return Path(configured) if configured else Path(cache_dir) / "images"
+
+
 def _read_stream(body: Any, target: Path) -> int:
     size = 0
     try:
@@ -163,13 +169,20 @@ def _write_checksum(target: Path) -> str:
 class R2ObjectStore:
     """Small read-only adapter; pass a fake client to exercise it offline."""
 
-    def __init__(self, settings: R2Settings, client=None, cache_dir: Path | None = None):
+    IMAGE_CACHE_NOTE = ("이미지 캐시 디렉터리(STOCK_IMAGE_CACHE_DIR, 기본 STOCK_CACHE_DIR/images)에 쓸 수 없어 "
+                        "상품 사진을 캐시하지 않고 R2에서 받은 그대로 응답에 넣었습니다.")
+
+    def __init__(self, settings: R2Settings, client=None, cache_dir: Path | None = None,
+                 image_cache_dir: Path | None = None):
         self.settings = settings
         self.client = client if client is not None else _client(settings)
         self.cache_dir = Path(cache_dir) if cache_dir is not None else _safe_cache_dir()
         self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Created lazily: a read-only image cache only disables caching (see load_image).
+        self.image_cache_dir = Path(image_cache_dir) if image_cache_dir is not None else _image_cache_dir(self.cache_dir)
         self._image_presence: dict[str, tuple[float, bool]] = {}
         self._image_lock = threading.Lock()
+        self._image_notes: list[str] = []
         self.database_metadata: dict = {}
 
     @property
@@ -211,24 +224,46 @@ class R2ObjectStore:
             self._image_presence[key] = (time.monotonic() + 30, result)
         return result
 
+    def take_image_notes(self) -> list[str]:
+        """Limitation sentences left by image loading since the last call (e.g. caching disabled)."""
+        with self._image_lock:
+            notes, self._image_notes = self._image_notes, []
+        return notes
+
     def load_image(self, article_id: str) -> bytes | None:
+        """Image bytes from the local cache or R2 (None when the object does not exist).
+
+        Caching is best effort: when the image cache directory is not writable (read-only mount,
+        full disk) the fetched bytes are still returned and a note is left for take_image_notes().
+        """
         key = self.object_key_for_image(article_id)
-        cached = self.cache_dir / "images" / (hashlib.sha256(key.encode()).hexdigest() + ".jpg")
-        if cached.is_file():
-            return cached.read_bytes()
-        cached.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd, partial_name = tempfile.mkstemp(prefix=cached.name + ".", suffix=".part", dir=cached.parent)
-        os.close(fd)
-        partial = Path(partial_name)
+        cached = self.image_cache_dir / (hashlib.sha256(key.encode()).hexdigest() + ".jpg")
+        try:
+            if cached.is_file():
+                return cached.read_bytes()
+        except OSError:
+            pass  # unreadable cache entry: fetch again
+        raw = self._fetch_image(key)
+        if raw is not None and not self._cache_image(cached, raw):
+            with self._image_lock:
+                if self.IMAGE_CACHE_NOTE not in self._image_notes:
+                    self._image_notes.append(self.IMAGE_CACHE_NOTE)
+        return raw
+
+    def _fetch_image(self, key: str) -> bytes | None:
         try:
             response = self.client.get_object(Bucket=self.settings.bucket, Key=key)
             body = response["Body"]
-            size = _read_stream(body, partial)
+            try:
+                raw = body.read()
+            finally:
+                close = getattr(body, "close", None)
+                if callable(close):
+                    close()
             expected = response.get("ContentLength")
-            if expected is not None and size != expected:
+            if expected is not None and len(raw) != expected:
                 raise StorageUnavailable("R2 이미지 다운로드 크기가 일치하지 않습니다")
-            os.replace(partial, cached)
-            return cached.read_bytes()
+            return raw
         except StorageUnavailable:
             raise
         except Exception as exc:
@@ -237,8 +272,30 @@ class R2ObjectStore:
                     or response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}):
                 return None
             raise StorageUnavailable("R2 이미지를 가져오지 못했습니다") from None
+
+    @staticmethod
+    def _cache_image(cached: Path, raw: bytes) -> bool:
+        """Atomically store one image; False when the cache directory cannot be written."""
+        partial = None
+        try:
+            cached.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, name = tempfile.mkstemp(prefix=cached.name + ".", suffix=".part", dir=cached.parent)
+            partial = Path(name)
+            with open(fd, "wb") as out:
+                out.write(raw)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(partial, cached)
+            partial = None
+            return True
+        except OSError:
+            return False
         finally:
-            partial.unlink(missing_ok=True)
+            if partial is not None:
+                try:
+                    partial.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25,
                          *, allow_download: bool = True) -> tuple[Path, str]:

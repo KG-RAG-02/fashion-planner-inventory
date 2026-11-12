@@ -58,6 +58,7 @@ python -m pytest
 | `R2_SECRET_ACCESS_KEY` | 없음 | R2 읽기 전용 API token의 secret access key |
 | `STOCK_CACHE_DIR` | OS 임시 폴더의 `stock-agent` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
 | `STOCK_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
+| `STOCK_IMAGE_CACHE_DIR` | `$STOCK_CACHE_DIR/images` | R2에서 받은 상품 이미지 캐시. 쓸 수 없으면(read-only mount 등) 캐시 없이 사진을 응답에 넣고 trend 결과 limitations에 적는다(500이 아님) |
 | `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
 | `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 
