@@ -467,3 +467,39 @@ def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypa
         assert response.status_code == 200 and response.json()["status"] == "no_results"
         assert response.json()["result"]["products"] == []
         assert _post_handoff(client).status_code == 503
+
+
+def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
+    """Trend 1.1 may carry trends[].style.example_images (schema_version stays 1.1). Stock accepts it,
+    hashes the unchanged object into input_provenance, and never forwards the image links to the LLM."""
+    import copy
+    import hashlib
+    import json
+    from pathlib import Path
+
+    import jsonschema
+    from stock_agent.trend_input import llm_trend
+    from stock_agent.trend_request import canonical_bytes
+
+    trend = copy.deepcopy(REQ)
+    images = [{"url": "https://img.example.invalid/0.jpg", "basis": "item_link"},
+              {"url": "https://img.example.invalid/1.jpg", "basis": "article"}]
+    trend["trends"][0]["style"]["example_images"] = images
+    assert trend["schema_version"] == "1.1"
+    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts/schemas/stock-agent-request.schema.json")
+                        .read_text(encoding="utf-8"))
+    assert list(jsonschema.Draft202012Validator(schema).iter_errors(trend)) == []
+
+    r = _post_handoff(handoff_client, _handoff(trend))
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+    provenance = r.json()["result"]["input_provenance"]
+    assert provenance["source_schema_version"] == "1.1"
+    assert provenance["source_payload_sha256"] == hashlib.sha256(canonical_bytes(trend)).hexdigest()
+    without = copy.deepcopy(trend)
+    del without["trends"][0]["style"]["example_images"]
+    assert provenance["source_payload_sha256"] != hashlib.sha256(canonical_bytes(without)).hexdigest()
+
+    legacy = handoff_client.post("/v1/inventory-products", json=trend)
+    assert legacy.status_code == 200
+    assert legacy.json()["input_provenance"]["source_payload_sha256"] == provenance["source_payload_sha256"]
+    assert "example_images" not in llm_trend(trend["trends"][0])["style"]   # links only; never sent onward
