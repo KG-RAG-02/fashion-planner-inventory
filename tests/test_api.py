@@ -18,6 +18,7 @@ REQ = build_trend_result("req_api", [BALLET], include=["상의"], gender="여") 
 @pytest.fixture
 def make_client(con, tmp_path, monkeypatch):
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    monkeypatch.delenv("STOCK_DB_PATH", raising=False)   # R2 mode (STOCK_DB_PATH would select local-file)
     # conftest의 작은 DB를 파일로 저장해 API가 read_only로 열게 한다
     db = tmp_path / "t.duckdb"
     con.execute(f"ATTACH '{db.as_posix()}' AS f")
@@ -163,7 +164,7 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
     import stock_agent.api as api
     monkeypatch.setattr(api, "load_llm", lambda: None)
-    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY"):
+    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "STOCK_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         response = c.get("/health")

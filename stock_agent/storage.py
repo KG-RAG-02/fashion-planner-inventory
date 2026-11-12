@@ -129,6 +129,23 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def open_local_database(path_value: str | os.PathLike) -> tuple[Path, str]:
+    """Local-file mode (``STOCK_DB_PATH``): no R2 settings, HEAD or download.
+
+    The file must exist. If a ``<name>.sha256`` sidecar sits next to it (as written by
+    ``python -m stock_agent.server --prepare-cache``), the file must match it. The version
+    identifier is the file's SHA-256. The caller opens the file read-only.
+    """
+    path = Path(path_value).expanduser()
+    if not path.is_file():
+        raise StorageUnavailable("STOCK_DB_PATH가 가리키는 DB 파일이 없습니다")
+    checksum = file_sha256(path)
+    sidecar = path.with_suffix(".sha256")
+    if sidecar.is_file() and sidecar.read_text().strip() != checksum:
+        raise StorageUnavailable("STOCK_DB_PATH DB 파일이 SHA-256 sidecar와 일치하지 않습니다")
+    return path, f"sha256:{checksum}"
+
+
 def _write_checksum(target: Path) -> str:
     checksum = file_sha256(target)
     fd, name = tempfile.mkstemp(prefix=target.name, suffix=".part", dir=target.parent)

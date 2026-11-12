@@ -37,7 +37,7 @@ python -m pytest
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
 - 생성된 DuckDB와 이미지 데이터는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, 실제 DB object key와 이미지 prefix를 환경 설정에 등록한다.
-- 로컬 빌드·검증 스크립트는 계속 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용할 수 있다. 이 두 값은 API 런타임 DB 설정이 아니다.
+- 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절).
 
 ## 2. LLM 설정 (OpenAI)
 
@@ -57,13 +57,14 @@ python -m pytest
 | `R2_SECRET_ACCESS_KEY` | 없음 | R2 읽기 전용 API token의 secret access key |
 | `STOCK_CACHE_DIR` | OS 임시 폴더의 `stock-agent` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
 | `STOCK_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
+| `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
 | `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 
 - R2 SDK region 값은 `auto`입니다. 접속은 S3 호환 API와 계정 endpoint를 사용합니다. jurisdiction bucket은 `R2_ENDPOINT`에 해당 공식 endpoint를 지정해야 합니다.
 - R2 키는 해당 bucket의 `Object Read only` 권한만 부여하고, `R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`는 배포 secret store에 둡니다. `.env`는 로컬 개발 전용이며 커밋하지 않습니다.
 - API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 교체/준비는 별도 데이터 작업입니다.
 - 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
-- 로컬 빌드 스크립트는 `STOCK_DB_PATH`를 사용할 수 있지만 API는 그 설정을 읽지 않습니다.
+- `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
 - Project_08 Stock timeout과 새 route의 HTTP deadline은 60초입니다. 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
 - `/health`의 `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).

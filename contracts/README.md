@@ -92,10 +92,10 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 ## Health, API docs 및 환경 변수
 
-- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. 로컬 빌드 스크립트는 계속 `STOCK_DB_PATH`를 사용할 수 있지만 API 런타임 DB 설정은 아닙니다.
+- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. `STOCK_DB_PATH`가 설정되면 API는 R2 설정·HEAD 없이 그 로컬 파일을 read-only로 엽니다(local-file 모드, readiness `db: local-file`).
 - `/health/live`는 API 생존200이며 `/health/ready`와 `/health`는 column/type, nonempty tables, sample snapshot 및 수치 검사를 통과해야200입니다. 실패는503입니다. image_objects_verified=false, llm_authenticated=null을 따로 표시합니다. llm_connected는 기존 client 구성 여부 별칭이며 원격 인증 성공이 아닙니다.
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
-- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
+- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `STOCK_DB_PATH`(선택, local-file 모드), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 

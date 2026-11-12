@@ -9,7 +9,8 @@
   GET  /docs                    설명서 (요청 예시 4개, 응답 200·400·500 형식)
 
 실행 (로컬):   uvicorn stock_agent.api:app --port 8002
-실행 (도커):   README 참고. DB는 Cloudflare R2에서 내려받아 로컬 read-only 캐시로 연다.
+실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
+              없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
 레거시 경로는 기존 클라이언트 호환을 위해 유지한다.
 """
 
@@ -42,7 +43,7 @@ from stock_agent.llm import load_llm
 from stock_agent.llm import UnavailableLLM
 from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, InventoryRequest, ErrorResponse,
                                 HandoffRequest, HandoffResponse)
-from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable
+from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
 from stock_agent.readiness import inspect_database
 from stock_agent.trend_request import from_trend_result
 from stock_agent.multi import _record_input_provenance
@@ -57,8 +58,21 @@ state: dict = {}
 _RUN_LOCK = threading.RLock()
 
 
-def prepare_database() -> tuple[str, str, R2ObjectStore]:
-    """Inspect HEAD and reuse one verified existing cache version; never download."""
+def database_mode() -> str:
+    """``local-file`` when ``STOCK_DB_PATH`` is set (no R2 settings or HEAD), otherwise ``cloudflare-r2``."""
+    return "local-file" if os.environ.get("STOCK_DB_PATH", "").strip() else "cloudflare-r2"
+
+
+def prepare_database() -> tuple[str, str, R2ObjectStore | None]:
+    """Locate the DB to open read-only; never download.
+
+    local-file: the ``STOCK_DB_PATH`` file (and its SHA-256 sidecar when present); images then come
+    from ``STOCK_IMAGE_DIR``. cloudflare-r2: HEAD plus one verified existing cache version.
+    """
+    local = os.environ.get("STOCK_DB_PATH", "").strip()
+    if local:
+        path, version = open_local_database(local)
+        return str(path), version, None
     store = R2ObjectStore(R2Settings.from_env())
     # Startup may inspect HEAD and an existing cache, but never initiates a DB download.
     path, version = store.prepare_database(allow_download=False)
@@ -68,6 +82,7 @@ def prepare_database() -> tuple[str, str, R2ObjectStore]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state.clear()
+    state["db_mode"] = database_mode()
     try:
         db_path, db_version, store = prepare_database()
         state["con"] = duckdb.connect(db_path, read_only=True)
@@ -90,6 +105,7 @@ async def lifespan(app: FastAPI):
     state.pop("db_error", None)
     state.pop("object_store", None)
     state.pop("readiness", None)
+    state.pop("db_mode", None)
 
 
 app = FastAPI(
@@ -271,7 +287,7 @@ def health():
     store = state.get("object_store")
     images_remote = bool(store and store.images_configured)
     return _json({"status": "ok" if ok else "error", "api_alive": True, "agent_id": AGENT_ID,
-                  "db": "cloudflare-r2", "db_version": state.get("db_version"),
+                  "db": state.get("db_mode", "cloudflare-r2"), "db_version": state.get("db_version"),
                   **ready, "images_configured": images_remote or os.path.isdir(IMAGE_DIR),
                   "image_objects_verified": False, "llm_authenticated": None,
                   "llm_configured": state.get("llm") is not None and not isinstance(state.get("llm"), UnavailableLLM),

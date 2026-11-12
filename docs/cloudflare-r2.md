@@ -26,7 +26,7 @@ The API uses these settings:
 
 The SDK region is `auto`. Scope the R2 token to the required bucket with `Object Read only`; Cloudflare documents that permission and jurisdiction-specific endpoints in its [R2 authentication guide](https://developers.cloudflare.com/r2/api/tokens/). Keep access key values in a deployment secret store; never log credentials, signed URLs, or provider exception messages. `/health` reports the provider and a non-secret version identifier, not bucket/key paths or credentials.
 
-`STOCK_DB_PATH` remains available to local database-building scripts only. The API does not use it.
+`STOCK_DB_PATH` selects local-file mode: the API skips the R2 settings and HEAD and opens that DuckDB file read-only, verifying a `<name>.sha256` sidecar when one is present; `/health` then reports `db: local-file` and `db_version: sha256:<file hash>`, and images come from `STOCK_IMAGE_DIR`. Local build scripts use the same variable.
 
 ## Verification
 
