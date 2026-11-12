@@ -1,0 +1,223 @@
+{
+  "contract_version": "vogue-handoff/0.1",
+  "request_id": "stub-trend-001",
+  "input": {
+    "request_id": "stub-trend-001",
+    "status": "ok",
+    "applied_filters": {
+      "season": {
+        "year": 2027,
+        "season": "SS",
+        "raw": "2027년 봄",
+        "origin": "user_requested"
+      },
+      "categories": {
+        "include": [
+          {
+            "raw": "상의",
+            "major": "상의",
+            "minor": null
+          }
+        ],
+        "exclude": []
+      },
+      "gender": null,
+      "attributes": [
+        {
+          "type": "color",
+          "value": "핑크"
+        }
+      ]
+    },
+    "trends": [
+      {
+        "style": {
+          "id": "900003-s0",
+          "name": "발레코어",
+          "name_origin": "article",
+          "seasons": [
+            "2027SS"
+          ],
+          "definition": "합성 정의: 발레복에서 온 가볍고 여린 실루엣",
+          "description": [
+            {
+              "text": "합성 설명: 시폰 블라우스와 튤 스커트",
+              "evidence_ids": [
+                "trend:900003:1:a66b6973"
+              ]
+            }
+          ],
+          "focus_core": [
+            "color"
+          ],
+          "focus_supporting": [],
+          "focus_evidence_ids": [
+            "trend:900003:2:20a25667"
+          ],
+          "aliases": [
+            "발레 코어"
+          ],
+          "article_id": "900003",
+          "example_images": [
+            {
+              "url": "https://img.example.invalid/0.jpg",
+              "basis": "item_link"
+            },
+            {
+              "url": "https://img.example.invalid/1.jpg",
+              "basis": "article"
+            }
+          ]
+        },
+        "items": [
+          {
+            "category_major": "상의",
+            "category_minor": "블라우스",
+            "colors": [
+              "핑크"
+            ],
+            "materials": [
+              "시폰"
+            ],
+            "patterns": [],
+            "details": [],
+            "fit": null,
+            "shape": null,
+            "length_body": null,
+            "length_sleeve": null,
+            "length_body_raw": null,
+            "length_sleeve_raw": null,
+            "approx": [],
+            "id": "900003-s0-i0",
+            "name": "핑크 블라우스",
+            "styling_raw": null,
+            "styling_accessory": null,
+            "gender": null,
+            "request_match": {
+              "matched": [
+                "color:핑크"
+              ],
+              "mismatched": [],
+              "unknown": []
+            },
+            "image_urls": [
+              "https://img.example.invalid/0.jpg"
+            ],
+            "evidence_ids": [
+              "trend:900003:3:d7db6a25"
+            ],
+            "similar_products": [
+              {
+                "category_major": "상의",
+                "category_minor": "블라우스",
+                "colors": [
+                  "핑크"
+                ],
+                "materials": [
+                  "시폰"
+                ],
+                "patterns": [],
+                "details": [],
+                "fit": null,
+                "shape": null,
+                "length_body": null,
+                "length_sleeve": null,
+                "length_body_raw": null,
+                "length_sleeve_raw": null,
+                "approx": [],
+                "product_id": "otpensource:p1",
+                "name": "otpensource:p1",
+                "brand": "Musinsa",
+                "image_url": "https://x/p1.jpg",
+                "source": "otpensource",
+                "kind": "catalog_item",
+                "sub_colors": [],
+                "match": {
+                  "matched": [
+                    "color:핑크",
+                    "material:시폰"
+                  ],
+                  "mismatched": [],
+                  "unknown": []
+                },
+                "score": 1.1,
+                "score_breakdown": {
+                  "attributes": {
+                    "color": {
+                      "weight": 6.0,
+                      "base_weight": 3.0,
+                      "level": "core",
+                      "ratio": 1.0
+                    },
+                    "material": {
+                      "weight": 2.0,
+                      "base_weight": 2.0,
+                      "level": null,
+                      "ratio": 1.0
+                    }
+                  },
+                  "base_score": 1.0,
+                  "bonus": {
+                    "category_minor": 0.1
+                  },
+                  "unknown_core_weight": 0.0,
+                  "value_weighted": false
+                },
+                "gender": null,
+                "snap_id": null,
+                "image_ref": null,
+                "image_scope": null,
+                "image_status": "ok",
+                "parent_id": null,
+                "multi_wearer_suspected": null,
+                "has_image": true
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "evidence_id": "trend:900003:1:a66b6973",
+        "article_id": "900003",
+        "title": "합성 기사 (발레코어)",
+        "url": "https://example.invalid/900003",
+        "published_at": "2026-10-01",
+        "block_idx": 1,
+        "quote": "발레코어 설명 인용"
+      },
+      {
+        "evidence_id": "trend:900003:2:20a25667",
+        "article_id": "900003",
+        "title": "합성 기사 (발레코어)",
+        "url": "https://example.invalid/900003",
+        "published_at": "2026-10-01",
+        "block_idx": 2,
+        "quote": "발레코어 색 인용"
+      },
+      {
+        "evidence_id": "trend:900003:0:4f0e7822",
+        "article_id": "900003",
+        "title": "합성 기사 (발레코어)",
+        "url": "https://example.invalid/900003",
+        "published_at": "2026-10-01",
+        "block_idx": 0,
+        "quote": "발레코어 이름 인용"
+      },
+      {
+        "evidence_id": "trend:900003:3:d7db6a25",
+        "article_id": "900003",
+        "title": "합성 기사 (발레코어)",
+        "url": "https://example.invalid/900003",
+        "published_at": "2026-10-01",
+        "block_idx": 3,
+        "quote": "블라우스 인용"
+      }
+    ],
+    "limitations": [
+      "요청 속성을 충족한다는 근거가 없어 제외한 상품: 값 없음 0건, 다른 값 1건."
+    ],
+    "schema_version": "1.1"
+  }
+}

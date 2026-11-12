@@ -102,6 +102,21 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
   ConvertTo-Json -Depth 10
 ```
 
+## 5. Stub 프로필 (오프라인 결정적 실행)
+
+통합 Docker 배포의 stub 프로필은 R2·OpenAI 없이 합성 fixture DB와 결정적 `PolicyLLM`으로 Stock을 실행한다.
+
+```bash
+python scripts/build_fixture_db.py /tmp/stock-fixture.duckdb   # 이미지 안에서는 python -m stock_agent.fixture_db <out.duckdb>
+STOCK_DB_PATH=/tmp/stock-fixture.duckdb STOCK_LLM_PROVIDER=policy VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token> \
+  python -m stock_agent.server
+```
+
+- fixture DB(`stock_agent/fixture_db.py`): `tests/conftest.py`의 작은 표(a1~a6) + trend-analysis-agent stub 결과(발레코어·상의·핑크 → 짝 하의·아우터, 봄·여름)에 맞춘 합성 상품 3개 + 표지 표 `stock_fixture`. H&M 원본이 아니고 내용은 매번 같다(`content_sha256`). storage version v1.0.0으로 써서 DuckDB 1.x·2.x 모두 읽는다. 있는 파일은 `--force` 없이 덮어쓰지 않는다.
+- `/health/ready`: `db: local-file`, `llm_provider: policy`, `synthetic_fixture: true`. 트렌드 결과마다 limitations에 PolicyLLM이 골랐다는 문장과 합성 DB라는 문장이 붙는다.
+- 요청: `examples/stub/stock-request.json` — `vogue-handoff/0.1`, `input`은 trend stub 결과 그대로(`trends[].style.example_images` 포함).
+- 기대 응답: `examples/stub/stock-response-summary.json` — HTTP 200 `ok`, 상품 1개(`0910001001` 스커트·화이트, 사진 없음), bearer가 없으면 401. `tests/test_fixture_db.py`가 대조한다.
+
 ## API
 
 | 메서드 | 경로 | 설명 |

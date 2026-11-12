@@ -44,7 +44,7 @@ from stock_agent.llm import UnavailableLLM
 from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, InventoryRequest, ErrorResponse,
                                 HandoffRequest, HandoffResponse)
 from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
-from stock_agent.readiness import inspect_database
+from stock_agent.readiness import FIXTURE_LIMITATION, inspect_database
 from stock_agent.trend_request import from_trend_result
 from stock_agent.multi import _record_input_provenance
 
@@ -99,7 +99,8 @@ async def lifespan(app: FastAPI):
     state["llm"] = load_llm()       # 아직 연결 전이면 None → 트렌드마다 SOURCE_UNAVAILABLE(reason=no_llm)
     state["llm_provider"] = llm_provider()
     # 결과를 읽는 사람이 실행 방식을 알 수 있게 trend_results[].limitations에 붙이는 문장
-    state["runtime_notes"] = [POLICY_LIMITATION] if state["llm_provider"] == "policy" else []
+    state["runtime_notes"] = ([POLICY_LIMITATION] if state["llm_provider"] == "policy" else []) + \
+        ([FIXTURE_LIMITATION] if state["readiness"].get("synthetic_fixture") else [])
     yield
     con = state.pop("con", None)
     if con is not None:

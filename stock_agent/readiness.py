@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from stock_agent.synthetic import AS_OF, VERSION
 
+FIXTURE_TABLE = "stock_fixture"   # marker table written by stock_agent.fixture_db
+FIXTURE_LIMITATION = ("재고 DB가 합성 fixture(stock_agent.fixture_db)입니다: 상품·판매 기록·재고가 모두 합성이며 "
+                      "H&M 원본 데이터가 아닙니다(evidence의 출처 표기와 무관). 연동 점검용으로만 쓰세요.")
+
 REQUIRED_COLUMNS = {
     "articles": {"article_id": "text"},
     "transactions": {"article_id": "text", "t_dat": "date"},
@@ -89,10 +93,11 @@ def inspect_database(con) -> dict:
             missing_columns[table] = missing
         if wrong:
             incompatible_columns[table] = wrong
+    fixture = FIXTURE_TABLE in schema
     result = {"db_ready": False, "missing_tables": missing_tables,
               "missing_columns": missing_columns, "incompatible_columns": incompatible_columns,
               "schema": {t: schema.get(t, {}) for t in REQUIRED_COLUMNS},
-              "snapshot": None, "reason": "schema_incompatible"}
+              "snapshot": None, "reason": "schema_incompatible", "synthetic_fixture": fixture}
     if missing_tables or missing_columns or incompatible_columns:
         return result
     empty = [t for t in REQUIRED_COLUMNS
@@ -111,5 +116,7 @@ def inspect_database(con) -> dict:
         return {**result, "reason": "invalid_inventory_values"}
     return {**result, "db_ready": True, "reason": None,
             "snapshot": {"as_of": AS_OF.isoformat(), "version": VERSION, "data_nature": "sample",
-                         "synthetic": True, "source": "H&M historical data + virtual_stock_v1",
+                         "synthetic": True,
+                         "source": ("synthetic fixture (stock_agent.fixture_db)" if fixture
+                                    else "H&M historical data + virtual_stock_v1"),
                          "current_company_inventory_verified": False}}
