@@ -85,8 +85,12 @@ python -m stock_agent.server                                 # HTTP API
 
 ```powershell
 docker build -t stock-agent:v1 .
-docker run --rm -p 127.0.0.1:8002:8002 --env-file .env -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_CACHE_DIR=/cache stock-agent:v1
+docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" stock-agent:v1 python -m stock_agent.server --prepare-cache   # cache 준비 (데이터 작업)
+docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images stock-agent:v1
 ```
+
+- 이미지는 uid/gid 10001, `HOME=/tmp`, `STOCK_CACHE_DIR=/cache`로 실행되고 `/app`에 쓰지 않는다. read-only root filesystem에서는 `/tmp` tmpfs와 `/cache`(volume 또는 tmpfs)만 쓰기 가능하게 둔다. `/cache`를 read-only로 붙이면 R2 이미지 캐시는 `STOCK_IMAGE_CACHE_DIR`(예: `/tmp/stock-images`)로 옮긴다. `--prepare-cache`로 host 폴더를 채울 때 Linux host에서는 그 폴더를 uid 10001이 쓸 수 있어야 한다.
+- `HEALTHCHECK`는 `python -m stock_agent.server --check-ready`(`GET /health/ready`, 외부 호출 없음)라서 DB가 준비되어야 healthy가 된다. liveness는 `GET /health/live`.
 
 - 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `STOCK_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m stock_agent.server --prepare-cache`를 실행해 준비합니다.
 - `--env-file .env`로 런타임 설정을 전달합니다. 이미지 안에는 `.env`, DB, 이미지가 들어가지 않습니다.
