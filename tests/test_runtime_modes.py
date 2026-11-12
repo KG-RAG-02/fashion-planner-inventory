@@ -101,3 +101,52 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
         ready = c.get("/health/ready")
         assert ready.status_code == 503 and ready.json()["reason"] == "StorageUnavailable"
         assert "missing.duckdb" not in ready.text
+
+
+# ---------------------------------------------------------------- STOCK_LLM_PROVIDER
+
+@pytest.fixture
+def llm_env(monkeypatch):
+    """개발자 .env·키에 영향받지 않는 LLM 설정."""
+    import stock_agent.llm as llm
+    monkeypatch.setattr(llm, "read_dotenv", lambda *args, **kwargs: None)
+    for name in ("STOCK_LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_TIMEOUT"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_policy_provider_needs_no_key_and_never_builds_openai(llm_env):
+    import stock_agent.llm as llm
+    import stock_agent.llm_openai as llm_openai
+
+    def no_openai(*args, **kwargs):
+        raise AssertionError("policy provider must not build the OpenAI client")
+
+    llm_env.setattr(llm_openai, "OpenAILLM", no_openai)
+    llm_env.setenv("STOCK_LLM_PROVIDER", "policy")
+    assert llm.llm_provider() == "policy" and isinstance(llm.load_llm(), llm.PolicyLLM)
+    llm_env.setenv("LLM_API_KEY", "synthetic-key-not-used")
+    assert isinstance(llm.load_llm(), llm.PolicyLLM)
+    llm_env.setenv("STOCK_LLM_PROVIDER", " Policy ")
+    assert isinstance(llm.load_llm(), llm.PolicyLLM)
+
+
+def test_default_provider_is_openai_and_unknown_provider_fails_closed(llm_env):
+    import stock_agent.llm as llm
+    assert llm.llm_provider() == "openai" and llm.load_llm() is None       # no key → no_llm, as before
+    llm_env.setenv("STOCK_LLM_PROVIDER", "anthropic")
+    assert llm.llm_provider() == "invalid" and isinstance(llm.load_llm(), llm.UnavailableLLM)
+
+
+def test_policy_with_local_file_serves_without_network_and_labels_results(local_env, llm_env, con, tmp_path):
+    from stock_agent.llm import POLICY_LIMITATION
+    llm_env.setenv("STOCK_DB_PATH", str(ready_db_file(con, tmp_path / "stock-local.duckdb")))
+    llm_env.setenv("STOCK_LLM_PROVIDER", "policy")
+    with _client() as c:
+        ready = c.get("/health/ready").json()
+        assert ready["llm_provider"] == "policy" and ready["llm_configured"] is True and ready["db"] == "local-file"
+        r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
+    result = r.json()["result"]
+    assert r.status_code == 200 and result["status"] == "ok" and result["products"][0] is not None
+    assert not [e for tr in result["trend_results"] for e in tr["errors"] if e.get("reason") == "no_llm"]
+    assert all(POLICY_LIMITATION in tr["limitations"] for tr in result["trend_results"])

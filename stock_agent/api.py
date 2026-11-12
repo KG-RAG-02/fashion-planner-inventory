@@ -39,7 +39,7 @@ from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
 from stock_agent.errors import http_status
 from stock_agent.multi import error_response, run_request
 from stock_agent.images import DEFAULT_IMAGE_DIR
-from stock_agent.llm import load_llm
+from stock_agent.llm import POLICY_LIMITATION, llm_provider, load_llm
 from stock_agent.llm import UnavailableLLM
 from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, InventoryRequest, ErrorResponse,
                                 HandoffRequest, HandoffResponse)
@@ -97,6 +97,9 @@ async def lifespan(app: FastAPI):
         state["db_error"] = type(e).__name__
         state["readiness"] = {"db_ready": False, "reason": type(e).__name__}
     state["llm"] = load_llm()       # 아직 연결 전이면 None → 트렌드마다 SOURCE_UNAVAILABLE(reason=no_llm)
+    state["llm_provider"] = llm_provider()
+    # 결과를 읽는 사람이 실행 방식을 알 수 있게 trend_results[].limitations에 붙이는 문장
+    state["runtime_notes"] = [POLICY_LIMITATION] if state["llm_provider"] == "policy" else []
     yield
     con = state.pop("con", None)
     if con is not None:
@@ -106,6 +109,8 @@ async def lifespan(app: FastAPI):
     state.pop("object_store", None)
     state.pop("readiness", None)
     state.pop("db_mode", None)
+    state.pop("llm_provider", None)
+    state.pop("runtime_notes", None)
 
 
 app = FastAPI(
@@ -185,6 +190,15 @@ def _envelope(request_id: str, result: dict) -> dict:
             "status": result["status"], "result": result}
 
 
+def _with_runtime_notes(result: dict) -> dict:
+    """Append runtime-mode notes (e.g. STOCK_LLM_PROVIDER=policy) to every trend result's limitations."""
+    notes = state.get("runtime_notes") or []
+    for tr in result.get("trend_results") or []:
+        if notes and isinstance(tr, dict) and isinstance(tr.get("limitations"), list):
+            tr["limitations"].extend(n for n in notes if n not in tr["limitations"])
+    return result
+
+
 def _run_inventory(request: Any) -> dict:
     """Run the unchanged TrendAnalysisResult through the producer implementation."""
     req = request if isinstance(request, dict) else {}
@@ -203,7 +217,7 @@ def _run_inventory(request: Any) -> dict:
         try:
             store = state.get("object_store")
             image_source = store if store is not None and store.images_configured else IMAGE_DIR
-            return run_request(req, con, image_dir=image_source, llm=state.get("llm"))
+            return _with_runtime_notes(run_request(req, con, image_dir=image_source, llm=state.get("llm")))
         except StorageUnavailable:
             return _record_input_provenance(error_response(req, "SOURCE_UNAVAILABLE", "이미지 자료원을 조회하지 못했습니다.",
                                                           reason="image_source_unavailable"), req)
@@ -291,6 +305,7 @@ def health():
                   **ready, "images_configured": images_remote or os.path.isdir(IMAGE_DIR),
                   "image_objects_verified": False, "llm_authenticated": None,
                   "llm_configured": state.get("llm") is not None and not isinstance(state.get("llm"), UnavailableLLM),
+                  "llm_provider": state.get("llm_provider"),
                   **_llm_status(state.get("llm"))}, 200 if ok else 503)
 
 

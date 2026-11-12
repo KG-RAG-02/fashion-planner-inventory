@@ -1,8 +1,11 @@
 """03 LLM agent가 쓰는 LLM 인터페이스 (2026-11-08 결정: 교체 가능하게만)
 
 어떤 LLM이든 LLM.next()만 구현하면 붙일 수 있다. 실제 연결은 OpenAI(llm_openai.py, 기본 gpt-4o-mini).
-    load_llm()  환경변수 LLM_API_KEY가 있으면 OpenAILLM, 없으면 None(연결 전).
-                None이면 agent는 트렌드마다 llm_failed(no_llm) 오류를 돌려준다 (API 응답: SOURCE_UNAVAILABLE)
+    load_llm()  STOCK_LLM_PROVIDER(openai 기본 | policy)를 따른다.
+                openai: 환경변수 LLM_API_KEY가 있으면 OpenAILLM, 없으면 None(연결 전).
+                        None이면 agent는 트렌드마다 llm_failed(no_llm) 오류를 돌려준다 (API 응답: SOURCE_UNAVAILABLE)
+                policy: 아래 PolicyLLM (결정적, 네트워크·키 없음, no_llm이 나지 않음). stub 프로필·오프라인 점검용
+                그 밖의 값: UnavailableLLM (트렌드마다 llm_unavailable)
                 환경변수가 없으면 현재 폴더의 .env를 읽는다(이미 있는 환경변수는 덮어쓰지 않음)
 
 메시지 형식 (특정 회사 형식에 묶이지 않게 단순하게)
@@ -22,7 +25,7 @@ LLM이 실패하면 아래 예외를 던진다. agent가 llm_failed 오류의 �
     LLMUnavailable  → llm_unavailable (키 오류·권한·모델 없음·연결 실패)
     LLMError        → invalid_response (응답을 읽을 수 없음 등)
 
-테스트·점검용 LLM (API에서는 쓰지 않음)
+테스트·점검용 LLM (API는 STOCK_LLM_PROVIDER=policy일 때만 PolicyLLM을 쓴다)
     ScriptedLLM   정해 둔 도구 호출을 순서대로 돌려줌
     PolicyLLM     LLM 없이 정해진 순서로 도구를 부르는 가짜 LLM. agent 반복 구조 점검용이고, 실패 시 대신 쓰는 용도가 아니다
 """
@@ -82,9 +85,29 @@ def read_dotenv(path: str | Path = ".env") -> None:
             os.environ[k] = v
 
 
+LLM_PROVIDERS = ("openai", "policy")
+POLICY_LIMITATION = ("STOCK_LLM_PROVIDER=policy: 언어 모델 대신 정해진 순서로 도구를 부르는 결정적 PolicyLLM이 "
+                     "조건과 상품을 골랐습니다(오프라인 점검용, 외부 호출 없음). reason.decided_by·llm_reason도 PolicyLLM의 값입니다.")
+
+
+def llm_provider() -> str:
+    """STOCK_LLM_PROVIDER: openai(기본) | policy. 대소문자·앞뒤 공백은 무시하고, 그 밖의 값은 "invalid"."""
+    value = os.environ.get("STOCK_LLM_PROVIDER", "").strip().lower() or "openai"
+    return value if value in LLM_PROVIDERS else "invalid"
+
+
 def load_llm() -> LLM | None:
-    """API·스크립트가 쓸 LLM. LLM_API_KEY가 없으면 None (키는 환경변수 또는 .env, .env는 커밋하지 않음)."""
+    """API·스크립트가 쓸 LLM (STOCK_LLM_PROVIDER).
+
+    policy → PolicyLLM (키·네트워크 없음). openai → LLM_API_KEY가 없으면 None (키는 환경변수 또는 .env,
+    .env는 커밋하지 않음). 알 수 없는 provider → UnavailableLLM (조용히 다른 LLM으로 바꾸지 않는다).
+    """
     read_dotenv()
+    provider = llm_provider()
+    if provider == "policy":
+        return PolicyLLM()
+    if provider != "openai":
+        return UnavailableLLM("STOCK_LLM_PROVIDER는 openai 또는 policy여야 합니다")
     key = os.environ.get("LLM_API_KEY", "").strip()
     if not key:
         return None

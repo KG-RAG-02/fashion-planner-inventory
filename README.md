@@ -45,7 +45,8 @@ python -m pytest
 
 | 환경변수 | 기본 | 설명 |
 |---|---|---|
-| `LLM_API_KEY` | 없음 | OpenAI 키. 없으면 LLM 연결 전으로 보고 `no_llm` 오류 |
+| `STOCK_LLM_PROVIDER` | `openai` | `openai` 또는 `policy`. `policy`는 결정적 `PolicyLLM`(키·네트워크 없음, `no_llm`이 나지 않음, 트렌드 결과 limitations에 policy 실행임을 적음)으로 stub 프로필·오프라인 점검용. 그 밖의 값은 `llm_unavailable`. `/health/ready`의 `llm_provider`로 보인다 |
+| `LLM_API_KEY` | 없음 | OpenAI 키. 없으면 LLM 연결 전으로 보고 `no_llm` 오류 (`STOCK_LLM_PROVIDER=openai`일 때) |
 | `LLM_MODEL` | `gpt-4o-mini` | 모델 |
 | `LLM_TIMEOUT` | `30` | 호출 1번당 시간 제한(초). 넘으면 `TIMEOUT`(504) |
 | `R2_ACCOUNT_ID` | 없음 | Cloudflare 계정 ID. S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`로 구성 |
@@ -67,7 +68,7 @@ python -m pytest
 - `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
 - Project_08 Stock timeout과 새 route의 HTTP deadline은 60초입니다. 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
-- `/health`의 `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
+- `/health`의 `llm_provider`, `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
 
 ## 3. 로컬 실행
 
