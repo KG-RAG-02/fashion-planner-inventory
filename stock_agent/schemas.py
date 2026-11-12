@@ -98,6 +98,7 @@ class InventoryRequest(BaseModel):
     applied_filters가 없으면 400. 입구(stock_agent/trend_request.py)에서 내부 형식으로 바꾼다."""
     model_config = ConfigDict(extra="allow")
 
+    schema_version: Optional[str] = Field(None, description="**필수.** Trend producer schema 1.1")
     request_id: Optional[str] = Field(None, description="**필수.** 응답에 그대로 돌려줌")
     status: Optional[str] = Field(None, description="**필수.** ok → 처리 / no_results → 조회하지 않고 no_results / "
                                                     "error → 400 INVALID_REQUEST(reason=upstream_error)")
@@ -117,6 +118,7 @@ _MAXI = {"style": {"id": "style_007", "name": "정제된 맥시멀리스트"},
 
 # 02 트렌드 결과(TrendAnalysisResult) 그대로 (similar_products 등은 줄임). contracts/examples/request-trend-result.json과 같다
 TREND_RESULT_EXAMPLE = {
+    "schema_version": "1.1",
     "request_id": "req_example_010",
     "status": "ok",
     "applied_filters": {
@@ -297,6 +299,7 @@ class HandoffProducer(BaseModel):
 
 
 class HandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     contract_version: Literal["vogue-handoff/0.1"]
     request_id: str = Field(min_length=1)
     input: dict[str, Any] = Field(description="Unchanged TrendAnalysisResult producer object")

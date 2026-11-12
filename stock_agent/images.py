@@ -13,8 +13,6 @@ import base64
 import os
 from pathlib import Path
 
-from stock_agent.storage import StorageUnavailable
-
 DEFAULT_IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", "data/images")
 
 
@@ -33,10 +31,7 @@ def load_image(image_dir: str | Path, article_id: str) -> dict | None:
     """이미지를 base64로 읽어 응답에 넣을 dict로. 없으면 None."""
     remote_load = getattr(image_dir, "load_image", None)
     if callable(remote_load):
-        try:
-            raw = remote_load(article_id)
-        except StorageUnavailable:
-            return None
+        raw = remote_load(article_id)
         if raw is None:
             return None
         return {

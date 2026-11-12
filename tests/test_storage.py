@@ -100,3 +100,29 @@ def test_bad_download_size_does_not_leave_partial_file(tmp_path, settings):
         store.prepare_database(attempts=1)
     assert not list(tmp_path.glob("*.duckdb"))
     assert not list(tmp_path.glob("*.part"))
+
+
+def test_cache_only_never_downloads_and_detects_same_size_corruption(tmp_path, settings):
+    client = FakeR2()
+    store = R2ObjectStore(settings, client=client, cache_dir=tmp_path)
+    with pytest.raises(StorageUnavailable):
+        store.prepare_database(attempts=1, allow_download=False)
+    assert client.downloads == 0
+    path, _ = store.prepare_database()  # Fake bytes only.
+    assert store.database_metadata["sha256"]
+    store.prepare_database(attempts=1, allow_download=False)
+    path.write_bytes(b"x" * len(client.payload))
+    with pytest.raises(StorageUnavailable):
+        store.prepare_database(attempts=1, allow_download=False)
+    assert client.downloads == 1
+
+
+def test_image_denied_is_not_missing(tmp_path, settings):
+    class Denied(Exception):
+        response = {"ResponseMetadata": {"HTTPStatusCode": 403}}
+    class DeniedR2(FakeR2):
+        def head_object(self, **kwargs):
+            raise Denied()
+    store = R2ObjectStore(settings, client=DeniedR2(), cache_dir=tmp_path)
+    with pytest.raises(StorageUnavailable):
+        store.image_exists("0999990001")

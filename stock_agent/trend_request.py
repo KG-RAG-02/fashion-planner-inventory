@@ -25,7 +25,78 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
+
 UPSTREAM_STATUSES = ("ok", "no_results", "error")
+UPSTREAM_SCHEMA_VERSION = "1.1"
+
+
+def canonical_bytes(value) -> bytes:
+    def check(obj):
+        if isinstance(obj, dict):
+            if any(not isinstance(key, str) for key in obj):
+                raise ValueError("JSON object keys must be strings")
+            for item in obj.values():
+                check(item)
+        elif isinstance(obj, list):
+            for item in obj:
+                check(item)
+    check(value)
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def input_provenance(source: dict) -> dict:
+    return {"source_agent_id": "trend-analysis-agent", "source_schema_version": source["schema_version"],
+            "internal_schema_version": None, "adapter_version": "stock-trend-input-adapter/1.0",
+            "transformed": True, "source_payload_sha256": hashlib.sha256(canonical_bytes(source)).hexdigest()}
+
+
+def validate_source(res: dict) -> None:
+    """Validate consumed boundary fields, leaving the producer's full raw object intact.
+
+    Full Trend Evidence semantics remain the upstream/retained consumer's responsibility.
+    """
+    canonical_bytes(res)
+    if res.get("schema_version") != UPSTREAM_SCHEMA_VERSION:
+        raise ValueError("지원하는 Trend schema_version은 1.1입니다.")
+    if "agent_id" in res and res["agent_id"] != "trend-analysis-agent":
+        raise ValueError("Trend agent_id가 일치하지 않습니다.")
+    if not isinstance(res.get("request_id"), str) or not res["request_id"].strip():
+        raise ValueError("Trend request_id는 비어 있지 않은 문자열이어야 합니다.")
+    if res.get("status") not in UPSTREAM_STATUSES:
+        raise ValueError("지원하지 않는 Trend status입니다.")
+    if not isinstance(res.get("trends"), list) or not all(isinstance(t, dict) for t in res["trends"]):
+        raise ValueError("trends는 객체 목록이어야 합니다.")
+    if res["status"] == "no_results" and res["trends"]:
+        raise ValueError("no_results Trend에는 trends가 없어야 합니다.")
+    af = res.get("applied_filters")
+    if af is not None and not isinstance(af, dict):
+        raise ValueError("applied_filters는 객체 또는 null이어야 합니다.")
+    af = af or {}
+    cats = af.get("categories")
+    if cats is not None and not isinstance(cats, dict):
+        raise ValueError("applied_filters.categories는 객체여야 합니다.")
+    for name in ("include", "exclude"):
+        refs = (cats or {}).get(name)
+        if refs is not None and (not isinstance(refs, list) or not all(isinstance(r, dict) for r in refs)):
+            raise ValueError("categories include/exclude는 객체 목록이어야 합니다.")
+        for ref in refs or []:
+            if any(ref.get(k) is not None and not isinstance(ref[k], str) for k in ("raw", "major", "minor")):
+                raise ValueError("category reference 값은 문자열 또는 null이어야 합니다.")
+    if af.get("attributes") is not None and (not isinstance(af["attributes"], list)
+                                             or not all(isinstance(a, dict) for a in af["attributes"])):
+        raise ValueError("attributes는 객체 목록이어야 합니다.")
+    for name in ("evidence", "limitations"):
+        if name in res and not isinstance(res[name], list):
+            raise ValueError(f"{name}는 목록이어야 합니다.")
+    for trend in res["trends"]:
+        if trend.get("style") is not None and not isinstance(trend["style"], dict):
+            raise ValueError("trend.style은 객체 또는 null이어야 합니다.")
+        items = trend.get("items")
+        if items is not None and (not isinstance(items, list) or not all(isinstance(item, dict) for item in items)):
+            raise ValueError("trend.items는 객체 목록이어야 합니다.")
 
 
 def is_trend_result(req: dict) -> bool:
@@ -59,6 +130,7 @@ def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
     메모: 02 status가 ok가 아닐 때 응답 summary에 쓸 문장, 또는 None.
     02 status 값이 이상하면 ValueError.
     """
+    validate_source(res)
     status = res.get("status")
     if status not in UPSTREAM_STATUSES:
         raise ValueError(f"트렌드 결과의 status는 {', '.join(UPSTREAM_STATUSES)} 중 하나여야 합니다: {status!r}")
@@ -97,7 +169,7 @@ def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
         note = "트렌드 분석이 오류(error)를 돌려줘 재고를 조회하지 않았습니다."
     if note and lim:
         note += " 트렌드 분석 한계: " + " / ".join(lim)
-    return req, status, note
+    return copy.deepcopy(req), status, note
 
 
 def build_trend_result(request_id: str, trends: list[dict], *, year: int = 2027, season: str | None = "SS",
@@ -116,5 +188,5 @@ def build_trend_result(request_id: str, trends: list[dict], *, year: int = 2027,
           "categories": {"include": [ref(x) for x in include or []], "exclude": [ref(x) for x in exclude or []]},
           "gender": gender,
           "attributes": [{"type": "color", "value": c} for c in colors or []]}
-    return {"request_id": request_id, "status": status, "applied_filters": af, "trends": trends,
+    return {"schema_version": UPSTREAM_SCHEMA_VERSION, "request_id": request_id, "status": status, "applied_filters": af, "trends": trends,
             "evidence": [], "limitations": []}

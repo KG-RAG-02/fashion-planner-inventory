@@ -1,17 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:vogue:contracts:stock-agent:inventory-request:1.0",
-  "title": "stock-agent producer input = TrendAnalysisResult (payload schema 1.0)",
+  "title": "stock-agent input = TrendAnalysisResult 1.1",
   "description": "Legacy POST /v1/inventory-products accepts this object directly. POST /v1/agents/stock-agent/runs accepts the same unchanged object under input in a vogue-handoff/0.1 envelope. This producer input schema is separate from the shared HTTP envelope version. Unlisted TrendAnalysisResult fields are preserved at the HTTP boundary even when Stock does not consume them.",
   "x-http-envelope": {
     "route": "POST /v1/agents/stock-agent/runs",
     "contract_version": "vogue-handoff/0.1",
-    "request": {"contract_version": "vogue-handoff/0.1", "request_id": "<non-empty string>", "input": "this producer input object"},
-    "response": {"contract_version": "vogue-handoff/0.1", "request_id": "<same request ID>", "producer": {"agent_id": "stock-agent", "schema_version": "1.0"}, "status": "result.status", "result": "stock-agent-result.schema.json"},
+    "request": {
+      "contract_version": "vogue-handoff/0.1",
+      "request_id": "<non-empty string>",
+      "input": "this producer input object"
+    },
+    "response": {
+      "contract_version": "vogue-handoff/0.1",
+      "request_id": "<same request ID>",
+      "producer": {
+        "agent_id": "stock-agent",
+        "schema_version": "1.0"
+      },
+      "status": "result.status",
+      "result": "stock-agent-result.schema.json"
+    },
     "authentication": "Authorization: Bearer VOGUE_AGENT_SERVICE_BEARER_TOKEN"
   },
   "type": "object",
   "required": [
+    "schema_version",
     "request_id",
     "status",
     "applied_filters",
@@ -54,6 +68,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "schema_version": {
+      "const": "1.1",
+      "description": "Trend producer schema, separate from Stock result1.0"
     }
   },
   "$defs": {

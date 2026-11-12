@@ -121,6 +121,28 @@ def _read_stream(body: Any, target: Path) -> int:
     return size
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_checksum(target: Path) -> str:
+    checksum = file_sha256(target)
+    fd, name = tempfile.mkstemp(prefix=target.name, suffix=".part", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w") as out:
+            out.write(checksum)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, target.with_suffix(".sha256"))
+    finally:
+        Path(name).unlink(missing_ok=True)
+    return checksum
+
+
 class R2ObjectStore:
     """Small read-only adapter; pass a fake client to exercise it offline."""
 
@@ -131,6 +153,7 @@ class R2ObjectStore:
         self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._image_presence: dict[str, tuple[float, bool]] = {}
         self._image_lock = threading.Lock()
+        self.database_metadata: dict = {}
 
     @property
     def images_configured(self) -> bool:
@@ -165,8 +188,8 @@ class R2ObjectStore:
             if code == 404 or error_code in {"404", "NoSuchKey", "NotFound"}:
                 result = False
             else:
-                # Images are optional; avoid repeated slow HEAD calls after an outage.
-                result = False
+                # A denied/unreachable source is not proof that the image is absent.
+                raise StorageUnavailable("R2 이미지 존재 여부를 확인하지 못했습니다") from None
         with self._image_lock:
             self._image_presence[key] = (time.monotonic() + 30, result)
         return result
@@ -191,12 +214,17 @@ class R2ObjectStore:
             return cached.read_bytes()
         except StorageUnavailable:
             raise
-        except Exception:
+        except Exception as exc:
+            response = getattr(exc, "response", {})
+            if (response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+                    or response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}):
+                return None
             raise StorageUnavailable("R2 이미지를 가져오지 못했습니다") from None
         finally:
             partial.unlink(missing_ok=True)
 
-    def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25) -> tuple[Path, str]:
+    def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25,
+                         *, allow_download: bool = True) -> tuple[Path, str]:
         """Download the configured DB once per object version to an atomic cache file."""
         bucket, key = self.settings.bucket, self.settings.db_key
         last_error = None
@@ -212,8 +240,17 @@ class R2ObjectStore:
                 version_tag = version or etag
                 identity = hashlib.sha256(f"{bucket}/{key}/{version_tag}".encode()).hexdigest()
                 target = self.cache_dir / f"stock-{identity}.duckdb"
+                self.database_metadata = {"version": version_tag, "etag": etag,
+                                          "size_bytes": content_length, "sha256": None,
+                                          "upstream_checksum_verified": False}
                 if target.is_file() and (content_length is None or target.stat().st_size == content_length):
-                    return target, version_tag
+                    sidecar = target.with_suffix(".sha256")
+                    actual = file_sha256(target)
+                    if sidecar.is_file() and sidecar.read_text().strip() == actual:
+                        self.database_metadata["sha256"] = actual
+                        return target, version_tag
+                if not allow_download:
+                    raise StorageUnavailable("검증된 기존 DB cache가 없습니다. 자동 다운로드는 비활성화되어 있습니다")
                 fd, partial_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".part",
                                                     dir=target.parent)
                 os.close(fd)
@@ -230,6 +267,7 @@ class R2ObjectStore:
                     if expected is not None and size != expected:
                         raise StorageUnavailable("R2 DB 다운로드 크기가 일치하지 않습니다")
                     os.replace(partial, target)
+                    self.database_metadata["sha256"] = _write_checksum(target)
                 finally:
                     partial.unlink(missing_ok=True)
                 return target, version_tag
