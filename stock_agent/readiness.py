@@ -35,6 +35,40 @@ def _compatible(actual: str, kind: str) -> bool:
         "UINTEGER", "UBIGINT", "UHUGEINT", "FLOAT", "DOUBLE", "DECIMAL"))
 
 
+def _tag_map(value) -> dict:
+    """DuckDB MAP → dict (older Python clients return {"key": [...], "value": [...]})."""
+    if isinstance(value, dict) and set(value) == {"key", "value"} and isinstance(value["key"], list):
+        return dict(zip(value["key"], value["value"]))
+    return value if isinstance(value, dict) else {}
+
+
+def database_storage_info(con=None, path=None) -> dict:
+    """DuckDB file-format facts, read-only and best effort.
+
+    storage_version: DuckDB's tag for the open file (``duckdb_databases().tags``; DuckDB >= 1.2).
+    header_version_number / created_by_library: the file's main header (format number and the
+    DuckDB release that created it). A DuckDB older than the file's storage version cannot open it.
+    """
+    info = {"storage_version": None, "header_version_number": None, "created_by_library": None}
+    if con is not None:
+        try:
+            row = con.execute("SELECT tags FROM duckdb_databases() "
+                              "WHERE database_name = current_database()").fetchone()
+            info["storage_version"] = _tag_map(row[0] if row else None).get("storage_version")
+        except Exception:
+            pass
+    if path is not None:
+        try:
+            with open(path, "rb") as source:
+                head = source.read(116)
+        except OSError:
+            head = b""
+        if len(head) == 116 and head[8:12] == b"DUCK":
+            info["header_version_number"] = int.from_bytes(head[12:20], "little")
+            info["created_by_library"] = head[52:84].split(b"\0", 1)[0].decode("ascii", "replace") or None
+    return info
+
+
 def inspect_database(con) -> dict:
     """Aggregate metadata only. Never creates tables, installs extensions or writes."""
     columns = con.execute("""SELECT table_name, column_name, data_type
