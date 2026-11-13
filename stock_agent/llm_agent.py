@@ -1,11 +1,11 @@
-"""stock-agent LLM agent — 트렌드 1개 → 과잉재고 상품 1개 (2026-11-08 결정, 2026-11-09 착샷 기준으로 변경)
+"""stock-agent LLM agent — 트렌드 1개 → 과잉재고 상품 1개 (2026-11-08 결정, 2026-11-11 CLIP 필터 적용)
 
 LLM이 도구를 골라 부르고, 결과를 보고 다음 행동을 정한다(자율 추론 → 도구 선택 → 반복).
 도구는 agent.py·overstock.py의 분석 함수를 감싼 것이고, 최종 응답 모양(product, trend_result)은 규칙 방식과 같다.
 
 착샷 분석 (도구 반복 전에 1번, outfit.py)
-    트렌드 아이템의 무신사 스냅 착샷(score 최고 1장)을 LLM이 보고, 모델이 함께 입은 옷의 소재·핏을 영역별로 뽑는다.
-    그 값으로 짝 영역(착샷에 없는 영역은 뺌)과 재고 단계(A 소재·핏 일치 → B 소재 일치 → C 전체)를 코드가 정한다.
+    트렌드 아이템의 무신사 스냅 착샷(score 최고 1장)을 LLM이 보고, 모델이 함께 입은 옷의 짝 영역을 뽑는다.
+    착샷이 있으면 get_inventory에서 CLIP Late Fusion 필터(cosine ≥ 0.60)로 후보를 자동 필터링한다.
     스냅이 없거나, 아이템만 잘라낸 사진이거나, 이미지를 열 수 없으면 착샷 반영 없이 진행한다.
 
 LLM이 정하는 것
@@ -72,8 +72,6 @@ FAIL_REASONS = ("no_llm", "llm_unavailable", "timeout", "invalid_response", "rul
 # 막힌 호출은 실행되지 않으므로 규칙 밖 결과는 나오지 않는다. 트렌드당 MAX_RULE_RETRIES번까지, 그다음 위반에서 실패.
 RETRYABLE = ("rule_violation", "invalid_final")
 MAX_RULE_RETRIES = 2
-TIER_NAMES = {"A": "착샷 소재·핏이 모두 맞는 재고(A)", "B": "착샷 소재가 맞는 재고(B)",
-              "C": "카테고리·색만 맞는 재고 전체(C)"}
 
 SYSTEM = """당신은 VOGUE 패션 MD 파이프라인의 03 재고 agent입니다.
 목표: 트렌드 1개에 대해, 사용자가 기획하는 상품과 함께 입었을 때 트렌드 색·스타일에 어울리는 짝 카테고리의 과잉재고 상품 1개를 고릅니다.
@@ -90,14 +88,15 @@ SYSTEM = """당신은 VOGUE 패션 MD 파이프라인의 03 재고 agent입니�
 3. get_inventory로 후보를 조회합니다. areas·colors는 생략하면 앞 도구 결과 전부를 씁니다. 일부만 골라 좁힐 수 없습니다.
    영역을 바꾸고 싶으면 find_categories를 다시 부르세요. get_inventory에서 직접 영역을 좁히는 것은 규칙 위반입니다.
    색을 바꾸고 싶으면 find_colors를 다시 부르세요. get_inventory에서 직접 색을 좁히는 것도 규칙 위반입니다.
-   착샷 소재·핏이 있으면 코드가 후보를 단계로 나눕니다: A 소재·핏 일치 → 없으면 B 소재 일치 → 없으면 C 전체.
-   결과의 tier가 지금 후보의 단계입니다. 이 단계는 바꿀 수 없습니다.
+   착샷이 있으면 코드가 착샷과 시각·스타일 유사도(CLIP)로 후보를 자동 필터링합니다. 별도 조작 불필요.
 4. 후보가 0개이면 트렌드 쪽 조건만 완화합니다(트렌드 색 줄이기·빼기, mode=any, 트렌드 카테고리 줄이기).
    완화할 때는 note에 이유를 쓰세요.
 5. rank_candidates로 순위를 보고, finish로 상품 1개와 이유를 냅니다. 순위는 과잉재고 순서(많이 남았는데 안 팔리는 순)이므로
-   기본은 1위입니다. 1위가 아닌 상품을 고르면 why_not_higher에 더 높은 순위 상품들 대신 고른 구체적 이유를 쓰세요.
+   기본은 1위입니다. 1위를 고르면 why_not_higher는 쓰지 않습니다.
+   1위가 아닌 상품을 고르면 why_not_higher에 더 높은 순위 상품들 대신 고른 구체적 이유를 쓰세요.
    이유는 도구 결과에서 그 상품과 더 높은 순위 상품이 실제로 다른 점이어야 합니다 (예: 더 높은 순위 상품에 사진이 없음).
-   모든 후보에 공통인 점은 이유가 될 수 없습니다. 소재·핏은 이미 단계로 걸렀으므로 이유가 될 수 없습니다.
+   모든 후보에 공통인 점은 이유가 될 수 없습니다.
+   소재·핏·스타일은 이유가 될 수 없습니다: 착샷이 없으면 소재·핏 정보 자체가 없고, 착샷이 있으면 CLIP이 이미 스타일 유사도로 걸렀습니다.
    find_categories가 정한 짝 영역은 모두 코디 가능한 영역이므로, 영역 차이(예: 짝 카테고리 안에서 어느 영역인지)는
    이유가 될 수 없습니다. 이미지가 있는 상품을 우선하세요.
    모든 완화 뒤에도 후보가 0개일 때만 finish(article_id=null)로 끝냅니다.
@@ -133,8 +132,8 @@ TOOLS = [
     {"name": "get_inventory",
      "description": "find_categories의 영역 전부와 find_colors의 색 전부로 재고 후보를 조회한다(시즌·고객군·재고>0·제외 카테고리는 자동 적용). "
                     "areas·colors는 생략하거나 앞 결과와 똑같이 준다(좁힐 수 없음). "
-                    "착샷 소재·핏이 있으면 코드가 단계(A 소재·핏 일치 → B 소재 일치 → C 전체)를 정해 그 단계 후보만 남긴다. "
-                    "후보 수, 단계(tier), 단계별 수, 속성 분포를 돌려준다.",
+                    "착샷이 있으면 코드가 시각·스타일 유사도(CLIP)로 후보를 자동 필터링한다. "
+                    "후보 수와 속성 분포를 돌려준다.",
      "parameters": {"type": "object", "properties": {
          "areas": _STR_LIST, "colors": _STR_LIST, "note": _NOTE}}},
     {"name": "rank_candidates",
@@ -148,8 +147,9 @@ TOOLS = [
          "article_id": {"type": ["string", "null"]},
          "reason": {"type": "string", "description": "고른 이유 (숫자는 도구 결과에 나온 것만)"},
          "why_not_higher": {"type": "string",
-                            "description": "1위가 아닌 상품을 고를 때 필수: 더 높은 순위 상품들 대신 이 상품을 고른 이유. "
-                                           "도구 결과에서 실제로 다른 점만 (모든 후보에 공통인 점, 영역 차이, 소재·핏은 안 됨)"}}}},
+                            "description": "1위가 아닌 상품을 고를 때만 필수, 1위를 고를 때는 쓰지 않음. "
+                                           "더 높은 순위 상품들 대신 이 상품을 고른 이유. "
+                                           "도구 결과에서 실제로 다른 점만 (모든 후보에 공통인 점, 영역 차이, 소재·핏·스타일은 안 됨)"}}}},
 ]
 TOOL_NAMES = [t["name"] for t in TOOLS]
 
@@ -242,7 +242,6 @@ class ToolBox:
         self.inv: dict | None = None   # 마지막 get_inventory {areas, colors, note}
         self.cand_all: pd.DataFrame | None = None
         self.cand: pd.DataFrame | None = None
-        self.tier: dict | None = None  # {"tier", "counts", "relaxed"}
         self.ranked: pd.DataFrame | None = None
         self.shortlist: list[str] = []
         self.final: dict | None = None
@@ -352,16 +351,14 @@ class ToolBox:
                 cand["trend"] = 0.0
         self.inv = {"areas": areas, "colors": colors, "note": args.get("note")}
         self.cand_all = cand.reset_index(drop=True)
-        self.ranked, self.shortlist, self.tier = None, [], None
+        self.ranked, self.shortlist = None, []
         out = {"n_candidates": 0, "distribution": {}}
         if cand.empty:
             self.cand = self.cand_all
             return out
-        if self.outfit.used and any(self.outfit.spec(a) for a in areas):
-            tiered = O.assign_tiers(self.cand_all, self.outfit)
-            self.cand, tier, counts = O.pick_pool(tiered)
-            self.tier = {"tier": tier, "counts": counts, "relaxed": O.relaxed_conditions(self.outfit, tier, areas)}
-            out.update({"tier": tier, "tier_counts": counts, "n_total": int(len(cand))})
+        if self.outfit.used and self.outfit.ref:
+            from stock_agent.clip_matcher import clip_filter
+            self.cand = clip_filter(self.cand_all, self.outfit.ref)
         else:
             self.cand = self.cand_all
         out.update({"n_candidates": int(len(self.cand)), "distribution": _dist(self.cand)})
@@ -384,10 +381,7 @@ class ToolBox:
                          "fit": r.fit if isinstance(r.fit, str) else None, "stock_qty": int(r.stock_qty),
                          "sell_through": A._round(r.sell_through), "score": A._round(r.score),
                          "has_image": has_image(self.image_dir, r.article_id)})
-        out = {"n_candidates": int(len(self.ranked)), "candidates": rows}
-        if self.tier:
-            out["tier"] = self.tier["tier"]
-        return out
+        return {"n_candidates": int(len(self.ranked)), "candidates": rows}
 
     def finish(self, args):
         aid, reason = args.get("article_id"), args.get("reason")
@@ -432,7 +426,7 @@ class ToolBox:
                            "n_candidates": out.get("n_candidates"),
                            **({"areas": out["areas"]} if name == "find_categories" else {}),
                            **({"colors": out["colors"]} if name == "find_colors" else {}),
-                           **({"tier": out["tier"]} if name == "get_inventory" and "tier" in out else {})})
+                           })
         self.results.append(out)
         return out
 
@@ -507,24 +501,12 @@ def _outfit_notes(box: ToolBox, areas: list[str]) -> list[str]:
         out.append(f"착샷에 {', '.join(box.outfit_dropped)}이(가) 없어 짝 영역에서 뺐습니다.")
     if o.dropped:
         out.append(f"착샷 분석 값 중 어휘(vocabulary_v1)에 없는 값은 쓰지 않았습니다: {', '.join(o.dropped)}")
-    t = box.tier
-    if t:
-        n = t["counts"]
-        if t["tier"] == "A":
-            out.append(f"{TIER_NAMES['A']}에서 골랐습니다.")
-        elif t["tier"] == "B":
-            out.append(f"{TIER_NAMES['A']}가 없어 핏 조건을 풀고 {TIER_NAMES['B']}에서 골랐습니다.")
-        else:
-            out.append(f"착샷 소재·핏이 맞는 재고가 없어 소재·핏 조건을 풀고 {TIER_NAMES['C']}에서 골랐습니다 "
-                       f"(소재 정보가 없는 재고와 다른 소재 재고는 같게 보고 과잉재고 순위로)." if t["relaxed"]
-                       else f"{TIER_NAMES['C']}에서 골랐습니다.")
-        out.append(f"재고 단계별 후보 수: A {n['A']:,}개, B {n['B']:,}개, C {n['C']:,}개.")
-    elif box.inv and box.cand_all is not None and len(box.cand_all) and not any(o.spec(a) for a in box.inv["areas"]):
-        out.append("착샷에서 짝 영역 옷의 소재·핏을 판단하지 못해 소재·핏 조건 없이 찾았습니다.")
+    if box.inv and box.cand_all is not None and len(box.cand_all):
+        out.append("착샷과 시각·스타일 유사도(CLIP)로 후보를 자동 필터링했습니다.")
     return out
 
 
-def attribute_reason(row, outfit: O.Outfit, tier: str | None) -> dict:
+def attribute_reason(row, outfit: O.Outfit) -> dict:
     """고른 상품의 소재·핏과 착샷 속 같은 영역 옷의 소재·핏 비교."""
     mats = [to_vocab(m) for m in row.materials] if row.materials is not None else []
     fit = row.fit if isinstance(row.fit, str) else None
@@ -538,8 +520,7 @@ def attribute_reason(row, outfit: O.Outfit, tier: str | None) -> dict:
             "outfit_materials": list(spec["materials"]), "outfit_fit": spec["fit"],
             "matched_materials": matched,
             "materials_match": m,                 # true/false, null = 미확인 또는 비교 안 함
-            "fit_match": O.fit_match(fit, spec["fit"]),
-            "tier": tier}
+            "fit_match": O.fit_match(fit, spec["fit"])}
 
 
 def run_agent_trend(req: dict, c: A.Common, ti: TrendInput, trend: dict, con, llm: LLM | None,
@@ -646,7 +627,7 @@ def run_agent_trend(req: dict, c: A.Common, ti: TrendInput, trend: dict, con, ll
     search.update({"steps": box.steps, "relaxed": relaxed, "areas": areas, "colors": colors,
                    "color_overlap": cc["cm"].overlap if cc and cc.get("cm") is not None else None,
                    "outfit_reference": {**box.outfit.to_dict(), "areas_removed": box.outfit_dropped},
-                   "attribute_tier": box.tier,
+                   "attribute_tier": None,
                    "pair_combine": box.cat_call.get("combine")})
 
     limitations = [A.SAMPLE_WARNING, *period.warnings, A.segment_note(c)]
@@ -687,7 +668,7 @@ def run_agent_trend(req: dict, c: A.Common, ti: TrendInput, trend: dict, con, ll
             reason["color"]["rule"] = "색 조건 없음"
         elif cc and cc["mode"] == "any":
             reason["color"]["rule"] = reason["color"]["rule"].replace("어울리는 색 중 가장 많이 겹치는 색", "하나라도 어울리는 색")
-        reason["attributes"] = attribute_reason(row, box.outfit, getattr(row, "tier", None) if box.tier else None)
+        reason["attributes"] = attribute_reason(row, box.outfit)
         reason["decided_by"] = "llm"
         reason["llm_reason"] = box.final["reason"]
         reason["llm_why_not_higher"] = box.final.get("why_not_higher")    # 1위면 null

@@ -2,14 +2,18 @@
 # DB와 이미지는 이미지에 넣지 않는다. R2 모드는 STOCK_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
 # STOCK_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.
+# CLIP Late Fusion 필터는 STOCK_CLIP_INDEX_PATH(기본 /data/clip_index.npz)가 있을 때만 동작하고, 없으면 건너뛴다.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    STOCK_CLIP_INDEX_PATH=/data/clip_index.npz
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+# torch CPU-only 먼저 설치 → open-clip-torch가 CUDA 버전을 당기지 않도록
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+ && pip install --no-cache-dir -r requirements.txt \
  && groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /tmp --no-create-home --shell /usr/sbin/nologin app \
  && install -d -o 10001 -g 10001 -m 0700 /cache
