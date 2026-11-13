@@ -5,7 +5,6 @@
 
 import pytest
 
-from stock_agent.llm import PolicyLLM
 from stock_agent.multi import run_request, validate_response
 from stock_agent.trend_request import build_trend_result
 
@@ -63,14 +62,10 @@ def test_all_trends_invalid_is_error():
     assert validate_response(r) == []
 
 
-# ---- 작은 DB로 실행: 규칙 방식과 LLM agent(정해진 순서로 도구를 부르는 PolicyLLM) 둘 다 같은 결과
-@pytest.fixture(params=["rule", "agent"])
-def go(request):
-    def f(req, con, **kw):
-        if request.param == "rule":
-            return run_request(req, con, mode="rule", **kw)
-        return run_request(req, con, llm=PolicyLLM(), **kw)
-    return f
+# ---- 작은 DB로 실행
+@pytest.fixture
+def go():
+    return run_request
 
 
 def test_one_result_per_trend_in_order(go, con, tmp_path):
@@ -112,7 +107,8 @@ def test_partial_keeps_null_slot(go, con, tmp_path):
 
 
 def test_no_results_when_nothing_found(go, con, tmp_path):
-    # 남 → Menswear+Divided: 후보는 a4(하의 그레이)뿐인데 레드와 어울리는 색(블랙·화이트·네이비·베이지)이 아님
+    # 남 → Menswear+Divided: 후보는 a4(하의 그레이)뿐인데 레드와 어울리는 색(블랙·화이트·네이비·베이지)이 아님.
+    # 사용자 색(레드)이라 완화하지 않는다
     red = trend("style_red", "레드", {"category_major": "상의", "colors": ["레드"]})
     r = go(req(red, gender="남", colors=["레드"]), con, image_dir=str(tmp_path))
     assert r["status"] == "no_results" and r["products"] == [None]

@@ -1,4 +1,4 @@
-"""02 트렌드 결과 입력, 성별 → 고객군, 소재·핏 정리, 팀 오류 코드 (2026-11-08 결정)
+"""02 트렌드 결과 입력, 성별 → 고객군, 팀 오류 코드 (2026-11-08 결정)
 
 DB가 필요 없는 테스트는 위쪽, DuckDB가 필요한 테스트(con fixture)는 아래쪽.
 """
@@ -11,7 +11,7 @@ from stock_agent.agent import Common, check_common, read_segments, segment_note,
 from stock_agent.errors import http_status, pick, to_team
 from stock_agent.multi import run_internal, run_request
 from stock_agent.schemas import TREND_RESULT_EXAMPLE
-from stock_agent.trend_input import clean_item_attrs, llm_trend, read_trend
+from stock_agent.trend_input import read_trend
 from stock_agent.trend_request import from_trend_result, is_trend_result
 
 RES = TREND_RESULT_EXAMPLE
@@ -146,32 +146,13 @@ def test_request_gender_beats_item_gender():
     assert "요청 성별(여)" in segment_note(c)
 
 
-# ---------------------------------------------------------------- LLM에 보내는 트렌드
-
-def test_clean_item_attrs_drops_not_vocab_and_approx():
-    item = {"materials": ["시폰", "새틴", "플리스", "기모"], "fit": "타이트",
-            "approx": ["material:플리스", "fit:타이트"]}
-    mats, fits, dropped = clean_item_attrs(item)
-    assert mats == ["시폰"] and fits == []
-    assert dropped == {"not_vocab": ["새틴", "기모"], "approx": ["플리스", "타이트"]}
-
-
-def test_llm_trend_trims():
-    t = llm_trend(RES["trends"][0])
-    assert t["style"]["definition"] and t["style"]["description"] == ["시폰·새틴 소재와 리본 디테일"]
-    for it in t["items"]:
-        assert not {"similar_products", "evidence_ids", "approx", "image_urls"} & set(it)
-    assert t["items"][0]["materials"] == ["시폰"] and t["items"][0]["fit"] == "루즈"
-
-
 # ---------------------------------------------------------------- 팀 오류 코드
 
 @pytest.mark.parametrize("err, code, reason", [
     ({"code": "missing_fields"}, "INVALID_REQUEST", "missing_fields"),
     ({"code": "schema_version_mismatch"}, "INVALID_REQUEST", "schema_version_mismatch"),
-    ({"code": "llm_failed", "reason": "no_llm"}, "SOURCE_UNAVAILABLE", "no_llm"),
-    ({"code": "llm_failed", "reason": "timeout"}, "TIMEOUT", "timeout"),
-    ({"code": "llm_failed", "reason": "rule_violation"}, "INTERNAL_ERROR", "rule_violation"),
+    ({"code": "timeout"}, "TIMEOUT", "timeout"),
+    ({"code": "invalid_response"}, "INTERNAL_ERROR", "invalid_response"),
     ({"code": "trend_failed"}, "INTERNAL_ERROR", "trend_failed"),
     ({"code": "db_unavailable"}, "SOURCE_UNAVAILABLE", "db_unavailable"),
     ({"code": "INVALID_REQUEST", "reason": "x"}, "INVALID_REQUEST", "x"),
@@ -189,9 +170,9 @@ def test_pick_and_http():
 
 # ---------------------------------------------------------------- DB 필요 (로컬에서 실행)
 
-def test_trend_result_end_to_end_rule(con, tmp_path):
+def test_trend_result_end_to_end(con, tmp_path):
     """02 결과 그대로 → 트렌드마다 결과, evidence_ids가 evidence를 가리킴, 고객군은 여 → Ladieswear+Divided."""
-    r = run_request(res(), con, image_dir=str(tmp_path), mode="rule")
+    r = run_request(res(), con, image_dir=str(tmp_path))
     assert r["request_id"] == "req_example_010" and len(r["trend_results"]) == 1
     tr = r["trend_results"][0]
     assert tr["search"]["segments"] == ["Ladieswear", "Divided"] and tr["search"]["segment_basis"] == "gender"
@@ -203,10 +184,10 @@ def test_segment_list_filters(con, tmp_path):
     """(내부 형식) Menswear+Divided면 Ladieswear 상품(a1, a2 …)은 후보에서 빠진다."""
     base = {"request_id": "r", "season": "2027-SS", "target_category": "상의",
             "trends": [{"style": {"id": "s"}, "items": [{"category_major": "상의", "colors": ["그레이"]}]}]}
-    r = run_internal({**base, "gender": "남"}, con, image_dir=str(tmp_path), mode="rule")
+    r = run_internal({**base, "gender": "남"}, con, image_dir=str(tmp_path))
     p = r["products"][0]
     assert p is None or p["sku_ids"] == ["a4"]
-    r = run_internal({**base, "segment": ["Menswear", "Ladieswear"]}, con, image_dir=str(tmp_path), mode="rule")
+    r = run_internal({**base, "segment": ["Menswear", "Ladieswear"]}, con, image_dir=str(tmp_path))
     assert r["trend_results"][0]["search"]["segments"] == ["Menswear", "Ladieswear"]
 
 

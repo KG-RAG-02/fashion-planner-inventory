@@ -1,7 +1,7 @@
 """Synthetic fixture DB (stock_agent.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
 
 examples/stub/stock-request.json carries the trend-analysis-agent stub result unchanged (vogue-handoff/0.1);
-with STOCK_DB_PATH=<fixture DB> and STOCK_LLM_PROVIDER=policy it must give ok/partial with a product.
+with STOCK_DB_PATH=<fixture DB> it must give ok/partial with a product.
 """
 import hashlib
 import json
@@ -69,32 +69,29 @@ def test_stub_request_is_an_unchanged_trend_11_result():
 
 @pytest.fixture
 def stub_env(monkeypatch, tmp_path):
-    """policy + local-file: R2 설정·키 없이, R2 객체 저장소를 만들면 실패."""
+    """local-file: R2 설정·키 없이, R2 객체 저장소를 만들면 실패."""
     import stock_agent.api as api
-    import stock_agent.llm as llm
-    for name in R2_VARS + ("LLM_API_KEY", "STOCK_IMAGE_CACHE_DIR"):
+    for name in R2_VARS + ("STOCK_IMAGE_CACHE_DIR",):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(llm, "read_dotenv", lambda *args, **kwargs: None)
     monkeypatch.setattr(api, "R2ObjectStore", lambda *a, **k: pytest.fail("stub mode must not build an R2 store"))
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     db = tmp_path / "stock-fixture.duckdb"
     fixture_db.build_fixture_db(db)
     monkeypatch.setenv("STOCK_DB_PATH", str(db))
-    monkeypatch.setenv("STOCK_LLM_PROVIDER", "policy")
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
     return db
 
 
-def test_trend_stub_result_runs_ok_in_policy_local_file_mode(stub_env):
+def test_trend_stub_result_runs_ok_in_local_file_mode(stub_env):
     import stock_agent.api as api
-    from stock_agent.llm import POLICY_LIMITATION
     from stock_agent.readiness import FIXTURE_LIMITATION
     req = _json(STUB / "stock-request.json")
     expected = _json(STUB / "stock-response-summary.json")
     with TestClient(api.app) as c:
         ready = c.get("/health/ready")
         assert ready.status_code == 200
-        assert {k: ready.json()[k] for k in ("db", "llm_provider", "synthetic_fixture")} == {
-            k: expected["health_ready"][k] for k in ("db", "llm_provider", "synthetic_fixture")}
+        assert {k: ready.json()[k] for k in ("db", "synthetic_fixture")} == {
+            k: expected["health_ready"][k] for k in ("db", "synthetic_fixture")}
         assert ready.json()["db_version"] == "sha256:" + hashlib.sha256(stub_env.read_bytes()).hexdigest()
         unauth = c.post("/v1/agents/stock-agent/runs", json=req)
         r = c.post("/v1/agents/stock-agent/runs", json=req, headers={"Authorization": f"Bearer {TOKEN}"})
@@ -107,6 +104,5 @@ def test_trend_stub_result_runs_ok_in_policy_local_file_mode(stub_env):
     assert result["status"] in ("ok", "partial") and any(p is not None for p in result["products"])
     assert fixture_db.summarize_result(result) == expected["result"]
     assert result["input_provenance"]["source_payload_sha256"] == hashlib.sha256(canonical_bytes(req["input"])).hexdigest()
-    assert all(POLICY_LIMITATION in tr["limitations"] and FIXTURE_LIMITATION in tr["limitations"]
-               for tr in result["trend_results"])
+    assert all(FIXTURE_LIMITATION in tr["limitations"] for tr in result["trend_results"])
     assert list(_schema("stock-agent-result.schema.json").iter_errors(result)) == []

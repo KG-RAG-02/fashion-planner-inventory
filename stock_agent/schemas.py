@@ -32,7 +32,7 @@ class CategoryRefIn(BaseModel):
 class CategoryFilterIn(BaseModel):
     model_config = ConfigDict(extra="allow")
     include: Optional[list[CategoryRefIn]] = Field(None, description="사용자 기획 카테고리. 있으면 이것의 짝을 찾음 "
-                                                                     "(여러 개면 LLM이 교집합/합집합 중 판단, 기본 교집합). LLM이 완화하지 않음")
+                                                                     "(여러 개면 각 짝의 교집합, 교집합이 없으면 합집합). 완화하지 않음")
     exclude: Optional[list[CategoryRefIn]] = Field(None, description="제외 카테고리. 영역이면 짝 영역에서 빼고, 세부 카테고리면 "
                                                                      "그 상품을 후보에서 뺌. include와 겹치면 400")
 
@@ -58,11 +58,11 @@ class StyleIn(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: Optional[str] = Field(None, description="트렌드 ID. 예: style_007")
     name: Optional[str] = Field(None, description="트렌드 이름. 예: 정제된 맥시멀리스트")
-    definition: Optional[str] = Field(None, description="LLM에게 보냄 (소재·핏 추론에 씀)")
 
 
 class ProductMatchIn(BaseModel):
-    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·score·product_id만 쓴다"""
+    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·score·product_id와
+    CLIP 쿼리 텍스트용 category_minor·fit·length_body·patterns·materials·details를 쓴다"""
     model_config = ConfigDict(extra="allow")
     product_id: Optional[str] = None
     image_url: Optional[str] = Field(None, description="착샷 이미지 URL")
@@ -79,9 +79,8 @@ class ItemIn(BaseModel):
     gender: Optional[str] = Field(None, description="요청 성별이 없을 때 고객군을 정하는 데 씀")
     similar_products: Optional[list[ProductMatchIn]] = Field(
         None, description="무신사 유사 상품. 사용자 카테고리 아이템(없으면 아이템 전체)의 snap_garment 중 score가 가장 높은 착샷을 "
-                          "LLM이 보고, 모델이 함께 입은 하의·아우터의 소재·핏으로 재고 단계(A 소재·핏 일치 → B 소재 일치 → C 전체)를 정함. "
-                          "snap_garment가 없거나 아이템만 잘라낸 사진이면 소재·핏 조건 없이 찾음. "
-                          "아이템 자신의 materials·fit은 재고를 거르는 데 쓰지 않음")
+                          "기준으로 재고 후보를 시각·스타일 유사도(CLIP)로 거름(cosine 0.60 이상, 없으면 유사도 상위 20개). "
+                          "snap_garment가 없으면 CLIP 필터 없이 찾음. 아이템 자신의 materials·fit은 재고를 거르는 데 쓰지 않음")
 
 
 class TrendIn(BaseModel):
@@ -226,10 +225,6 @@ class Reason(BaseModel):
     season_name: str
     score: Optional[float] = Field(None, description="네 지표 가중 평균 0~1")
     data_nature: dict[str, str]
-    attributes: Optional[dict[str, Any]] = Field(None, description="LLM agent: 상품 소재·핏과 착샷 속 같은 영역 옷의 소재·핏(outfit_materials, outfit_fit), "
-                                                                       "matched_materials, materials_match·fit_match(true/false/null=미확인), tier(A/B/C)")
-    decided_by: Optional[str] = Field(None, description="llm (LLM agent가 고름)")
-    llm_reason: Optional[str] = Field(None, description="LLM이 finish에 쓴 이유 (숫자는 도구 결과에 있는 것만)")
 
 
 class Error(BaseModel):
@@ -237,9 +232,8 @@ class Error(BaseModel):
         description="팀 공통 오류 코드 (stock_agent/errors.py)")
     message: str
     reason: Optional[str] = Field(None, description="03 안쪽 원인: missing_fields, invalid_input, schema_version_mismatch, "
-                                                    "upstream_error, db_unavailable, invalid_response, trend_failed, internal, "
-                                                    "LLM 실패면 no_llm, llm_unavailable, timeout, invalid_response, rule_violation, "
-                                                    "step_limit, invalid_final. 전체 오류에서 원인이 여러 개면 mixed")
+                                                    "upstream_error, db_unavailable, image_source_unavailable, timeout, "
+                                                    "invalid_response, trend_failed, internal. 전체 오류에서 원인이 여러 개면 mixed")
 
 
 class TrendResult(BaseModel):
@@ -251,12 +245,12 @@ class TrendResult(BaseModel):
     summary: str = Field(description="추천 이유 한 줄 (템플릿)")
     attribute_summary: Optional[dict[str, Any]] = Field(None, description="상위 50개 후보의 색·카테고리·소재·핏 분포")
     search: dict[str, Any] = Field(description="이 트렌드로 찾은 조건: trend_colors(기준 색), trend_color_basis, user_colors, user_colors_excluded, trend_categories, "
-                                               "areas(짝 영역), colors(후보 색), color_overlap, excluded_categories. "
-                                               "LLM agent면 mode=llm, steps(부른 도구·조건·후보 수), relaxed(완화한 트렌드 조건), "
-                                               "outfit_reference(소재·핏 기준으로 쓴 무신사 스냅 착샷: status used/skipped, skip_reason, "
-                                               "product_id, image_url, score, garments(영역별 visible·materials·fit, LLM 이미지 판단), "
-                                               "areas_removed(착샷에 없어 뺀 짝 영역)), "
-                                               "attribute_tier(재고 단계 tier A/B/C, counts, relaxed), pair_combine, segments(찾은 고객군, []=전체), "
+                                               "areas(짝 영역), colors(최종 조회 색), color_mode(max_overlap/any/none), color_overlap, "
+                                               "color_attempts(조회한 색 단계별 mode·colors·n_candidates), relaxed(완화한 트렌드 색 조건), "
+                                               "excluded_categories, outfit_reference(CLIP 기준 무신사 스냅 착샷: status used/skipped, "
+                                               "skip_reason no_snap/no_index/no_match/no_candidates, product_id, image_url, score, source, "
+                                               "item_id, item_category), clip(applied, skip_reason, image_used, n_before, n_after, "
+                                               "n_indexed, threshold, fallback; 착샷이 없으면 null), segments(찾은 고객군, []=전체), "
                                                "segment_basis(segment/gender/item_gender/all)")
     limitations: list[str]
     errors: list[Error] = []
@@ -335,16 +329,16 @@ class Health(BaseModel):
     missing_tables: list[str]
     images: str
     images_found: bool = Field(description="로컬 이미지 폴더 또는 R2 prefix 설정 여부; 원격 object는 요청 시 확인")
-    llm_connected: bool = False
-    llm_model: Optional[str] = None
-    llm_error: Optional[str] = None
+    clip_index_loaded: bool = Field(False, description="CLIP 인덱스를 불러왔는지. false면 착샷 CLIP 필터는 no_index로 건너뜀")
+    clip_n_indexed: int = Field(0, description="CLIP 인덱스의 상품 수")
 
 
 RESPONSES = {
     200: {"model": InventoryResponse, "description": "정상 (status: ok / partial / no_results)"},
     400: {"model": ErrorResponse, "description": "INVALID_REQUEST: 필수 값 없음, 잘못된 값, 지원하지 않는 버전, 02 status=error. "
                                                  "원인은 errors[].reason"},
-    500: {"model": ErrorResponse, "description": "INTERNAL_ERROR: 내부 오류, 모든 트렌드가 LLM 실패(no_llm·llm_unavailable·timeout 제외)"},
-    503: {"model": ErrorResponse, "description": "SOURCE_UNAVAILABLE: DB 연결 실패, LLM 키 없음(reason=no_llm), LLM 연결 실패(reason=llm_unavailable)"},
-    504: {"model": ErrorResponse, "description": "TIMEOUT: 모든 트렌드가 LLM 응답 시간 초과"},
+    500: {"model": ErrorResponse, "description": "INTERNAL_ERROR: 내부 오류"},
+    503: {"model": ErrorResponse, "description": "SOURCE_UNAVAILABLE: DB 연결 실패(reason=db_unavailable), "
+                                                 "이미지 자료원 조회 실패(reason=image_source_unavailable)"},
+    504: {"model": ErrorResponse, "description": "TIMEOUT: HTTP 처리 제한 시간(STOCK_HANDOFF_TIMEOUT_SECONDS) 초과"},
 }

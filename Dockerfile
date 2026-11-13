@@ -2,7 +2,8 @@
 # DB와 이미지는 이미지에 넣지 않는다. R2 모드는 STOCK_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
 # STOCK_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.
-# CLIP Late Fusion 필터는 STOCK_CLIP_INDEX_PATH(기본 /data/clip_index.npz)가 있을 때만 동작하고, 없으면 건너뛴다.
+# 착샷 CLIP 필터는 STOCK_CLIP_INDEX_PATH(기본 /data/clip_index.npz)가 있을 때만 동작하고, 없으면 건너뛴다.
+# 인덱스가 있으면 서버 시작 때 CLIP 모델(ViT-B-32)을 미리 불러오므로 healthcheck start-period를 길게 둔다.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -26,7 +27,7 @@ USER 10001:10001
 
 EXPOSE 8002
 # Readiness (GET /health/ready, no external calls): healthy only when the DB is open and passes the checks.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD ["python", "-m", "stock_agent.server", "--check-ready"]
 
 CMD ["python", "-m", "stock_agent.server", "--host", "0.0.0.0"]

@@ -6,7 +6,7 @@
   (examples/stub/stock-request.json의 input, 발레코어·상의·핑크)와 맞춘 상품 3개 + 합성 표지 표 stock_fixture.
 - 출력: 경로, 표별 행 수, 내용 해시(content_sha256: 같은 코드면 같은 값), readiness, DuckDB·storage version.
 - 있는 파일은 --force 없이 덮어쓰지 않는다 (exit 2). readiness가 준비되지 않으면 exit 1.
-사용: STOCK_DB_PATH=<out.duckdb> STOCK_LLM_PROVIDER=policy python -m stock_agent.server
+사용: STOCK_DB_PATH=<out.duckdb> python -m stock_agent.server
 """
 from __future__ import annotations
 

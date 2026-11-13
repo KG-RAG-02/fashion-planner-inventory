@@ -33,7 +33,7 @@ def prepare_cache() -> int:
     """
     import duckdb
 
-    from stock_agent.llm import read_dotenv
+    from stock_agent.env import read_dotenv
     from stock_agent.readiness import database_storage_info, inspect_database
     from stock_agent.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
 

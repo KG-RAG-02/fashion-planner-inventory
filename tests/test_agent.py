@@ -334,3 +334,155 @@ def test_no_user_colors_keeps_trend_colors(con):
     tr = run({**REQ, "target_colors": []}, con)["trend_result"]
     assert tr["search"]["trend_color_basis"] == "user_category_items" and tr["search"]["user_colors"] == []
     assert tr["reason"]["color"]["rule"] == "조합표 v1, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
+
+
+# ---- 재고 후보가 0개일 때 트렌드 색 완화 (사용자 색·카테고리는 완화하지 않음)
+NEON = {"category_major": "상의", "category_minor": "탑", "colors": ["네온"]}               # 어울리는 색 재고 없음
+BLACK_GRAY = {"category_major": "상의", "category_minor": "셔츠", "colors": ["블랙", "그레이"]}  # 하나라도 → 레드 a2
+
+
+def test_no_relax_when_candidates_found(con):
+    s = run(REQ, con)["trend_result"]["search"]
+    assert s["color_mode"] == "max_overlap" and s["relaxed"] == []
+    assert [a["mode"] for a in s["color_attempts"]] == ["max_overlap"]
+
+
+def test_relax_to_any_matching_color(con):
+    resp = run({**REQ, "trend": trend(BLACK_GRAY)}, con)
+    tr = resp["trend_result"]
+    assert resp["status"] == "ok" and resp["product"]["sku_ids"] == ["a2"]          # 레드 스커트
+    s = tr["search"]
+    assert [(a["mode"], a["n_candidates"]) for a in s["color_attempts"]] == [("max_overlap", 0), ("any", 1)]
+    assert s["color_mode"] == "any" and "레드" in s["colors"]
+    assert s["relaxed"] == [{"condition": "color_rule", "from": "max_overlap", "to": "any"}]
+    assert tr["reason"]["color"]["rule"].startswith("조합표 v1, 트렌드 색과 하나라도 어울리는 색")
+    assert "하나라도 어울리는 색" in tr["summary"]
+    assert any("트렌드 색(블랙, 그레이) 조건을 완화했습니다: 가장 많이 겹치는 색 → 하나라도 어울리는 색" in x
+               for x in tr["limitations"])
+    assert not any("모두와 어울리는 색이 없어" in x for x in tr["limitations"])
+    assert validate_output(resp) == []
+
+
+def test_relax_to_all_colors_skips_identical_any(con):
+    # 네온 1색: 하나라도 어울리는 색 = 가장 많이 겹치는 색이라 any 단계는 건너뛴다
+    resp = run({**REQ, "trend": trend(NEON)}, con)
+    tr = resp["trend_result"]
+    assert resp["status"] == "ok"
+    s = tr["search"]
+    assert [a["mode"] for a in s["color_attempts"]] == ["max_overlap", "none"]
+    assert s["color_mode"] == "none" and len(s["colors"]) == 21
+    assert s["relaxed"] == [{"condition": "trend_colors", "from": ["네온"], "to": []}]
+    assert tr["reason"]["color"]["rule"] == "색 조건 없음" and tr["reason"]["color"]["matched_trend_colors"] == []
+    assert "트렌드 색 조건을 풀어 색 조건 없이" in tr["summary"]
+    assert validate_output(resp) == []
+
+
+def test_user_colors_are_not_relaxed(con):
+    resp = run({**REQ, "target_colors": ["네온"], "trend": trend(NEON)}, con)
+    s = resp["trend_result"]["search"]
+    assert resp["status"] == "no_results" and s["trend_color_basis"] == "user_colors_in_trend"
+    assert [a["mode"] for a in s["color_attempts"]] == ["max_overlap"] and s["relaxed"] == []
+
+
+def test_relax_still_empty_is_no_results(con):
+    resp = run({**REQ, "segment": "Sport", "trend": trend(BLACK_GRAY)}, con)       # Sport 재고 없음
+    s = resp["trend_result"]["search"]
+    assert resp["status"] == "no_results"
+    assert [a["n_candidates"] for a in s["color_attempts"]] == [0, 0, 0]
+    assert any("완화한 뒤에도 후보가 없습니다" in x for x in resp["trend_result"]["limitations"])
+
+
+def test_user_category_is_not_relaxed(con):
+    # 원피스의 짝은 아우터뿐이고 SS 아우터 재고(a3 패딩은 가을·겨울)가 없다: 색은 풀어도 영역은 넓히지 않는다
+    resp = run({**REQ, "target_category": "원피스", "trend": trend({**NEON, "category_major": "원피스"})}, con)
+    s = resp["trend_result"]["search"]
+    assert resp["status"] == "no_results" and s["areas"] == ["아우터"]
+    assert [(a["mode"], a["n_candidates"]) for a in s["color_attempts"]] == [("max_overlap", 0), ("none", 0)]
+
+
+# ---- 무신사 스냅 착샷 → CLIP 유사도 필터 (착샷이 있으면 항상)
+SNAP = {"product_id": "musinsa_snap:1", "image_url": "https://img.example/snap1.jpg", "kind": "snap_garment",
+        "source": "musinsa_snap", "score": 0.8, "category_minor": "블라우스", "materials": ["시폰"]}
+CATALOG = {"product_id": "otpensource:9", "image_url": "https://img.example/cat.jpg", "kind": "catalog_item",
+           "source": "otpensource", "score": 0.95}
+SNAP_BLOUSE = {**BLOUSE, "id": "item_1", "similar_products": [CATALOG, SNAP]}
+NO_COLOR_BLOUSE = {**SNAP_BLOUSE, "colors": []}        # 색 조건 없음 → 하의 a1·a2 둘 다 후보
+
+
+class FakeClip:
+    """clip_filter 대역: keep에 있는 상품만 남긴다 (None이면 skip_reason으로 건너뜀)."""
+
+    def __init__(self, keep=None, skip_reason=None, image_used=True, fallback=False):
+        self.keep, self.skip_reason, self.image_used, self.fallback = keep, skip_reason, image_used, fallback
+        self.calls = []
+
+    def __call__(self, cand, ref):
+        from stock_agent.clip_matcher import ClipInfo
+        self.calls.append((list(cand["article_id"]), ref))
+        n = len(cand)
+        if self.skip_reason:
+            return cand, ClipInfo(False, self.skip_reason, n_before=n, n_after=n)
+        out = cand[cand["article_id"].isin(self.keep)].reset_index(drop=True)
+        return out, ClipInfo(True, None, self.image_used, n, len(out), n, 0.6, self.fallback)
+
+
+def test_snap_applies_clip_and_records_it(con):
+    clip = FakeClip(keep=["a2"])
+    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=clip)
+    tr = resp["trend_result"]
+    assert resp["status"] == "ok" and resp["product"]["sku_ids"] == ["a2"]     # CLIP이 a1을 걸러냄
+    assert sorted(clip.calls[0][0]) == ["a1", "a2"] and clip.calls[0][1]["image_url"] == SNAP["image_url"]
+    s = tr["search"]
+    assert s["clip"] == {"applied": True, "skip_reason": None, "image_used": True, "n_before": 2, "n_after": 1,
+                         "n_indexed": 2, "threshold": 0.6, "fallback": False}
+    o = s["outfit_reference"]
+    assert o["status"] == "used" and o["product_id"] == "musinsa_snap:1" and o["score"] == 0.8   # 스냅 중 최고
+    assert tr["attribute_summary"]["n_items"] == 1
+    assert any("시각·스타일 유사도(CLIP)로 재고 후보 2개 중 1개를 남겼습니다" in x for x in tr["limitations"])
+    ev = {e["evidence_id"]: e for e in resp["evidence"]}
+    assert ev["stock-agent:E-006"]["locator"] == SNAP["image_url"] and ev["stock-agent:E-006"]["source_id"] == "musinsa_snap"
+    assert validate_output(resp) == []
+
+
+def test_clip_fallback_and_text_only_notes(con):
+    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=FakeClip(["a1", "a2"], image_used=False,
+                                                                                  fallback=True))
+    lim = resp["trend_result"]["limitations"]
+    assert any("유사도 0.60 이상인 후보가 없어" in x for x in lim)
+    assert any("텍스트 속성만으로 유사도를 계산했습니다" in x for x in lim)
+
+
+def test_no_snap_skips_clip(con):
+    clip = FakeClip(keep=[])
+    resp = run({**REQ, "trend": trend({**BLOUSE, "similar_products": [CATALOG]})}, con, clip_filter=clip)
+    s = resp["trend_result"]["search"]
+    assert resp["status"] == "ok" and clip.calls == [] and s["clip"] is None
+    assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == "no_snap"
+    assert "stock-agent:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
+    assert any("무신사 스냅 착샷이 없어" in x for x in resp["trend_result"]["limitations"])
+
+
+@pytest.mark.parametrize("why, note", [("no_index", "CLIP 인덱스가 없어"), ("no_match", "CLIP 인덱스에 없어")])
+def test_clip_skipped_is_recorded_honestly(con, why, note):
+    resp = run({**REQ, "trend": trend(SNAP_BLOUSE)}, con, clip_filter=FakeClip(skip_reason=why))
+    s = resp["trend_result"]["search"]
+    assert resp["status"] == "ok" and s["clip"]["applied"] is False and s["clip"]["skip_reason"] == why
+    assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == why
+    assert "stock-agent:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
+    lim = resp["trend_result"]["limitations"]
+    assert any(note in x for x in lim) and not any("남겼습니다" in x for x in lim)
+
+
+def test_clip_runs_after_color_relaxation(con):
+    clip = FakeClip(keep=["a2"])
+    resp = run({**REQ, "trend": trend({**BLACK_GRAY, "similar_products": [SNAP]})}, con, clip_filter=clip)
+    assert clip.calls[0][0] == ["a2"] and resp["trend_result"]["search"]["color_mode"] == "any"
+
+
+def test_snap_without_user_category_uses_all_items(con):
+    skirt = {"category_major": "하의", "category_minor": "스커트", "colors": ["화이트"],
+             "similar_products": [{**SNAP, "product_id": "musinsa_snap:skirt", "score": 0.9}]}
+    clip = FakeClip(keep=["a1", "a2", "a5"])
+    req = {k: v for k, v in REQ.items() if k != "target_category"}
+    resp = run({**req, "trend": trend(SNAP_BLOUSE, skirt)}, con, clip_filter=clip)
+    assert resp["trend_result"]["search"]["outfit_reference"]["product_id"] == "musinsa_snap:skirt"

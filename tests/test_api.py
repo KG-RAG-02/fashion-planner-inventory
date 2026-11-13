@@ -30,37 +30,42 @@ def make_client(con, tmp_path, monkeypatch):
     con.execute("ALTER TABLE f.stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute("DETACH f")
     import stock_agent.api as api
-    from stock_agent.llm import PolicyLLM
     monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", None))
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
 
-    def make(llm):
-        monkeypatch.setattr(api, "load_llm", lambda: llm)
+    def make():
         return TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"})
     return make
 
 
 @pytest.fixture
 def client(make_client):
-    # 실제 LLM 대신 정해진 순서로 도구를 부르는 PolicyLLM
-    from stock_agent.llm import PolicyLLM
-    with make_client(PolicyLLM()) as c:
+    with make_client() as c:
         yield c
-
-
-def test_no_llm_is_503(make_client):
-    with make_client(None) as c:
-        assert c.get("/health").json()["llm_connected"] is False
-        r = c.post("/v1/inventory-products", json=REQ)
-    assert r.status_code == 503 and r.json()["errors"][0]["code"] == "SOURCE_UNAVAILABLE"
-    assert r.json()["errors"][0]["reason"] == "no_llm"
-    assert r.json()["trend_results"][0]["errors"][0]["reason"] == "no_llm"
 
 
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert r.json()["db"] == "cloudflare-r2" and r.json()["db_version"] == "test-version"
+    assert r.json()["clip_index_loaded"] is False and r.json()["clip_n_indexed"] == 0
+    assert not [k for k in r.json() if k.startswith("llm")]
     assert "tmp" not in r.text and "stock.duckdb" not in r.text
+
+
+def test_health_reports_clip_index(make_client, monkeypatch):
+    import stock_agent.api as api
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": True, "clip_n_indexed": 6})
+    with make_client() as c:
+        body = c.get("/health").json()
+    assert body["clip_index_loaded"] is True and body["clip_n_indexed"] == 6
+
+
+def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
+    import stock_agent.clip_matcher as clip
+    import stock_agent.api as api
+    monkeypatch.setattr(clip, "warm_up", lambda: (_ for _ in ()).throw(RuntimeError("no open_clip")))
+    assert api.warm_up_clip() == {"clip_index_loaded": False, "clip_n_indexed": 0}
 
 
 def test_post_ok(client):
@@ -163,7 +168,7 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
     import stock_agent.api as api
-    monkeypatch.setattr(api, "load_llm", lambda: None)
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "STOCK_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
@@ -178,7 +183,7 @@ def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypat
 @pytest.fixture
 def handoff_client(make_client, monkeypatch):
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
-    with make_client(__import__("stock_agent.llm", fromlist=["PolicyLLM"]).PolicyLLM()) as c:
+    with make_client() as c:
         yield c
 
 
@@ -274,10 +279,9 @@ def test_handoff_no_results_and_domain_error_status_are_wrapped(handoff_client):
 
 def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatch):
     import stock_agent.api as api
-    for code, expected in (("no_llm", 503), ("timeout", 504), ("internal", 500)):
+    for code, expected in (("db_unavailable", 503), ("timeout", 504), ("internal", 500)):
         monkeypatch.setattr(api, "_run_inventory", lambda payload, code=code: api.error_response(
-            payload, "llm_failed" if code != "internal" else code,
-            "controlled", **({"reason": code} if code != "internal" else {})))
+            payload, code, "controlled"))
         r = _post_handoff(handoff_client)
         assert r.status_code == expected
         assert r.json()["contract_version"] == "vogue-handoff/0.1"
@@ -326,7 +330,7 @@ def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
     import time
     import stock_agent.api as api
     monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.run_request(payload, None))[1])
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.error_response(payload, "internal", "late"))[1])
     r = _post_handoff(handoff_client)
     assert r.status_code == 504
     result = r.json()["result"] if "result" in r.json() else r.json()
@@ -350,7 +354,7 @@ def test_handoff_deadline_message_names_the_configured_seconds(handoff_client, m
     import time
     import stock_agent.api as api
     monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.run_request(payload, None))[1])
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.error_response(payload, "internal", "late"))[1])
     r = _post_handoff(handoff_client)
     result = r.json()["result"] if "result" in r.json() else r.json()
     assert r.status_code == 504
@@ -481,7 +485,7 @@ def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypa
     def unavailable():
         raise RuntimeError("fixture DB unavailable")
     monkeypatch.setattr(api, "prepare_database", unavailable)
-    monkeypatch.setattr(api, "load_llm", lambda: None)
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     with TestClient(api.app) as client:
         assert client.get("/health/live").status_code == 200
         assert client.get("/health/ready").status_code == 503
@@ -494,14 +498,13 @@ def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypa
 
 def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
     """Trend 1.1 may carry trends[].style.example_images (schema_version stays 1.1). Stock accepts it,
-    hashes the unchanged object into input_provenance, and never forwards the image links to the LLM."""
+    and hashes the unchanged object into input_provenance."""
     import copy
     import hashlib
     import json
     from pathlib import Path
 
     import jsonschema
-    from stock_agent.trend_input import llm_trend
     from stock_agent.trend_request import canonical_bytes
 
     trend = copy.deepcopy(REQ)
@@ -525,4 +528,3 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
     legacy = handoff_client.post("/v1/inventory-products", json=trend)
     assert legacy.status_code == 200
     assert legacy.json()["input_provenance"]["source_payload_sha256"] == provenance["source_payload_sha256"]
-    assert "example_images" not in llm_trend(trend["trends"][0])["style"]   # links only; never sent onward

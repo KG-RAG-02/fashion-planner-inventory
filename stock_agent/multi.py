@@ -1,7 +1,7 @@
 """트렌드 n개 → agent.run()을 트렌드마다 돌려 결과 n개를 이어 붙인다 (2026-11-08 결정)
 
 02 트렌드 분석은 트렌드를 목록(trends)으로 넘긴다. 1개여도 목록이다.
-트렌드 1개를 처리하는 규칙은 모두 agent.py·llm_agent.py에 있고, 여기서는 돌리고 이어 붙이기만 한다.
+트렌드 1개를 처리하는 규칙은 모두 agent.py에 있고, 여기서는 돌리고 이어 붙이기만 한다.
 
 입구 (2026-11-08 결정: 바깥에서는 02 형식만 받는다)
     run_request(02 결과)   API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다.
@@ -28,10 +28,7 @@
 
 같은 상품을 여러 트렌드가 고르면 products에 그대로 여러 번 들어간다(중복 허용).
 
-mode (2026-11-08)
-    agent  기본. 트렌드마다 LLM agent(llm_agent.run_agent). LLM이 없거나 실패하면 그 트렌드는 오류(팀 코드는 errors.py)
-           (규칙 방식으로 대신 내지 않음)
-    rule   규칙 방식(agent.run). LLM 결과와 비교하는 기준선·정확도 검증(scripts/validate_requests.py)용
+clip_filter: 착샷 CLIP 필터 함수(agent.run에 그대로 넘김). 기본은 clip_matcher.clip_filter, 테스트에서 바꾼다.
 """
 
 from __future__ import annotations
@@ -49,10 +46,7 @@ from stock_agent.agent import (
     run,
 )
 from stock_agent.errors import pick, to_team
-from stock_agent.llm_agent import MAX_STEPS, run_agent
 from stock_agent.trend_request import from_trend_result, input_provenance, is_trend_result
-
-MODES = ("agent", "rule")
 
 
 def error_response(req: dict, code: str, message: str, **extra) -> dict:
@@ -75,10 +69,8 @@ def _record_input_provenance(result: dict, source: dict) -> dict:
 
 
 def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None,
-                llm=None, mode: str = "agent", max_steps: int = MAX_STEPS) -> dict:
+                clip_filter=None) -> dict:
     """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다."""
-    if mode not in MODES:
-        raise ValueError(f"mode는 {', '.join(MODES)} 중 하나: {mode!r}")
     res = request if isinstance(request, dict) else {}
     if not is_trend_result(res):
         return error_response(res, "invalid_input",
@@ -100,16 +92,13 @@ def run_request(request: dict, con, image_dir: str | None = None, now: datetime 
                                 "(사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
                                 f"받은 applied_filters: {res.get('applied_filters')!r}")
         return _record_input_provenance(result, res)
-    result = run_internal(req, con, image_dir=image_dir, now=now, llm=llm, mode=mode, max_steps=max_steps,
-                          input_notes=input_notes)
+    result = run_internal(req, con, image_dir=image_dir, now=now, clip_filter=clip_filter, input_notes=input_notes)
     return _record_input_provenance(result, res)
 
 
 def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | None = None,
-                 llm=None, mode: str = "agent", max_steps: int = MAX_STEPS, input_notes: list[str] | None = None) -> dict:
+                 clip_filter=None, input_notes: list[str] | None = None) -> dict:
     """내부 형식 요청 → 응답. 트렌드가 1개여도 같은 형식으로 돌려준다."""
-    if mode not in MODES:
-        raise ValueError(f"mode는 {', '.join(MODES)} 중 하나: {mode!r}")
     req = req if isinstance(req, dict) else {}
     input_notes = input_notes or []
     trends = req.get("trends")
@@ -130,8 +119,7 @@ def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | N
     season_basis = None
     for i, t in enumerate(trends):
         one = {**common, "trend": t}
-        out = (run(one, con, image_dir=image_dir, now=now) if mode == "rule"
-               else run_agent(one, con, llm, now=now, image_dir=image_dir, max_steps=max_steps))
+        out = run(one, con, image_dir=image_dir, now=now, clip_filter=clip_filter)
         tr = out["trend_result"]
         tr["product_index"] = i
         tr["limitations"] = [*tr["limitations"], *input_notes]
