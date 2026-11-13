@@ -334,6 +334,29 @@ def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
     assert result["errors"][0]["reason"] == "timeout"
 
 
+def test_handoff_deadline_is_configurable(monkeypatch):
+    import stock_agent.api as api
+    cases = {None: 60.0, "": 60.0, "  ": 60.0, "90": 90.0, " 120.5 ": 120.5, "600": 600.0,
+             "0": 60.0, "-5": 60.0, "601": 60.0, "abc": 60.0}
+    for raw, expected in cases.items():
+        if raw is None:
+            monkeypatch.delenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raising=False)
+        else:
+            monkeypatch.setenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raw)
+        assert api.handoff_timeout_seconds() == expected, raw
+
+
+def test_handoff_deadline_message_names_the_configured_seconds(handoff_client, monkeypatch):
+    import time
+    import stock_agent.api as api
+    monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.run_request(payload, None))[1])
+    r = _post_handoff(handoff_client)
+    result = r.json()["result"] if "result" in r.json() else r.json()
+    assert r.status_code == 504
+    assert result["errors"][0]["message"] == "HTTP 요청 제한 시간(0.05초)을 초과했습니다."
+
+
 def test_concurrent_legacy_requests_keep_duckdb_cursor_isolation(client):
     from concurrent.futures import ThreadPoolExecutor
     from fastapi.testclient import TestClient

@@ -52,7 +52,26 @@ IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
 HANDOFF_PATH = "/v1/agents/stock-agent/runs"
 INVENTORY_PATH = "/v1/inventory-products"
-HANDOFF_TIMEOUT_SECONDS = 60.0
+DEFAULT_HANDOFF_TIMEOUT_SECONDS = 60.0
+MAX_HANDOFF_TIMEOUT_SECONDS = 600.0
+
+
+def handoff_timeout_seconds() -> float:
+    """Whole-request deadline of the two producer routes: ``STOCK_HANDOFF_TIMEOUT_SECONDS`` (default 60).
+
+    Blank, non-numeric or out-of-range values (not in (0, 600]) mean the default. The agent processes
+    trends one after another (about 10 s per trend with an LLM), so a caller that sends many trends
+    needs a longer deadline; its own read timeout must stay above this value.
+    """
+    raw = os.environ.get("STOCK_HANDOFF_TIMEOUT_SECONDS", "").strip()
+    try:
+        value = float(raw) if raw else DEFAULT_HANDOFF_TIMEOUT_SECONDS
+    except ValueError:
+        return DEFAULT_HANDOFF_TIMEOUT_SECONDS
+    return value if 0 < value <= MAX_HANDOFF_TIMEOUT_SECONDS else DEFAULT_HANDOFF_TIMEOUT_SECONDS
+
+
+HANDOFF_TIMEOUT_SECONDS = handoff_timeout_seconds()
 
 state: dict = {}
 _RUN_LOCK = threading.RLock()
@@ -285,7 +304,7 @@ async def _handoff_deadline(request: Request, call_next):
             rid = candidate if isinstance(candidate, str) and candidate.strip() else None
         except Exception:
             pass
-        result = error_response({"request_id": rid}, "llm_failed", "HTTP 요청 제한 시간(60초)을 초과했습니다.", reason="timeout")
+        result = error_response({"request_id": rid}, "llm_failed", f"HTTP 요청 제한 시간({HANDOFF_TIMEOUT_SECONDS:g}초)을 초과했습니다.", reason="timeout")
         return _json(_envelope(rid, result) if request.url.path == HANDOFF_PATH and rid else result, 504)
 
 
