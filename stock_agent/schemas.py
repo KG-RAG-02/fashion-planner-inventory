@@ -273,6 +273,9 @@ class InventoryResponse(BaseModel):
     season_basis: Optional[dict[str, Any]] = Field(None, description="대신 쓴 과거 시즌 기간과 시즌 출처")
     evidence: list[dict[str, Any]] = Field(description="트렌드마다 데이터 출처. evidence_id = stock-agent:<style.id>:E-001, style_id")
     errors: list[Error] = Field(description="공통 입력 오류. 트렌드별 오류는 trend_results[].errors")
+    input_provenance: Optional[dict[str, Any]] = Field(
+        None, description="Trend source version and the explicit Stock input-adapter provenance"
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -288,14 +291,50 @@ class ErrorResponse(BaseModel):
     errors: list[Error]
 
 
+class HandoffProducer(BaseModel):
+    agent_id: str = "stock-agent"
+    schema_version: str = Field(description="Stock producer result schema version; currently 1.0")
+
+
+class HandoffRequest(BaseModel):
+    contract_version: Literal["vogue-handoff/0.1"]
+    request_id: str = Field(min_length=1)
+    input: dict[str, Any] = Field(description="Unchanged TrendAnalysisResult producer object")
+
+
+class HandoffResponse(BaseModel):
+    contract_version: Literal["vogue-handoff/0.1"] = "vogue-handoff/0.1"
+    request_id: str
+    producer: HandoffProducer
+    status: Literal["ok", "partial", "no_results", "error"]
+    result: InventoryResponse
+
+
+class HandoffErrorResponse(BaseModel):
+    """Request-level error when no valid outer request ID exists."""
+    schema_version: str = "1.0"
+    request_id: Optional[str] = None
+    agent_id: str = "stock-agent"
+    status: Literal["error"] = "error"
+    summary: str
+    products: list[Any] = []
+    trend_results: list[Any] = []
+    evidence: list[Any] = []
+    errors: list[Error]
+
+
 class Health(BaseModel):
     status: Literal["ok", "error"]
     agent_id: str
     db: str
+    db_version: Optional[str] = None
+    message: Optional[str] = None
     missing_tables: list[str]
     images: str
-    images_found: bool
+    images_found: bool = Field(description="로컬 이미지 폴더 또는 R2 prefix 설정 여부; 원격 object는 요청 시 확인")
     llm_connected: bool = False
+    llm_model: Optional[str] = None
+    llm_error: Optional[str] = None
 
 
 RESPONSES = {

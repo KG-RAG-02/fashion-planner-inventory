@@ -37,6 +37,8 @@ mode (2026-11-08)
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+import json
 
 from stock_agent.agent import (
     AGENT_ID,
@@ -67,6 +69,21 @@ def no_results_response(req: dict, message: str) -> dict:
             "season_basis": None, "evidence": [], "errors": []}
 
 
+def _record_input_provenance(result: dict, source: dict) -> dict:
+    version = source.get("schema_version")
+    if isinstance(version, str) and version:
+        canonical = json.dumps(source, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        result["input_provenance"] = {
+            "source_agent_id": "trend-analysis-agent",
+            "source_schema_version": version,
+            "internal_schema_version": None,
+            "adapter_version": "stock-trend-input-adapter/1.0",
+            "transformed": True,
+            "source_payload_sha256": hashlib.sha256(canonical).hexdigest(),
+        }
+    return result
+
+
 def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None,
                 llm=None, mode: str = "agent", max_steps: int = MAX_STEPS) -> dict:
     """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다."""
@@ -83,17 +100,19 @@ def run_request(request: dict, con, image_dir: str | None = None, now: datetime 
     except ValueError as e:
         return error_response(res, "invalid_input", str(e))
     if upstream == "no_results":
-        return no_results_response(req, note)
+        return _record_input_provenance(no_results_response(req, note), res)
     if upstream == "error":
-        return error_response(req, "upstream_error", note)
+        return _record_input_provenance(error_response(req, "upstream_error", note), res)
     input_notes = req.pop("_input_notes", [])
     if not req.get("season"):
-        return error_response(req, "missing_fields",
-                              "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 "
-                              "(사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
-                              f"받은 applied_filters: {res.get('applied_filters')!r}")
-    return run_internal(req, con, image_dir=image_dir, now=now, llm=llm, mode=mode, max_steps=max_steps,
-                        input_notes=input_notes)
+        result = error_response(req, "missing_fields",
+                                "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 "
+                                "(사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
+                                f"받은 applied_filters: {res.get('applied_filters')!r}")
+        return _record_input_provenance(result, res)
+    result = run_internal(req, con, image_dir=image_dir, now=now, llm=llm, mode=mode, max_steps=max_steps,
+                          input_notes=input_notes)
+    return _record_input_provenance(result, res)
 
 
 def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | None = None,

@@ -12,3 +12,8 @@ scripts/
 *.csv
 *.parquet
 *.duckdb
+*.duckdb.wal
+*.zip
+*.jpg
+*.jpeg
+*.png

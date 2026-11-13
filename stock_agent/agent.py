@@ -548,8 +548,10 @@ def _pick_with_images(ranked: pd.DataFrame, image_dir, limitations: list[str]):
     if ranked.empty:
         return None, None
     row = lambda i: SimpleNamespace(**ranked.iloc[i].to_dict())  # noqa: E731  (열 이름으로 읽기: row.rank 등)
-    if not Path(image_dir).is_dir():
-        limitations.append(f"이미지 폴더({image_dir})가 없어 상품 사진 없이 순위 1위를 반환합니다.")
+    remote_ready = getattr(image_dir, "images_available", None)
+    local_ready = Path(image_dir).is_dir() if isinstance(image_dir, (str, Path)) else False
+    if not (bool(remote_ready) if remote_ready is not None else local_ready):
+        limitations.append("이미지 폴더가 없어 상품 사진 없이 순위 1위를 반환합니다.")
         return row(0), None
     for i, aid in enumerate(ranked["article_id"]):
         if has_image(image_dir, aid):

@@ -7,3 +7,4 @@ openai>=1.40
 open-clip-torch>=2.24
 Pillow>=10.0
 requests>=2.31
+boto3>=1.35

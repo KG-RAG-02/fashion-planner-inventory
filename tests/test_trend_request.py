@@ -42,6 +42,15 @@ def test_converts_applied_filters():
     assert req["trends"] is RES["trends"]
 
 
+def test_trend_producer_version_is_not_misread_as_stock_internal_version():
+    r = res(schema_version="1.1")
+    original = copy.deepcopy(r)
+    req, status, _ = from_trend_result(r)
+    assert status == "ok"
+    assert "schema_version" not in req
+    assert r == original
+
+
 def test_category_ref_major_when_no_minor_and_raw_only_dropped():
     r = res()
     r["applied_filters"]["categories"] = {
