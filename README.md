@@ -68,7 +68,7 @@ python -m pytest
 - 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
 - `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
-- Project_08 Stock timeout과 새 route의 HTTP deadline은 기본 60초입니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`, 0 초과 600 이하; 통합 배포는 90초). 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
+- Project_08 Stock timeout과 새 route의 HTTP deadline은 기본 60초입니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`, 0 초과 600 이하; 통합 배포는 180초). 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
 - `/health`의 `llm_provider`, `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
 
 ## 3. 로컬 실행
@@ -132,7 +132,7 @@ STOCK_DB_PATH=/tmp/stock-fixture.duckdb STOCK_LLM_PROVIDER=policy VOGUE_AGENT_SE
 
 두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
 
-Stock route는 기본 60초 전체 deadline을 적용합니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 90초이고 Project_08은 Stock 응답을 120초까지 기다립니다). 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
+Stock route는 기본 60초 전체 deadline을 적용합니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 180초이고 Project_08은 Stock 응답을 210초까지 기다립니다). 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
 
 HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health/live`는 API 생존만 확인합니다. `/health/ready`와 호환 별칭 `/health`는 DB schema/column type·nonempty tables·sample/as_of/version·필수 수치 검사가 통과해야 200입니다. DB 미준비는 503입니다. 이미지 누락은 상태 필드로만 보고합니다. `llm_connected`는 client 객체 존재만 나타내며 원격 인증/연결 점검은 아닙니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
 
