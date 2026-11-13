@@ -17,12 +17,17 @@ REQ = build_trend_result("req_api", [BALLET], include=["상의"], gender="여") 
 
 @pytest.fixture
 def make_client(con, tmp_path, monkeypatch):
+    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    monkeypatch.delenv("STOCK_DB_PATH", raising=False)   # R2 mode (STOCK_DB_PATH would select local-file)
     # conftest의 작은 DB를 파일로 저장해 API가 read_only로 열게 한다
     db = tmp_path / "t.duckdb"
     con.execute(f"ATTACH '{db.as_posix()}' AS f")
     for t in ("article_attrs", "stock_v1", "transactions"):
         con.execute(f"CREATE TABLE f.{t} AS SELECT * FROM {t}")
     con.execute("CREATE TABLE f.articles AS SELECT article_id FROM article_attrs")
+    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
+    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
+    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute("DETACH f")
     import stock_agent.api as api
     from stock_agent.llm import PolicyLLM
@@ -30,7 +35,7 @@ def make_client(con, tmp_path, monkeypatch):
 
     def make(llm):
         monkeypatch.setattr(api, "load_llm", lambda: llm)
-        return TestClient(api.app)
+        return TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"})
     return make
 
 
@@ -95,7 +100,7 @@ def test_season_origin_and_extra_fields_pass_through(client):
 def test_docs_show_request_fields_examples_and_400(client):
     spec = client.get("/openapi.json").json()
     op = spec["paths"]["/v1/inventory-products"]["post"]
-    assert set(op["responses"]) == {"200", "400", "500", "503", "504"}     # 422 대신 400
+    assert set(op["responses"]) == {"200", "400", "401", "500", "503", "504"}     # 422 대신 400
     body = op["requestBody"]["content"]["application/json"]
     assert {"one_trend", "multi_trends", "no_user_category", "upstream_no_results", "missing_season"} == set(body["examples"])
     req = spec["components"]["schemas"]["InventoryRequest"]["properties"]
@@ -146,9 +151,10 @@ def test_trend_result_no_results_is_200(client):
 
 
 def test_db_missing_is_503(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
     import stock_agent.api as api
     monkeypatch.setattr(api, "prepare_database", lambda: (str(tmp_path / "missing.duckdb"), "test-version", None))
-    with TestClient(api.app) as c:
+    with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         assert c.get("/health").status_code == 503
         r = c.post("/v1/inventory-products", json=REQ)
     assert r.status_code == 503
@@ -158,14 +164,14 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
     import stock_agent.api as api
     monkeypatch.setattr(api, "load_llm", lambda: None)
-    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY"):
+    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "STOCK_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
-    with TestClient(api.app) as c:
+    with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         response = c.get("/health")
     assert response.status_code == 503
     body = response.json()
     assert body["db"] == "cloudflare-r2"
-    assert "R2_ACCOUNT_ID" in body["message"] and "R2_BUCKET" in body["message"]
+    assert body["reason"] == "StorageConfigurationError"
     assert "Secret Access Key" not in response.text
 
 
@@ -181,7 +187,7 @@ def _handoff(body=REQ, request_id=None, version="vogue-handoff/0.1"):
 
 
 def _post_handoff(client, body=None, token="test-stock-token"):
-    headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else {"Authorization": ""}
     return client.post("/v1/agents/stock-agent/runs", json=body or _handoff(), headers=headers)
 
 
@@ -212,7 +218,7 @@ def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     assert env["producer"] == {"agent_id": "stock-agent", "schema_version": "1.0"}
     assert env["status"] == env["result"]["status"] == "ok"
     assert list(env["result"]) == ["schema_version", "request_id", "agent_id", "status", "summary", "products",
-                                    "trend_results", "season_basis", "evidence", "errors"]
+                                    "trend_results", "season_basis", "evidence", "errors", "input_provenance"]
     assert env["result"]["products"][0]["sku_ids"] == ["a1"]
 
 
@@ -304,15 +310,16 @@ def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
     assert r.json()["result"]["errors"][0]["reason"] == "invalid_input"
 
 
-def test_handoff_openapi_and_legacy_remains_unauthenticated(handoff_client):
+def test_handoff_openapi_and_legacy_shares_auth(handoff_client):
     spec = handoff_client.get("/openapi.json").json()
     op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
     assert "422" not in op["responses"]
     assert {"200", "400", "500", "503", "504"} <= set(op["responses"])
     assert op["security"] == [{"BearerAuth": []}]
-    # Compatibility decision: legacy route keeps its existing unauthenticated policy.
-    r = handoff_client.post("/v1/inventory-products", json=REQ)
-    assert r.status_code == 200
+    # Both producer routes share the same fail-closed policy.
+    r = handoff_client.post("/v1/inventory-products", json=REQ, headers={"Authorization": ""})
+    assert r.status_code == 401
+    assert spec["paths"]["/v1/inventory-products"]["post"]["security"] == [{"BearerAuth": []}]
 
 
 def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
@@ -327,13 +334,36 @@ def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
     assert result["errors"][0]["reason"] == "timeout"
 
 
+def test_handoff_deadline_is_configurable(monkeypatch):
+    import stock_agent.api as api
+    cases = {None: 60.0, "": 60.0, "  ": 60.0, "90": 90.0, " 120.5 ": 120.5, "600": 600.0,
+             "0": 60.0, "-5": 60.0, "601": 60.0, "abc": 60.0}
+    for raw, expected in cases.items():
+        if raw is None:
+            monkeypatch.delenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raising=False)
+        else:
+            monkeypatch.setenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raw)
+        assert api.handoff_timeout_seconds() == expected, raw
+
+
+def test_handoff_deadline_message_names_the_configured_seconds(handoff_client, monkeypatch):
+    import time
+    import stock_agent.api as api
+    monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.run_request(payload, None))[1])
+    r = _post_handoff(handoff_client)
+    result = r.json()["result"] if "result" in r.json() else r.json()
+    assert r.status_code == 504
+    assert result["errors"][0]["message"] == "HTTP 요청 제한 시간(0.05초)을 초과했습니다."
+
+
 def test_concurrent_legacy_requests_keep_duckdb_cursor_isolation(client):
     from concurrent.futures import ThreadPoolExecutor
     from fastapi.testclient import TestClient
 
     # Separate clients issue simultaneous requests against the app's shared DB
     # connection. Every response must remain valid and retain its own request ID.
-    clients = [TestClient(client.app) for _ in range(6)]
+    clients = [TestClient(client.app, headers={"Authorization": "Bearer test-stock-token"}) for _ in range(6)]
     def send(i):
         return clients[i].post("/v1/inventory-products", json={**REQ, "request_id": f"parallel-{i}"})
     try:
@@ -355,9 +385,9 @@ def test_project08_http_adapter_loopback_integration(handoff_client, monkeypatch
     from pathlib import Path
     import pytest
 
-    p08_src = Path(__file__).resolve().parents[2] / "project_08" / "src"
+    p08_src = Path(__file__).resolve().parents[2] / "vogue-orchestrator" / "src"
     if not p08_src.is_dir():
-        pytest.skip("project_08 source checkout not available")
+        pytest.skip("vogue-orchestrator source checkout not available")
     sys.path.insert(0, str(p08_src))
     from vogue_orchestrator.connectors import agent_http_v01_adapter
     from vogue_orchestrator.core import _unpack_handoff_response
@@ -402,9 +432,9 @@ def test_project08_adapter_request_and_core_validation_in_process(handoff_client
     from pathlib import Path
     import pytest
 
-    p08_src = Path(__file__).resolve().parents[2] / "project_08" / "src"
+    p08_src = Path(__file__).resolve().parents[2] / "vogue-orchestrator" / "src"
     if not p08_src.is_dir():
-        pytest.skip("project_08 source checkout not available")
+        pytest.skip("vogue-orchestrator source checkout not available")
     sys.path.insert(0, str(p08_src))
     import vogue_orchestrator.connectors as connectors
     from vogue_orchestrator.core import _unpack_handoff_response
@@ -426,3 +456,73 @@ def test_project08_adapter_request_and_core_validation_in_process(handoff_client
     assert sent["bearer_token"] == "test-stock-token"
     assert (producer, version, status) == ("stock-agent", "1.0", "ok")
     assert result["request_id"] == REQ["request_id"]
+
+
+@pytest.mark.parametrize("path", ["/v1/inventory-products", "/v1/agents/stock-agent/runs"])
+@pytest.mark.parametrize("authorization", ["", "Bearer wrong"])
+def test_auth_precedes_even_malformed_json(handoff_client, path, authorization, monkeypatch):
+    import stock_agent.api as api
+    def forbidden(*args, **kwargs):
+        pytest.fail("unauthorized request entered inventory")
+    monkeypatch.setattr(api, "_run_inventory", forbidden)
+    result = handoff_client.post(path, content=b"{invalid", headers={"Authorization": authorization})
+    assert result.status_code == 401
+
+
+@pytest.mark.parametrize("path", ["/v1/inventory-products", "/v1/agents/stock-agent/runs"])
+@pytest.mark.parametrize("raw", [b'{"request_id":"one","request_id":"two"}', b'{"x":NaN}', b'{"x":1e999}'])
+def test_ambiguous_json_rejected(handoff_client, path, raw):
+    assert handoff_client.post(path, content=raw).status_code == 400
+
+
+def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypatch):
+    import stock_agent.api as api
+    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    def unavailable():
+        raise RuntimeError("fixture DB unavailable")
+    monkeypatch.setattr(api, "prepare_database", unavailable)
+    monkeypatch.setattr(api, "load_llm", lambda: None)
+    with TestClient(api.app) as client:
+        assert client.get("/health/live").status_code == 200
+        assert client.get("/health/ready").status_code == 503
+        assert client.get("/health").status_code == 503
+        response = _post_handoff(client, _handoff({**REQ, "status": "no_results", "trends": []}))
+        assert response.status_code == 200 and response.json()["status"] == "no_results"
+        assert response.json()["result"]["products"] == []
+        assert _post_handoff(client).status_code == 503
+
+
+def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
+    """Trend 1.1 may carry trends[].style.example_images (schema_version stays 1.1). Stock accepts it,
+    hashes the unchanged object into input_provenance, and never forwards the image links to the LLM."""
+    import copy
+    import hashlib
+    import json
+    from pathlib import Path
+
+    import jsonschema
+    from stock_agent.trend_input import llm_trend
+    from stock_agent.trend_request import canonical_bytes
+
+    trend = copy.deepcopy(REQ)
+    images = [{"url": "https://img.example.invalid/0.jpg", "basis": "item_link"},
+              {"url": "https://img.example.invalid/1.jpg", "basis": "article"}]
+    trend["trends"][0]["style"]["example_images"] = images
+    assert trend["schema_version"] == "1.1"
+    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts/schemas/stock-agent-request.schema.json")
+                        .read_text(encoding="utf-8"))
+    assert list(jsonschema.Draft202012Validator(schema).iter_errors(trend)) == []
+
+    r = _post_handoff(handoff_client, _handoff(trend))
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+    provenance = r.json()["result"]["input_provenance"]
+    assert provenance["source_schema_version"] == "1.1"
+    assert provenance["source_payload_sha256"] == hashlib.sha256(canonical_bytes(trend)).hexdigest()
+    without = copy.deepcopy(trend)
+    del without["trends"][0]["style"]["example_images"]
+    assert provenance["source_payload_sha256"] != hashlib.sha256(canonical_bytes(without)).hexdigest()
+
+    legacy = handoff_client.post("/v1/inventory-products", json=trend)
+    assert legacy.status_code == 200
+    assert legacy.json()["input_provenance"]["source_payload_sha256"] == provenance["source_payload_sha256"]
+    assert "example_images" not in llm_trend(trend["trends"][0])["style"]   # links only; never sent onward

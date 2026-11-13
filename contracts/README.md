@@ -9,7 +9,7 @@
 | `schemas/stock-agent-result.schema.json` | producer result payload 1.0 |
 | `examples/` | 요청 1개, 응답 4개 (정상, 02 no_results, 시즌 없음, LLM 미연결). 레포의 `examples/`도 02 형식 요청 |
 
-기존 `POST /v1/inventory-products`는 무인증 레거시 입력 경로로 유지합니다. Project_08용 새 경로는 `POST /v1/agents/stock-agent/runs`이며 `Authorization: Bearer ...`를 요구하고, 요청은 `{contract_version, request_id, input}` envelope입니다. `input`은 아래 producer input 그대로이며 응답은 `{contract_version, request_id, producer, status, result}`로 감싸되 `result` 전체를 보존합니다. `/docs`와 `/openapi.json`에 두 경로를 게시하며 FastAPI 422 대신 400 오류 payload를 사용합니다. `tests/test_contracts.py`는 producer payload, API 테스트는 HTTP envelope를 검사합니다.
+기존 `POST /v1/inventory-products`도 canonical과 동일한 Bearer 인증을 요구합니다. Project_08용 새 경로는 `POST /v1/agents/stock-agent/runs`이며 `Authorization: Bearer ...`를 요구하고, 요청은 `{contract_version, request_id, input}` envelope입니다. `input`은 아래 producer input 그대로이며 응답은 `{contract_version, request_id, producer, status, result}`로 감싸되 `result` 전체를 보존합니다. `/docs`와 `/openapi.json`에 두 경로를 게시하며 FastAPI 422 대신 400 오류 payload를 사용합니다. `tests/test_contracts.py`는 producer payload, API 테스트는 HTTP envelope를 검사합니다.
 
 ## 흐름
 
@@ -85,18 +85,26 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 ## HTTP 인증·전송 및 실행 제한
 
 - 새 `/v1/agents/stock-agent/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 일치하는 `Authorization: Bearer <token>`을 요구합니다. 누락/오류는 401 `UNAUTHORIZED`; 토큰은 코드, 응답, 로그에 기록하지 않습니다. 토큰은 Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 배포 비밀 저장소에서 동일하게 주입합니다.
-- 기존 `/v1/inventory-products`는 구 클라이언트 호환을 위해 무인증으로 남깁니다. 운영에서 레거시 route 노출 여부는 네트워크 경계로 제한하고, 경로 정책을 바꾸려면 호출자를 먼저 전환합니다.
+- 두 inventory route 모두 같은 fail-closed Bearer 인증을 본문 파싱 전에 요구합니다. token 미설정/누락/오류는401이며 유효 token의 malformed JSON은400입니다.
 - 운영은 TLS 종료 지점에서 HTTPS를 제공하고 backend로 전달할 때 Authorization header를 보존합니다. Project_08은 operational HTTPS + bearer를 요구합니다. loopback HTTP는 개발에서만 사용하며 Project_08의 `VOGUE_AGENT_HTTP_DEV_MODE=1`와 함께 사용합니다. 이 서버는 HTTP/HTTPS scheme을 강제하지 않으므로 운영 scheme 강제는 ingress/reverse proxy 배포 설정의 책임입니다.
 - Project_08 agent 요청 timeout은 60초입니다. Stock v0.1 route도 전체 HTTP 처리에 60초 deadline을 둡니다. 기존 LLM 설정은 호출당 최대 30초, SDK 재시도 최대 2회(최악 호출 예산은 30×(1+2)=90초, 이미지 fallback 포함 시 추가 호출 가능), trend당 최대 12 tool steps이며 multi는 trend 수만큼 순차 처리하므로 원래 설정만으로는 무제한 초과할 수 있습니다. 따라서 동기 handler 전체 deadline을 60초로 제한하고 초과 시 504 `TIMEOUT` envelope를 반환합니다. Python thread의 동기 처리 cancellation은 보장되지 않아 deadline 순간 이미 실행 중인 SDK/DB 호출은 서버 쪽에서 중단되지 않을 수 있습니다. 운영에서 비용 누적 방지를 완전히 보장하려면 SDK transport timeout/retries를 남은 요청 budget 이하로 줄이고, 외부 이미지 fetch timeout 10초도 같은 deadline에 포함하도록 별도 취소 지원이나 job 모델을 도입해야 합니다. 현재 구현은 응답 상한만 보장하며 이미 시작한 blocking SDK 호출의 강제 취소까지 보장하지 않습니다.
-- 각 요청은 DuckDB 공유 connection에서 요청별 `cursor()`를 만들고 닫습니다. health check도 별도 cursor를 씁니다. 병렬 cursor 안전성은 API 동시 요청 테스트에서 회귀 확인합니다.
+- 각 요청은 DuckDB 공유 connection에서 요청별 `cursor()`를 만들고 닫습니다. readiness 검사는 startup에서 수행하고 health에는 저장된 검사 결과를 제공합니다. 병렬 cursor 안전성은 API 동시 요청 테스트에서 회귀 확인합니다.
 
 ## Health, API docs 및 환경 변수
 
-- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 런타임은 Cloudflare R2의 비공개 bucket에서 DB object를 시작 시 임시 캐시로 내려받고, 로컬 복사본에 DuckDB read-only 연결을 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. 로컬 빌드 스크립트는 계속 `STOCK_DB_PATH`를 사용할 수 있지만 API 런타임 DB 설정은 아닙니다.
-- `/health`는 R2에서 준비한 DB 연결과 필수 테이블(`articles`, `transactions`, `article_attrs`, `stock_v1`)이 모두 있을 때 200입니다. R2 설정·인증·다운로드·DB 연결/질의 실패 또는 테이블 누락이면 503입니다. 이미지 누락은 `images_found=false`로 보고하지만 503 사유는 아닙니다(상품 이미지가 null일 수 있음). `db`는 provider 식별자만 노출하며 경로와 자격 증명은 반환하지 않습니다. `llm_connected`는 설정된 LLM client 객체의 존재만 뜻하고 자격 증명/권한/실제 연결 검증은 아닙니다.
+- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. `STOCK_DB_PATH`가 설정되면 API는 R2 설정·HEAD 없이 그 로컬 파일을 read-only로 엽니다(local-file 모드, readiness `db: local-file`).
+- `/health/live`는 API 생존200이며 `/health/ready`와 `/health`는 column/type, nonempty tables, sample snapshot 및 수치 검사를 통과해야200입니다. 실패는503입니다. image_objects_verified=false, llm_authenticated=null을 따로 표시합니다. llm_connected는 기존 client 구성 여부 별칭이며 원격 인증 성공이 아닙니다.
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
-- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
+- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `STOCK_DB_PATH`(선택, local-file 모드), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `STOCK_LLM_PROVIDER`(`openai` 기본 | `policy` = 결정적 PolicyLLM), `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT`. 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 
 스키마를 바꾸면 `examples/`, `stock_agent/schemas.py`(설명서), `tests/test_contracts.py`를 같이 고치고 `pytest`를 돌립니다. 호환되지 않는 변경이면 `VERSION`을 올리고 02·05 담당에게 알립니다.
+
+### 기존 경계 강화 (2026-11-12)
+
+입력 producer version은 필수 `schema_version=1.1`이며 Stock 결과1.0 및 handoff0.1과 별개입니다. 원본 입력을 deepcopy한 내부 검색 입력을 사용하고 원본 body hash를 유지합니다. canonical 요청의 outer/inner ID와 version·status를 검증하며 producer agent_id가 명시되면 Trend identity와 같아야 합니다. 전체 Trend Evidence 의미 검증은 이 adapter의 범위가 아닙니다.
+
+readiness는 column/type·nonempty·snapshot 및 수치 null/음수/금액 일관성을 검사합니다. snapshot은2020-09-22/virtual_stock_v1/sample과 일치해야 합니다. no_results는 인증·입력검증 뒤 DB 없이 반환합니다. 양수재고 검색에서 no_results가 나와도 전체 재고0이라는 뜻이 아닙니다. result1.0 schema에 임의 top-level 관측 필드를 추가하지 않습니다.
+
+포트/route/health의 기준은 `stock_agent/service-manifest.json`입니다. Infra/P08은 이를 소비하고 기존8769 default를8002로 변경해야 합니다. 이 저장소는 다른 owner 코드를 변경하지 않습니다.

@@ -102,6 +102,12 @@ def _safe_cache_dir() -> Path:
     return root
 
 
+def _image_cache_dir(cache_dir: Path) -> Path:
+    """Where fetched R2 images are cached: ``STOCK_IMAGE_CACHE_DIR``, default ``<STOCK_CACHE_DIR>/images``."""
+    configured = os.environ.get("STOCK_IMAGE_CACHE_DIR", "").strip()
+    return Path(configured) if configured else Path(cache_dir) / "images"
+
+
 def _read_stream(body: Any, target: Path) -> int:
     size = 0
     try:
@@ -121,16 +127,63 @@ def _read_stream(body: Any, target: Path) -> int:
     return size
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def open_local_database(path_value: str | os.PathLike) -> tuple[Path, str]:
+    """Local-file mode (``STOCK_DB_PATH``): no R2 settings, HEAD or download.
+
+    The file must exist. If a ``<name>.sha256`` sidecar sits next to it (as written by
+    ``python -m stock_agent.server --prepare-cache``), the file must match it. The version
+    identifier is the file's SHA-256. The caller opens the file read-only.
+    """
+    path = Path(path_value).expanduser()
+    if not path.is_file():
+        raise StorageUnavailable("STOCK_DB_PATH가 가리키는 DB 파일이 없습니다")
+    checksum = file_sha256(path)
+    sidecar = path.with_suffix(".sha256")
+    if sidecar.is_file() and sidecar.read_text().strip() != checksum:
+        raise StorageUnavailable("STOCK_DB_PATH DB 파일이 SHA-256 sidecar와 일치하지 않습니다")
+    return path, f"sha256:{checksum}"
+
+
+def _write_checksum(target: Path) -> str:
+    checksum = file_sha256(target)
+    fd, name = tempfile.mkstemp(prefix=target.name, suffix=".part", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w") as out:
+            out.write(checksum)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, target.with_suffix(".sha256"))
+    finally:
+        Path(name).unlink(missing_ok=True)
+    return checksum
+
+
 class R2ObjectStore:
     """Small read-only adapter; pass a fake client to exercise it offline."""
 
-    def __init__(self, settings: R2Settings, client=None, cache_dir: Path | None = None):
+    IMAGE_CACHE_NOTE = ("이미지 캐시 디렉터리(STOCK_IMAGE_CACHE_DIR, 기본 STOCK_CACHE_DIR/images)에 쓸 수 없어 "
+                        "상품 사진을 캐시하지 않고 R2에서 받은 그대로 응답에 넣었습니다.")
+
+    def __init__(self, settings: R2Settings, client=None, cache_dir: Path | None = None,
+                 image_cache_dir: Path | None = None):
         self.settings = settings
         self.client = client if client is not None else _client(settings)
         self.cache_dir = Path(cache_dir) if cache_dir is not None else _safe_cache_dir()
         self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Created lazily: a read-only image cache only disables caching (see load_image).
+        self.image_cache_dir = Path(image_cache_dir) if image_cache_dir is not None else _image_cache_dir(self.cache_dir)
         self._image_presence: dict[str, tuple[float, bool]] = {}
         self._image_lock = threading.Lock()
+        self._image_notes: list[str] = []
+        self.database_metadata: dict = {}
 
     @property
     def images_configured(self) -> bool:
@@ -165,38 +218,87 @@ class R2ObjectStore:
             if code == 404 or error_code in {"404", "NoSuchKey", "NotFound"}:
                 result = False
             else:
-                # Images are optional; avoid repeated slow HEAD calls after an outage.
-                result = False
+                # A denied/unreachable source is not proof that the image is absent.
+                raise StorageUnavailable("R2 이미지 존재 여부를 확인하지 못했습니다") from None
         with self._image_lock:
             self._image_presence[key] = (time.monotonic() + 30, result)
         return result
 
+    def take_image_notes(self) -> list[str]:
+        """Limitation sentences left by image loading since the last call (e.g. caching disabled)."""
+        with self._image_lock:
+            notes, self._image_notes = self._image_notes, []
+        return notes
+
     def load_image(self, article_id: str) -> bytes | None:
+        """Image bytes from the local cache or R2 (None when the object does not exist).
+
+        Caching is best effort: when the image cache directory is not writable (read-only mount,
+        full disk) the fetched bytes are still returned and a note is left for take_image_notes().
+        """
         key = self.object_key_for_image(article_id)
-        cached = self.cache_dir / "images" / (hashlib.sha256(key.encode()).hexdigest() + ".jpg")
-        if cached.is_file():
-            return cached.read_bytes()
-        cached.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd, partial_name = tempfile.mkstemp(prefix=cached.name + ".", suffix=".part", dir=cached.parent)
-        os.close(fd)
-        partial = Path(partial_name)
+        cached = self.image_cache_dir / (hashlib.sha256(key.encode()).hexdigest() + ".jpg")
+        try:
+            if cached.is_file():
+                return cached.read_bytes()
+        except OSError:
+            pass  # unreadable cache entry: fetch again
+        raw = self._fetch_image(key)
+        if raw is not None and not self._cache_image(cached, raw):
+            with self._image_lock:
+                if self.IMAGE_CACHE_NOTE not in self._image_notes:
+                    self._image_notes.append(self.IMAGE_CACHE_NOTE)
+        return raw
+
+    def _fetch_image(self, key: str) -> bytes | None:
         try:
             response = self.client.get_object(Bucket=self.settings.bucket, Key=key)
             body = response["Body"]
-            size = _read_stream(body, partial)
+            try:
+                raw = body.read()
+            finally:
+                close = getattr(body, "close", None)
+                if callable(close):
+                    close()
             expected = response.get("ContentLength")
-            if expected is not None and size != expected:
+            if expected is not None and len(raw) != expected:
                 raise StorageUnavailable("R2 이미지 다운로드 크기가 일치하지 않습니다")
-            os.replace(partial, cached)
-            return cached.read_bytes()
+            return raw
         except StorageUnavailable:
             raise
-        except Exception:
+        except Exception as exc:
+            response = getattr(exc, "response", {})
+            if (response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+                    or response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}):
+                return None
             raise StorageUnavailable("R2 이미지를 가져오지 못했습니다") from None
-        finally:
-            partial.unlink(missing_ok=True)
 
-    def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25) -> tuple[Path, str]:
+    @staticmethod
+    def _cache_image(cached: Path, raw: bytes) -> bool:
+        """Atomically store one image; False when the cache directory cannot be written."""
+        partial = None
+        try:
+            cached.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, name = tempfile.mkstemp(prefix=cached.name + ".", suffix=".part", dir=cached.parent)
+            partial = Path(name)
+            with open(fd, "wb") as out:
+                out.write(raw)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(partial, cached)
+            partial = None
+            return True
+        except OSError:
+            return False
+        finally:
+            if partial is not None:
+                try:
+                    partial.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25,
+                         *, allow_download: bool = True) -> tuple[Path, str]:
         """Download the configured DB once per object version to an atomic cache file."""
         bucket, key = self.settings.bucket, self.settings.db_key
         last_error = None
@@ -212,8 +314,17 @@ class R2ObjectStore:
                 version_tag = version or etag
                 identity = hashlib.sha256(f"{bucket}/{key}/{version_tag}".encode()).hexdigest()
                 target = self.cache_dir / f"stock-{identity}.duckdb"
+                self.database_metadata = {"version": version_tag, "etag": etag,
+                                          "size_bytes": content_length, "sha256": None,
+                                          "upstream_checksum_verified": False}
                 if target.is_file() and (content_length is None or target.stat().st_size == content_length):
-                    return target, version_tag
+                    sidecar = target.with_suffix(".sha256")
+                    actual = file_sha256(target)
+                    if sidecar.is_file() and sidecar.read_text().strip() == actual:
+                        self.database_metadata["sha256"] = actual
+                        return target, version_tag
+                if not allow_download:
+                    raise StorageUnavailable("검증된 기존 DB cache가 없습니다. 자동 다운로드는 비활성화되어 있습니다")
                 fd, partial_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".part",
                                                     dir=target.parent)
                 os.close(fd)
@@ -230,6 +341,7 @@ class R2ObjectStore:
                     if expected is not None and size != expected:
                         raise StorageUnavailable("R2 DB 다운로드 크기가 일치하지 않습니다")
                     os.replace(partial, target)
+                    self.database_metadata["sha256"] = _write_checksum(target)
                 finally:
                     partial.unlink(missing_ok=True)
                 return target, version_tag

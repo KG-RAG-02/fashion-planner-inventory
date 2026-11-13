@@ -39,7 +39,7 @@ def test_converts_applied_filters():
     assert "exclude_categories" not in req
     assert req["target_colors"] == ["화이트"]
     assert req["gender"] == "여"
-    assert req["trends"] is RES["trends"]
+    assert req["trends"] == RES["trends"] and req["trends"] is not RES["trends"]
 
 
 def test_trend_producer_version_is_not_misread_as_stock_internal_version():

@@ -96,17 +96,14 @@ def test_empty_user_colors_keeps_trend_rule():
     assert ti.colors == ["화이트"] and ti.color_basis == "user_category_items" and ti.user_colors == []
 
 
-# ---- 소재·핏 (LLM agent가 거르는 기준)
-def test_materials_fit_from_user_category_items_first():
-    shirt = {**SHIRT, "materials": ["시폰"], "fit": "루즈"}
-    jacket = {**JACKET, "material": ["울/캐시미어"], "fit": ["오버사이즈"]}
-    ti = read_trend(trend(shirt, jacket), "상의")
-    assert ti.materials == ["시폰"] and ti.fits == ["루즈"]
-    ti = read_trend(trend(shirt, jacket), None)
-    assert ti.materials == ["시폰", "울/캐시미어"] and ti.fits == ["루즈", "오버사이즈"]
+# ---- 아이템 자신의 소재·핏은 짝 재고 검색 조건이 아니다 (README 2026-11-09).
+def test_item_materials_and_fit_do_not_change_pair_search():
+    original = read_trend(trend(SHIRT, JACKET), "상의")
+    changed = read_trend(trend({**SHIRT, "materials": ["시폰"], "fit": "루즈"},
+                               {**JACKET, "material": ["울/캐시미어"], "fit": ["오버사이즈"]}), "상의")
+    assert changed == original
 
 
-def test_no_materials_is_empty_and_multi_target():
+def test_multi_target_keeps_color_rule_without_item_material_filter():
     ti = read_trend(trend(SHIRT, JACKET), ["상의", "아우터"])
-    assert ti.materials == [] and ti.fits == []
-    assert ti.color_basis == "user_category_items"
+    assert ti.colors == ["화이트", "블랙", "레드"] and ti.color_basis == "user_category_items"

@@ -1,0 +1,74 @@
+{
+  "note": "Expected response to examples/stub/stock-request.json (input = the trend-analysis-agent stub result, unchanged) with STOCK_DB_PATH=<scripts/build_fixture_db.py output> and STOCK_LLM_PROVIDER=policy. `result` is stock_agent.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
+  "http_status": 200,
+  "contract_version": "vogue-handoff/0.1",
+  "request_id": "stub-trend-001",
+  "producer": {
+    "agent_id": "stock-agent",
+    "schema_version": "1.0"
+  },
+  "status": "ok",
+  "health_ready": {
+    "http_status": 200,
+    "db": "local-file",
+    "llm_provider": "policy",
+    "synthetic_fixture": true
+  },
+  "without_bearer": {
+    "http_status": 401,
+    "error_code": "UNAUTHORIZED"
+  },
+  "result": {
+    "status": "ok",
+    "products": [
+      {
+        "sku_ids": [
+          "0910001001"
+        ],
+        "category": "스커트",
+        "color": "화이트",
+        "quantity": 120,
+        "data_nature": "sample",
+        "has_image": false
+      }
+    ],
+    "trend_results": [
+      {
+        "style": {
+          "id": "900003-s0",
+          "name": "발레코어"
+        },
+        "status": "ok",
+        "rank": 1,
+        "areas": [
+          "하의",
+          "아우터"
+        ],
+        "colors": [
+          "화이트",
+          "그레이",
+          "스카이블루",
+          "베이지",
+          "네이비",
+          "핑크"
+        ],
+        "segments": [],
+        "error_codes": []
+      }
+    ],
+    "evidence_ids": [
+      "stock-agent:900003-s0:E-001",
+      "stock-agent:900003-s0:E-002",
+      "stock-agent:900003-s0:E-003",
+      "stock-agent:900003-s0:E-004"
+    ],
+    "input_provenance": {
+      "source_agent_id": "trend-analysis-agent",
+      "source_schema_version": "1.1",
+      "internal_schema_version": null,
+      "adapter_version": "stock-trend-input-adapter/1.0",
+      "transformed": true,
+      "source_payload_sha256": "20400bdefd88122ad6aae16f3d4ba1b6fcbe63ac4f5d4cd27a6449f66a23e3be"
+    }
+  }
+}

@@ -36,7 +36,7 @@ from typing import Protocol
 import pandas as pd
 
 from stock_agent.attributes import to_vocab
-from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image
+from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image, take_notes
 from stock_agent.overstock import (
     COLOR_PAIRS,
     KF_COLORS,
@@ -558,7 +558,9 @@ def _pick_with_images(ranked: pd.DataFrame, image_dir, limitations: list[str]):
             if i > 0:
                 limitations.append(f"순위 1~{i}위 상품은 H&M 이미지가 없어, 이미지가 있는 최상위 "
                                    f"{i + 1}위 상품을 골랐습니다.")
-            return row(i), load_image(image_dir, aid)
+            image = load_image(image_dir, aid)
+            limitations.extend(take_notes(image_dir))
+            return row(i), image
     limitations.append("후보 상품 중 H&M 이미지가 있는 상품이 없어 순위 1위를 사진 없이 반환합니다.")
     return row(0), None
 

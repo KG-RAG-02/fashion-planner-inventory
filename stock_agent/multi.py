@@ -37,8 +37,6 @@ mode (2026-11-08)
 from __future__ import annotations
 
 from datetime import datetime
-import hashlib
-import json
 
 from stock_agent.agent import (
     AGENT_ID,
@@ -52,7 +50,7 @@ from stock_agent.agent import (
 )
 from stock_agent.errors import pick, to_team
 from stock_agent.llm_agent import MAX_STEPS, run_agent
-from stock_agent.trend_request import from_trend_result, is_trend_result
+from stock_agent.trend_request import from_trend_result, input_provenance, is_trend_result
 
 MODES = ("agent", "rule")
 
@@ -72,15 +70,7 @@ def no_results_response(req: dict, message: str) -> dict:
 def _record_input_provenance(result: dict, source: dict) -> dict:
     version = source.get("schema_version")
     if isinstance(version, str) and version:
-        canonical = json.dumps(source, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        result["input_provenance"] = {
-            "source_agent_id": "trend-analysis-agent",
-            "source_schema_version": version,
-            "internal_schema_version": None,
-            "adapter_version": "stock-trend-input-adapter/1.0",
-            "transformed": True,
-            "source_payload_sha256": hashlib.sha256(canonical).hexdigest(),
-        }
+        result["input_provenance"] = input_provenance(source)
     return result
 
 

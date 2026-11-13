@@ -37,7 +37,7 @@ python -m pytest
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
 - 생성된 DuckDB와 이미지 데이터는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, 실제 DB object key와 이미지 prefix를 환경 설정에 등록한다.
-- 로컬 빌드·검증 스크립트는 계속 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용할 수 있다. 이 두 값은 API 런타임 DB 설정이 아니다.
+- 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절).
 
 ## 2. LLM 설정 (OpenAI)
 
@@ -45,7 +45,8 @@ python -m pytest
 
 | 환경변수 | 기본 | 설명 |
 |---|---|---|
-| `LLM_API_KEY` | 없음 | OpenAI 키. 없으면 LLM 연결 전으로 보고 `no_llm` 오류 |
+| `STOCK_LLM_PROVIDER` | `openai` | `openai` 또는 `policy`. `policy`는 결정적 `PolicyLLM`(키·네트워크 없음, `no_llm`이 나지 않음, 트렌드 결과 limitations에 policy 실행임을 적음)으로 stub 프로필·오프라인 점검용. 그 밖의 값은 `llm_unavailable`. `/health/ready`의 `llm_provider`로 보인다 |
+| `LLM_API_KEY` | 없음 | OpenAI 키. 없으면 LLM 연결 전으로 보고 `no_llm` 오류 (`STOCK_LLM_PROVIDER=openai`일 때) |
 | `LLM_MODEL` | `gpt-4o-mini` | 모델 |
 | `LLM_TIMEOUT` | `30` | 호출 1번당 시간 제한(초). 넘으면 `TIMEOUT`(504) |
 | `R2_ACCOUNT_ID` | 없음 | Cloudflare 계정 ID. S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`로 구성 |
@@ -57,16 +58,18 @@ python -m pytest
 | `R2_SECRET_ACCESS_KEY` | 없음 | R2 읽기 전용 API token의 secret access key |
 | `STOCK_CACHE_DIR` | OS 임시 폴더의 `stock-agent` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
 | `STOCK_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
-| `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | v0.1 route Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
+| `STOCK_IMAGE_CACHE_DIR` | `$STOCK_CACHE_DIR/images` | R2에서 받은 상품 이미지 캐시. 쓸 수 없으면(read-only mount 등) 캐시 없이 사진을 응답에 넣고 trend 결과 limitations에 적는다(500이 아님) |
+| `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
+| `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 
 - R2 SDK region 값은 `auto`입니다. 접속은 S3 호환 API와 계정 endpoint를 사용합니다. jurisdiction bucket은 `R2_ENDPOINT`에 해당 공식 endpoint를 지정해야 합니다.
 - R2 키는 해당 bucket의 `Object Read only` 권한만 부여하고, `R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`는 배포 secret store에 둡니다. `.env`는 로컬 개발 전용이며 커밋하지 않습니다.
-- API는 시작 시 DB 객체의 ETag/version을 확인하고, 임시 파일로 내려받은 뒤 크기를 확인해 원자적으로 캐시에 배치합니다. 매 요청마다 DB를 내려받지 않습니다. 데이터 교체는 새 R2 object version 배포와 API 재시작으로 반영합니다.
-- 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_found`는 prefix 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
-- 로컬 빌드 스크립트는 `STOCK_DB_PATH`를 사용할 수 있지만 API는 그 설정을 읽지 않습니다.
+- API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m stock_agent.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `STOCK_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
+- 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
+- `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
 - 호출 설정: `temperature 0`, 매 차례 도구 1개(`tool_choice=required`, `parallel_tool_calls=false`), 연결 오류·429·5xx는 2번 다시 시도. 트렌드 1개당 최대 12번 호출.
-- Project_08 Stock timeout과 새 route의 HTTP deadline은 60초입니다. 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
-- `/health`의 `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
+- Project_08 Stock timeout과 새 route의 HTTP deadline은 기본 60초입니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`, 0 초과 600 이하; 통합 배포는 180초). 기존 LLM timeout 30초에 SDK 재시도 2회면 한 호출 예산이 최대 90초이고, 이미지 fallback 및 순차 multi-trend 호출은 더해집니다. 초과 요청은 504로 응답하지만 동기 SDK/DB 호출의 강제 취소는 보장하지 않습니다. 엄격한 비용 상한을 위해 운영 배포 전 남은 요청 budget 기반 SDK timeout/retry와 image fetch 취소 또는 cancellable job 모델이 필요합니다.
+- `/health`의 `llm_provider`, `llm_connected`, `llm_model`, `llm_error`로 연결 상태를 본다. 키가 맞는지는 실제 요청에서 알 수 있다(틀리면 `SOURCE_UNAVAILABLE`, `reason: llm_unavailable`).
 
 ## 3. 로컬 실행
 
@@ -75,17 +78,21 @@ python scripts/run_agent.py --request examples/request-example.json   # 02 결�
 python scripts/run_agent.py --policy                                  # agent 구조 점검 (PolicyLLM: 정해진 순서로 도구를 부르는 가짜 LLM)
 python scripts/run_agent.py --mode rule                               # 규칙 방식 (기준선)
 python scripts/validate_requests.py                                   # 규칙 방식 정확도 검증 10건 (성별 여·남·공용·없음)
-uvicorn stock_agent.api:app --port 8002                                 # HTTP API
+python -m stock_agent.server                                 # HTTP API
 ```
 
 ## 4. Docker 실행
 
 ```powershell
 docker build -t stock-agent:v1 .
-docker run --rm -p 8002:8002 --env-file .env stock-agent:v1
+docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" stock-agent:v1 python -m stock_agent.server --prepare-cache   # cache 준비 (데이터 작업)
+docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images stock-agent:v1
 ```
 
-- 컨테이너 시작 시 R2에서 DB를 받아 임시 캐시에 저장하고 DuckDB read-only 연결을 엽니다. R2 설정이 누락되거나 다운로드·테이블 검사가 실패하면 `/health`는 503입니다.
+- 이미지는 uid/gid 10001, `HOME=/tmp`, `STOCK_CACHE_DIR=/cache`로 실행되고 `/app`에 쓰지 않는다. read-only root filesystem에서는 `/tmp` tmpfs와 `/cache`(volume 또는 tmpfs)만 쓰기 가능하게 둔다. `/cache`를 read-only로 붙이면 R2 이미지 캐시는 `STOCK_IMAGE_CACHE_DIR`(예: `/tmp/stock-images`)로 옮긴다. `--prepare-cache`로 host 폴더를 채울 때 Linux host에서는 그 폴더를 uid 10001이 쓸 수 있어야 한다.
+- `HEALTHCHECK`는 `python -m stock_agent.server --check-ready`(`GET /health/ready`, 외부 호출 없음)라서 DB가 준비되어야 healthy가 된다. liveness는 `GET /health/live`.
+
+- 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `STOCK_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m stock_agent.server --prepare-cache`를 실행해 준비합니다.
 - `--env-file .env`로 런타임 설정을 전달합니다. 이미지 안에는 `.env`, DB, 이미지가 들어가지 않습니다.
 - 확인: 브라우저에서 http://localhost:8002/health 또는 http://localhost:8002/docs
   (`/docs`에서 POST → Try it out → Examples에서 예시 요청을 골라 Execute)
@@ -94,23 +101,40 @@ docker run --rm -p 8002:8002 --env-file .env stock-agent:v1
 
 ```powershell
 Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post `
+  -Headers @{ Authorization = "Bearer $env:VOGUE_AGENT_SERVICE_BEARER_TOKEN" } `
   -ContentType "application/json; charset=utf-8" -InFile examples/request-example.json |
   ConvertTo-Json -Depth 10
 ```
+
+## 5. Stub 프로필 (오프라인 결정적 실행)
+
+통합 Docker 배포의 stub 프로필은 R2·OpenAI 없이 합성 fixture DB와 결정적 `PolicyLLM`으로 Stock을 실행한다.
+
+```bash
+python scripts/build_fixture_db.py /tmp/stock-fixture.duckdb   # 이미지 안에서는 python -m stock_agent.fixture_db <out.duckdb>
+STOCK_DB_PATH=/tmp/stock-fixture.duckdb STOCK_LLM_PROVIDER=policy VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token> \
+  python -m stock_agent.server
+```
+
+- fixture DB(`stock_agent/fixture_db.py`): `tests/conftest.py`의 작은 표(a1~a6) + trend-analysis-agent stub 결과(발레코어·상의·핑크 → 짝 하의·아우터, 봄·여름)에 맞춘 합성 상품 3개 + 표지 표 `stock_fixture`. H&M 원본이 아니고 내용은 매번 같다(`content_sha256`). storage version v1.0.0으로 써서 DuckDB 1.x·2.x 모두 읽는다. 있는 파일은 `--force` 없이 덮어쓰지 않는다.
+- `/health/ready`: `db: local-file`, `llm_provider: policy`, `synthetic_fixture: true`. 트렌드 결과마다 limitations에 PolicyLLM이 골랐다는 문장과 합성 DB라는 문장이 붙는다.
+- 요청: `examples/stub/stock-request.json` — `vogue-handoff/0.1`, `input`은 trend stub 결과 그대로(`trends[].style.example_images` 포함).
+- 기대 응답: `examples/stub/stock-response-summary.json` — HTTP 200 `ok`, 상품 1개(`0910001001` 스커트·화이트, 사진 없음), bearer가 없으면 401. `tests/test_fixture_db.py`가 대조한다.
 
 ## API
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET | `/health` | DB 연결과 필수 테이블(articles, transactions, article_attrs, stock_v1) 확인, `llm_connected` |
+| GET | `/health/live` | API 생존만 확인 (DB 미준비에도 200) |
+| GET | `/health/ready`, `/health` | DB readiness·snapshot, `llm_configured`, `llm_authenticated=null` |
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
 | POST | `/v1/agents/stock-agent/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
 
-레거시 `/v1/inventory-products`는 기존 호출 호환을 위해 무인증으로 유지합니다. 새 `/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 레거시 노출은 배포 네트워크 정책으로 제한하세요.
+두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
 
-Project_08 client timeout은 60초이고 Stock route도 60초 전체 deadline을 적용합니다. 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
+Stock route는 기본 60초 전체 deadline을 적용합니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 180초이고 Project_08은 Stock 응답을 210초까지 기다립니다). 기존 LLM timeout 30초와 SDK 재시도 2회는 호출 하나에 최대 90초 예산이며 이미지 fallback/여러 trend 순차 처리도 더해집니다. 60초 뒤 HTTP는 504 envelope를 반환하지만, Python 동기 SDK/DB 호출을 강제로 멈추지 못하므로 이미 시작한 호출 비용이 계속될 수 있습니다. 운영에서 비용 상한을 보장하려면 남은 deadline 예산에 따라 SDK timeout/retries와 이미지 다운로드 취소를 제한하거나 cancellable job 모델이 필요합니다.
 
-HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health`는 DB 및 필수 테이블이 정상일 때 200, DB 연결/질의 실패나 필수 테이블 누락 시 503입니다. 이미지 누락은 상태 필드로만 보고합니다. `llm_connected`는 client 객체 존재만 나타내며 원격 인증/연결 점검은 아닙니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
+HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health/live`는 API 생존만 확인합니다. `/health/ready`와 호환 별칭 `/health`는 DB schema/column type·nonempty tables·sample/as_of/version·필수 수치 검사가 통과해야 200입니다. DB 미준비는 503입니다. 이미지 누락은 상태 필드로만 보고합니다. `llm_connected`는 client 객체 존재만 나타내며 원격 인증/연결 점검은 아닙니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
 
 ### 요청
 
@@ -230,3 +254,13 @@ examples/    예시 요청 (02 트렌드 결과 형식)
 .env.example LLM 환경변수 예시 (값 없음. 복사해 .env를 만들고, .env는 커밋하지 않음)
 docs/        이슈 초안(범위·계약·결정 사항)
 ```
+
+### Runtime manifest와 데이터 경계
+
+Stock 포트·route·health 기본값의 단일 소스는 `stock_agent/service-manifest.json`입니다. 로컬/Docker 시작과 Docker healthcheck는 `python -m stock_agent.server`를 사용합니다. 포트는 8002이며 기존 Orchestrator launcher의 8769 기본값은 해당 owner가 이 manifest를 소비하도록 변경해야 합니다. 임시 override는 `VOGUE_STOCK_AGENT_URL=http://127.0.0.1:8002`입니다.
+
+입력은 명시적인 Trend `schema_version=1.1`을 요구합니다. unsupported/missing version, producer identity 불일치, request_id/status/nested shape 오류는 DB/LLM 조회 전에 거부합니다. JSON 중복 key·NaN/Infinity도 거부합니다. 원본 body는 내부 변환본과 분리하고 `input_provenance.source_payload_sha256`은 원본 **Trend result body**의 python-json-sort/1 hash입니다. envelope hash와 같다고 취급하지 않습니다. Stock이 사용하지 않는 전체 Evidence의 의미 검증과 wire bytes artifact 보존은 P08 retained consumer 책임입니다. 사용자 원문과 적용 필터를 연결하는 stock_call_context도 P08 소유입니다.
+
+인증된 upstream no_results는 DB가 없어도 200/no_results·빈 products로 반환합니다. 실제 0, null product slot, 조회 실패503은 각각 다른 상태입니다. 이 adapter는 `as_of=2020-09-22`, `definition=virtual_stock_v1`, `data_nature=sample` snapshot만 받으며 현재 자사 재고를 검증하지 않습니다. 가격/재고는 합성이고 과거 거래 기반 지표와 구분합니다. 다른 snapshot은 상수를 현재값으로 바꿔 붙이지 않고 readiness에서 거부합니다.
+
+`python scripts/diagnose_readiness.py`는 `.env` 파일 존재와 **현재 process env 주입 여부**를 분리하고, provision된 설정이 있으면 R2 HEAD·기존 cache·read-only schema를 진단합니다. DB 다운로드·재생성·업로드와 모델 호출은 하지 않습니다. 로컬 SHA sidecar는 cache 손상 검사이며 upstream checksum/원천 진위의 증명이 아닙니다.
