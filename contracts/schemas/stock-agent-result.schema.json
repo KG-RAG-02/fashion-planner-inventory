@@ -377,7 +377,7 @@
             "object",
             "null"
           ],
-          "description": "pairing, color, stock_value_krw, sell_through, recent_trend, season_share, season_name, score, data_nature, attributes, decided_by, llm_reason, llm_why_not_higher(1위가 아닐 때 더 높은 순위 대신 고른 이유, 1위면 null)"
+          "description": "pairing, color, stock_value_krw, sell_through, recent_trend, season_share, season_name, score, data_nature"
         },
         "summary": {
           "type": "string"
@@ -390,7 +390,7 @@
         },
         "search": {
           "type": "object",
-          "description": "찾은 조건 (segments, segment_basis, areas, colors, steps 등)"
+          "description": "찾은 조건 (segments, segment_basis, areas, colors, color_mode, color_attempts, relaxed, outfit_reference, clip 등)"
         },
         "limitations": {
           "type": "array",
@@ -514,7 +514,7 @@
             "string",
             "null"
           ],
-          "description": "03 안쪽 원인 (missing_fields, invalid_input, upstream_error, db_unavailable, no_llm, timeout, rule_violation, trend_failed ... / 여러 개면 mixed)"
+          "description": "03 안쪽 원인 (missing_fields, invalid_input, upstream_error, db_unavailable, image_source_unavailable, timeout, invalid_response, trend_failed, internal ... / 여러 개면 mixed)"
         },
         "style_ids": {
           "type": "array",
