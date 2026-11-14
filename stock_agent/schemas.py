@@ -243,7 +243,6 @@ class TrendResult(BaseModel):
     rank: Optional[int] = Field(None, description="실제 순위. 1위에 사진이 없으면 2 이상일 수 있음")
     reason: Optional[Reason] = None
     summary: str = Field(description="추천 이유 한 줄 (템플릿)")
-    attribute_summary: Optional[dict[str, Any]] = Field(None, description="상위 50개 후보의 색·카테고리·소재·핏 분포")
     search: dict[str, Any] = Field(description="이 트렌드로 찾은 조건: trend_colors(기준 색), trend_color_basis, user_colors, user_colors_excluded, trend_categories, "
                                                "areas(짝 영역), colors(최종 조회 색), color_mode(max_overlap/any/none), color_overlap, "
                                                "color_attempts(조회한 색 단계별 mode·colors·n_candidates), relaxed(완화한 트렌드 색 조건), "

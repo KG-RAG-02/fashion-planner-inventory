@@ -1,7 +1,7 @@
 # stock-agent (과잉재고 에이전트)
 
 VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드마다 짝 카테고리에서 트렌드 색과 어울리는 색의 과잉재고를 찾아,
-무신사 스냅 착샷이 있으면 착샷과의 시각·스타일 유사도(CLIP)로 후보를 거른 뒤 과잉재고 순위로 **트렌드마다 상품 1개(사진 포함)**와 상위 50개 속성 요약을 반환한다.
+무신사 스냅 착샷이 있으면 착샷과의 시각·스타일 유사도(CLIP)로 후보를 거른 뒤 과잉재고 순위로 **트렌드마다 상품 1개(사진 포함)**를 반환한다.
 
 ```
 01 사용자 쿼리 ──▶ 02 쿼리 전처리·트렌드 분석 ──(결과 그대로)──▶ 03 상품 재고 (stock-agent) ──▶ 05 새 상품 기획·최종 기획서
@@ -212,7 +212,7 @@ Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상�
 | 필드 | 설명 |
 |---|---|
 | `products` | 트렌드 순서대로 n개. 상품 정보만(`style_id`, `sku_ids`, `category`, `season`, `attributes`, `inventory`, `image`). 상품을 못 고른 트렌드는 `null`. 같은 상품이 여러 번 나올 수 있음 |
-| `trend_results` | n개. `trend_results[i]` ↔ `products[i]` (`product_index`). `style`, `status`, `rank`, `reason`(근거 숫자), `summary`(추천 이유 한 줄), `attribute_summary`, `search`(찾은 조건), `limitations`, `errors`, `evidence_ids`(이 트렌드의 근거 ID) |
+| `trend_results` | n개. `trend_results[i]` ↔ `products[i]` (`product_index`). `style`, `status`, `rank`, `reason`(근거 숫자), `summary`(추천 이유 한 줄), `search`(찾은 조건), `limitations`, `errors`, `evidence_ids`(이 트렌드의 근거 ID) |
 | `evidence` | 트렌드마다 데이터 출처 E-001~E-006(E-005 상품 사진, E-006 착샷은 쓴 경우만). `evidence_id` = `stock-agent:<style.id>:E-001`, `style_id`. 근거는 여기 한 곳에 모으고 `evidence_ids`로 가리킴 |
 | `status` | 모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 상품 0개 → no_results |
 

@@ -17,7 +17,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from stock_agent.overstock import (  # noqa: E402
     get_inventory_status, get_matching_categories, get_matching_colors,
-    get_sales_trend, rank_overstock, summarize_attributes,
+    get_sales_trend, rank_overstock,
 )
 from stock_agent.season import map_season  # noqa: E402
 
@@ -65,7 +65,4 @@ show = top.merge(names, on="article_id")[
 ].sort_values("rank")
 print(show.head(15).to_string(index=False, float_format=lambda x: f"{x:.2f}"))
 
-print("\n6. 속성 요약")
-for k, v in summarize_attributes(top).items():
-    print(f"   {k}: {v}")
 print(f"\n소요 시간 {time.time() - t0:.1f}초")

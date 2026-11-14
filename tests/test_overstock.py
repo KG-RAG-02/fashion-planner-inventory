@@ -12,7 +12,6 @@ from stock_agent.overstock import (
     get_sales_trend,
     normalize_color,
     rank_overstock,
-    summarize_attributes,
     trend_ratio,
 )
 from stock_agent.season import map_season
@@ -155,25 +154,6 @@ def test_rank_weights_change_order():
     only_stock = {"stock_value": 1, "low_sell_through": 0, "declining_trend": 0, "season_share": 0}
     top = rank_overstock(_cand(), n=4, weights=only_stock)
     assert list(top["article_id"][:2]) == ["A", "C"]  # 동점은 article_id 순
-
-
-# ---- 6. 요약
-def test_summarize_attributes():
-    top = pd.DataFrame({
-        "kf_area": ["하의", "하의", "아우터"],
-        "kf_category": ["청바지", "스커트", "재킷"],
-        "kf_color": ["스카이블루", "그레이", "베이지"],
-        "materials": [["데님", "면"], [], ["면"]],
-        "fit": ["와이드", None, None],
-        "stock_qty": [100, 50, 30],
-    })
-    s = summarize_attributes(top)
-    assert s["n_items"] == 3 and s["total_stock_qty"] == 180
-    assert s["material"] == {"면": 2, "데님": 1}
-    assert s["fit"] == {"정보 없음": 2, "와이드": 1}
-    assert s["area"] == {"하의": 2, "아우터": 1}
-
-
 # ---- 3·4 SQL: PC(duckdb 있음)에서만 실행
 
 

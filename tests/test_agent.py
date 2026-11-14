@@ -194,7 +194,7 @@ def test_run_ok(con):
     assert p["sku_ids"] == ["a1"] and tr["rank"] == 1 and tr["product_index"] == 0
     assert tr["style"] == {"id": "style_012", "name": "발레코어"}
     assert resp["season_basis"]["n_periods"] == 2
-    assert tr["attribute_summary"]["n_items"] == 1
+    assert tr["search"]["color_attempts"][-1]["n_candidates"] == 1
     assert tr["reason"]["color"]["matched_trend_colors"] == ["라이트핑크", "화이트"]
     assert tr["search"]["trend_colors"] == ["라이트핑크", "화이트"] and tr["search"]["color_overlap"] == 2
     assert tr["summary"].startswith("2027 SS(봄·여름) 상의 기획용 짝 카테고리(") and "재고 금액" in tr["summary"]
@@ -225,16 +225,17 @@ def test_no_trend_colors_searches_all_colors(con):
     resp = run({**REQ, "trend": trend({**BLOUSE, "colors": []})}, con)
     tr = resp["trend_result"]
     assert resp["status"] == "ok"
-    # 색 조건이 없으니 레드 스커트(a2)도 후보. 요약은 후보 전체
-    assert tr["attribute_summary"]["n_items"] == 2 and set(tr["attribute_summary"]["color"]) == {"스카이블루", "레드"}
+    # 색 조건이 없으니 레드 스커트(a2)도 후보
+    assert tr["search"]["color_attempts"][-1]["n_candidates"] == 2
     assert tr["search"]["trend_color_basis"] == "none" and tr["search"]["colors"] and len(tr["search"]["colors"]) == 21
     assert any("색 조건 없이" in x for x in tr["limitations"]) and "색 조건 없이" in tr["summary"]
 
 
 def test_colors_used_within_pair_categories(con):
     # 색이 있으면 짝 카테고리 안에서 조합색으로만 매치: 레드 스커트(a2)는 빠짐
-    tr = run(REQ, con)["trend_result"]
-    assert tr["attribute_summary"]["n_items"] == 1 and set(tr["attribute_summary"]["color"]) == {"스카이블루"}
+    resp = run(REQ, con)
+    tr = resp["trend_result"]
+    assert tr["search"]["color_attempts"][-1]["n_candidates"] == 1 and resp["product"]["attributes"]["color"] == "스카이블루"
 
 
 def test_user_category_item_without_color_uses_all_items(con):
@@ -265,7 +266,7 @@ def test_missing_category_searches_all_areas(con):
     tr = resp["trend_result"]
     assert resp["status"] == "ok"
     # 상의(a5)도 후보: 짝 카테고리 대신 전체 영역
-    assert set(tr["attribute_summary"]["area"]) == {"하의", "상의"}
+    assert tr["search"]["areas"] == ["상의", "하의", "아우터", "원피스"] and tr["search"]["color_attempts"][-1]["n_candidates"] == 2
     assert any("카테고리 입력이 없어" in x for x in tr["limitations"]) and "카테고리 미지정" in tr["summary"]
 
 
@@ -288,7 +289,7 @@ def test_all_four_areas_still_picks_one(con):
     items = [{"category_major": a, "colors": []} for a in ("상의", "하의", "아우터", "원피스")]
     resp = run({**REQ, "target_category": None, "trend": trend(*items)}, con)
     tr = resp["trend_result"]
-    assert resp["status"] == "ok" and tr["rank"] == 1 and tr["attribute_summary"]["scope"].startswith("상위 ")
+    assert resp["status"] == "ok" and tr["rank"] == 1
     assert any("공통 짝이 없어" in x for x in tr["limitations"])
 
 
@@ -315,7 +316,7 @@ def test_user_color_in_trend_used_and_missing_one_noted(con):
     assert any("사용자 색 중 블랙" in x for x in tr["limitations"])
     assert tr["reason"]["color"]["rule"] == "조합표 v1, 사용자 색과 어울리는 색 중 가장 많이 겹치는 색 + 사용자 색 자체(톤온톤)"
     assert "사용자 색(화이트)과 어울리는 색 중 가장 많이 겹치는 색" in tr["summary"]
-    assert set(tr["attribute_summary"]["color"]) == {"스카이블루"}     # 화이트의 조합색, 레드는 아님
+    assert tr["search"]["color_attempts"][-1]["n_candidates"] == 1     # 화이트의 조합색 스카이블루(a1)만, 레드는 아님
 
 
 def test_user_color_not_in_trend_still_used(con):
@@ -324,7 +325,7 @@ def test_user_color_not_in_trend_still_used(con):
     tr = resp["trend_result"]
     assert resp["status"] == "ok"
     assert tr["search"]["trend_colors"] == ["블랙"] and tr["search"]["trend_color_basis"] == "user_colors"
-    assert "레드" in tr["search"]["colors"] and "레드" in tr["attribute_summary"]["color"]
+    assert "레드" in tr["search"]["colors"] and resp["product"]["attributes"]["color"] == "레드"
     assert any("사용자 색(블랙)이 이 트렌드 아이템 색에 없습니다" in x and "라이트핑크, 화이트" in x
                for x in tr["limitations"])
     assert validate_output(resp) == []
@@ -437,7 +438,6 @@ def test_snap_applies_clip_and_records_it(con):
                          "n_indexed": 2, "threshold": 0.6, "fallback": False}
     o = s["outfit_reference"]
     assert o["status"] == "used" and o["product_id"] == "musinsa_snap:1" and o["score"] == 0.8   # 스냅 중 최고
-    assert tr["attribute_summary"]["n_items"] == 1
     assert any("시각·스타일 유사도(CLIP)로 재고 후보 2개 중 1개를 남겼습니다" in x for x in tr["limitations"])
     ev = {e["evidence_id"]: e for e in resp["evidence"]}
     assert ev["stock-agent:E-006"]["locator"] == SNAP["image_url"] and ev["stock-agent:E-006"]["source_id"] == "musinsa_snap"
