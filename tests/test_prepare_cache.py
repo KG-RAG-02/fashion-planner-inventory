@@ -34,7 +34,8 @@ def r2_env(monkeypatch, tmp_path):
                         "R2_SECRET_ACCESS_KEY": "synthetic-secret-access-key",
                         "STOCK_CACHE_DIR": str(tmp_path / "cache")}.items():
         monkeypatch.setenv(name, value)
-    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH"):
+    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_DB_PATH",
+                 "STOCK_CLIP_INDEX_PATH"):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -144,3 +145,20 @@ def test_prepare_cache_without_clip_key_skips_index(r2_env, con, tmp_path, capsy
     r2_env.setattr(storage, "_client", lambda settings: client)
     code, report, _ = _run(capsys)
     assert code == 0 and "clip_index" not in report and client.downloads == ["db/stock.duckdb"]
+
+
+# ---- 무신사 스냅 착샷 (R2_SNAP_IMAGE_PREFIX)
+def test_fetch_snap_image_reads_revision_row_key(r2_env):
+    keys = []
+
+    class Snaps(FakeR2):
+        def get_object(self, **kwargs):
+            keys.append(kwargs["Key"])
+            return super().get_object(**kwargs)
+    ref = "hf://datasets/disl/musinsa-snap-new@4335d233ef3b54bc5132a4d572d589042a41219d#row=7"
+    r2_env.setattr(storage, "_client", lambda settings: Snaps(b"jpeg"))
+    assert storage.R2ObjectStore(storage.R2Settings.from_env()).fetch_snap_image(ref) is None   # prefix 없음
+    r2_env.setenv("R2_SNAP_IMAGE_PREFIX", "/musinsa-snap/")
+    s = storage.R2ObjectStore(storage.R2Settings.from_env())
+    assert s.fetch_snap_image(ref) == b"jpeg" and s.fetch_snap_image("https://x/y.jpg") is None
+    assert keys == ["musinsa-snap/4335d233ef3b54bc5132a4d572d589042a41219d/7.jpg"]

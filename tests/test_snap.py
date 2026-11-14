@@ -55,3 +55,43 @@ def test_reference():
     assert used["status"] == "used" and used["skip_reason"] is None and used["product_id"] == "s2"
     assert used["kind"] == "snap_garment" and set(used) == {"status", "skip_reason", *REFERENCE_KEYS}
     assert reference(ref, {"applied": False, "skip_reason": "no_index"})["skip_reason"] == "no_index"
+
+
+# ---- 02 착샷: image_url 없이 image_ref만 (graph_schema §2.3)
+REF0 = "hf://datasets/disl/musinsa-snap-new@4335d233ef3b54bc5132a4d572d589042a41219d#row=12"
+
+
+def test_snap_with_image_ref_only():
+    snaps = [prod("musinsa_snap:12:상의", 0.8, url=None, image_ref=REF0, has_image=True),
+             prod("c1", 1.5, kind="catalog_item")]
+    p = pick_reference({"items": [{**TOP, "similar_products": snaps}]}, ["상의"])
+    assert p["kind"] == "snap_garment" and p["image_url"] is None and p["image_ref"] == REF0
+    assert reference(p, {"applied": True})["image_ref"] == REF0
+
+
+def test_multi_wearer_snap_skipped():
+    snaps = [prod("s_multi", 0.9, url=None, image_ref=REF0, multi_wearer_suspected=True),
+             prod("s_one", 0.5, url=None, image_ref=REF0.replace("row=12", "row=13"))]
+    p = pick_reference({"items": [{**TOP, "similar_products": snaps}]}, ["상의"])
+    assert p["product_id"] == "s_one"                                    # 점수가 높아도 여러 명 착샷은 뺌
+    only_multi = [snaps[0], prod("c1", 1.0, kind="catalog_item")]
+    assert pick_reference({"items": [{**TOP, "similar_products": only_multi}]}, ["상의"])["kind"] == "catalog_item"
+
+
+@pytest.mark.parametrize("ref", ["hf://datasets/other/data@4335d23#row=1", "row=1", "", None])
+def test_snap_with_unreadable_ref_is_not_used(ref):
+    snaps = [prod("s1", 0.9, url=None, image_ref=ref)]
+    assert pick_reference({"items": [{**TOP, "similar_products": snaps}]}, ["상의"]) is None
+
+
+def test_catalog_http_image_ref_used_as_url():
+    c = [prod("c1", 1.0, kind="catalog_item", url=None, image_ref="https://image.msscdn.net/a.jpg")]
+    p = pick_reference({"items": [{**TOP, "similar_products": c}]}, ["상의"])
+    assert p["image_url"] == "https://image.msscdn.net/a.jpg" and p["image_ref"] is None
+
+
+def test_snap_object_key():
+    from stock_agent.snap_image import parse_image_ref, snap_object_key
+    assert parse_image_ref(REF0) == ("4335d233ef3b54bc5132a4d572d589042a41219d", 12)
+    assert snap_object_key("musinsa-snap/", REF0) == "musinsa-snap/4335d233ef3b54bc5132a4d572d589042a41219d/12.jpg"
+    assert snap_object_key("musinsa-snap", "https://x/y.jpg") is None and parse_image_ref(None) is None

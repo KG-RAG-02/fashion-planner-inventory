@@ -420,7 +420,7 @@ def _evidence(now: str, period, areas, colors, trend_period, with_images: bool =
             "source_type": "external_product_image" if catalog else "external_outfit_image",
             "source_name": ("무신사 상품 이미지" if catalog else "무신사 스냅 착샷")
                            + " (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
-            "data_nature": "fact", "locator": outfit_ref.get("image_url"),
+            "data_nature": "fact", "locator": outfit_ref.get("image_url") or outfit_ref.get("image_ref"),
             **{**common, "observed_at": None, "permission_status": "02 트렌드 결과의 무신사 이미지"}})
     return [
         {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",

@@ -5,6 +5,8 @@
     텍스트: 소재 + 디테일의 영어 대응어 (clip_vocab.clip_text). 기준은 02 materials·details,
             재고는 article_attrs.materials + 상품 설명에서 뽑은 디테일(attributes.extract_details)
     합치기(fuse): image 0.6 + text 0.4. 텍스트가 비면 이미지만, 이미지가 없으면 텍스트만
+기준 이미지 열기(load_reference_image): image_url(http)을 먼저, 없거나 실패하면 착샷 image_ref를 R2에서
+    (configure_snap_images, R2_SNAP_IMAGE_PREFIX/<revision>/<row>.jpg).
 기준 쪽과 인덱스 쪽(scripts/build_clip_index.py)이 이 모듈의 to_gray·fuse와 clip_vocab.clip_text를 같이 쓴다.
 인덱스 파일에는 규칙 이름(INDEX_RULE)이 들어 있고, 다르면 인덱스를 쓰지 않는다(no_index).
 
@@ -142,11 +144,42 @@ def _load_url_image(url: str):
         return None
 
 
+_snap_source = None      # fetch_snap_image(image_ref) → bytes | None 를 가진 객체 (R2ObjectStore). api.lifespan이 정함
+
+
+def configure_snap_images(source) -> None:
+    """착샷 image_ref를 읽을 곳을 정한다. None이면 착샷 이미지를 열지 않는다(텍스트만)."""
+    global _snap_source
+    _snap_source = source
+
+
+def _load_snap_image(image_ref: str):
+    """착샷 image_ref → PIL 이미지 (R2). 설정이 없거나 실패하면 None."""
+    from PIL import Image
+    if _snap_source is None:
+        logger.warning("착샷 이미지 저장소(R2_SNAP_IMAGE_PREFIX) 설정 없음: %s", image_ref)
+        return None
+    try:
+        raw = _snap_source.fetch_snap_image(image_ref)
+        return None if raw is None else Image.open(BytesIO(raw))
+    except Exception as e:
+        logger.warning("착샷 이미지 로드 실패 (%s): %s", image_ref, e)
+        return None
+
+
+def load_reference_image(ref: dict):
+    """기준 이미지: image_url(http)을 먼저, 없거나 실패하면 착샷 image_ref(R2)."""
+    img = _load_url_image(ref["image_url"]) if ref.get("image_url") else None
+    if img is None and ref.get("image_ref"):
+        img = _load_snap_image(ref["image_ref"])
+    return img
+
+
 def query_embedding(ref: dict) -> tuple[Optional[np.ndarray], bool, bool]:
     """기준 이미지 ref → (쿼리 임베딩, image_used, text_used)."""
     text = clip_text(ref.get("materials"), ref.get("details"))
     text_emb = encode_texts([text])[0] if text else None
-    img = _load_url_image(ref["image_url"]) if ref.get("image_url") else None
+    img = load_reference_image(ref)
     img_emb = None
     if img is not None:
         try:

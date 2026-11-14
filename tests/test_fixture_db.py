@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STUB = ROOT / "examples" / "stub"
 TOKEN = "test-stock-token"
 R2_VARS = ("R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_DB_KEY", "R2_IMAGE_PREFIX", "R2_ACCESS_KEY_ID",
-           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key", "R2_CLIP_INDEX_KEY")
+           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key", "R2_CLIP_INDEX_KEY",
+           "R2_SNAP_IMAGE_PREFIX")
 
 
 def _json(path):

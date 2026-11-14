@@ -162,6 +162,8 @@ def warm_up_clip() -> dict:
     try:
         from stock_agent import clip_matcher
         clip_matcher.configure(clip_index_path())
+        store = state.get("object_store")
+        clip_matcher.configure_snap_images(store if store is not None and store.settings.snap_image_prefix else None)
         return clip_matcher.warm_up()
     except Exception:
         return {"clip_index_loaded": False, "clip_n_indexed": 0}

@@ -37,6 +37,7 @@ class R2Settings:
     image_prefix: str = ""
     endpoint: str = ""
     clip_index_key: str = ""          # 선택: 재고 CLIP 인덱스(npz) 객체 key
+    snap_image_prefix: str = ""       # 선택: 무신사 스냅 착샷 JPEG prefix (<prefix>/<revision>/<row>.jpg)
 
     @property
     def endpoint_url(self) -> str:
@@ -74,6 +75,7 @@ class R2Settings:
             image_prefix=os.environ.get("R2_IMAGE_PREFIX", "").strip().strip("/"),
             endpoint=endpoint,
             clip_index_key=os.environ.get("R2_CLIP_INDEX_KEY", "").strip().lstrip("/"),
+            snap_image_prefix=os.environ.get("R2_SNAP_IMAGE_PREFIX", "").strip().strip("/"),
         )
 
 
@@ -256,6 +258,17 @@ class R2ObjectStore:
     def fetch_image(self, article_id: str) -> bytes | None:
         """R2에서 이미지 1장을 받는다(캐시에 저장하지 않음). 없으면 None. CLIP 인덱스 만들기용."""
         return self._fetch_image(self.object_key_for_image(article_id))
+
+    def fetch_snap_image(self, image_ref: str) -> bytes | None:
+        """무신사 스냅 착샷 image_ref(hf://…musinsa-snap-new@<rev>#row=<n>) → R2 <snap prefix>/<rev>/<n>.jpg.
+
+        prefix가 없거나 참조를 해석할 수 없거나 객체가 없으면(다른 버전 등) None. 캐시에 저장하지 않는다.
+        """
+        from stock_agent.snap_image import snap_object_key
+        if not self.settings.snap_image_prefix:
+            return None
+        key = snap_object_key(self.settings.snap_image_prefix, image_ref)
+        return None if key is None else self._fetch_image(key)
 
     def _fetch_image(self, key: str) -> bytes | None:
         try:

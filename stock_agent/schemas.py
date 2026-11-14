@@ -61,11 +61,14 @@ class StyleIn(BaseModel):
 
 
 class ProductMatchIn(BaseModel):
-    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·has_image·score·product_id와
-    CLIP 쿼리 텍스트용 materials·details(type=detail)를 쓴다"""
+    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·image_ref·has_image·multi_wearer_suspected·
+    score·product_id와 CLIP 쿼리 텍스트용 materials·details(type=detail)를 쓴다"""
     model_config = ConfigDict(extra="allow")
     product_id: Optional[str] = None
-    image_url: Optional[str] = Field(None, description="이미지 URL (CLIP 기준 이미지)")
+    image_url: Optional[str] = Field(None, description="이미지 URL (CLIP 기준 이미지). 02 착샷은 없음")
+    image_ref: Optional[str] = Field(
+        None, description="이미지 참조. 착샷은 hf://datasets/disl/musinsa-snap-new@<revision>#row=<n> → 03이 R2 착샷 JPEG로 읽음")
+    multi_wearer_suspected: Optional[bool] = Field(None, description="true면 여러 명이 찍혔을 수 있는 착샷 → 기준 이미지로 쓰지 않음")
     kind: Optional[str] = Field(None, description="snap_garment(무신사 스냅 착샷)를 먼저 쓰고, 없으면 catalog_item(무신사 상품 이미지)")
     score: Optional[float] = Field(None, description="트렌드 아이템과의 일치도. 같은 kind 안에서 가장 높은 1장을 씀")
 
@@ -248,7 +251,7 @@ class TrendResult(BaseModel):
                                                "color_attempts(조회한 색 단계별 mode·colors·n_candidates), relaxed(완화한 트렌드 색 조건), "
                                                "excluded_categories, outfit_reference(CLIP 기준 이미지: status used/skipped, "
                                                "skip_reason no_reference/no_index/no_match/no_query/no_candidates, kind snap_garment/catalog_item, "
-                                               "product_id, image_url, score, source, item_id, item_category), clip(applied, skip_reason, "
+                                               "product_id, image_url, image_ref, score, source, item_id, item_category), clip(applied, skip_reason, "
                                                "image_used, text_used, n_before, n_after, n_indexed, keep_ratio, keep_rule; 기준 이미지가 없으면 null), segments(찾은 고객군, []=전체), "
                                                "segment_basis(segment/gender/item_gender/all)")
     limitations: list[str]

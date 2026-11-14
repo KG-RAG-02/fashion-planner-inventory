@@ -171,3 +171,32 @@ def test_clip_text():
 ])
 def test_extract_details(desc, expected):
     assert extract_details(desc) == expected
+
+
+# ---- 기준 이미지 열기: image_url → 착샷 image_ref(R2)
+SNAP_REF = "hf://datasets/disl/musinsa-snap-new@4335d233ef3b54bc5132a4d572d589042a41219d#row=3"
+
+
+def test_snap_image_ref_read_from_snap_source(index, fake, monkeypatch):
+    Image = pytest.importorskip("PIL.Image")
+    import io
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buf, "JPEG")
+    asked = []
+
+    class Src:
+        def fetch_snap_image(self, ref):
+            asked.append(ref)
+            return buf.getvalue()
+    monkeypatch.setattr(clip, "_load_url_image", lambda url: pytest.fail("URL이 없으면 열지 않음"))
+    clip.configure_snap_images(Src())
+    assert clip.load_reference_image({"image_url": None, "image_ref": SNAP_REF}).size == (4, 4) and asked == [SNAP_REF]
+    out, info = clip.clip_filter(cand("a1", "a2"), {**REF, "image_url": None, "image_ref": SNAP_REF}, index)
+    assert info.applied and info.image_used and info.text_used
+
+
+def test_snap_image_without_source_uses_text_only(index, fake, monkeypatch):
+    monkeypatch.setattr(clip, "_load_url_image", lambda url: pytest.fail("URL이 없으면 열지 않음"))
+    clip.configure_snap_images(None)
+    out, info = clip.clip_filter(cand("a1", "a2"), {**REF, "image_url": None, "image_ref": SNAP_REF}, index)
+    assert info.applied and (info.image_used, info.text_used) == (False, True)

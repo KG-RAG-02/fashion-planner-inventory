@@ -40,7 +40,7 @@ python -m pytest
 
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
-- 생성된 DuckDB·이미지·CLIP 인덱스는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, DB object key·이미지 prefix·CLIP 인덱스 key를 환경 설정(`R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_CLIP_INDEX_KEY`)에 등록한다.
+- 생성된 DuckDB·이미지·CLIP 인덱스는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, DB object key·이미지 prefix·CLIP 인덱스 key·무신사 착샷 prefix를 환경 설정(`R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_CLIP_INDEX_KEY`, `R2_SNAP_IMAGE_PREFIX`)에 등록한다. 무신사 착샷은 `scripts/extract_snap_images.py`로 HF parquet에서 꺼내 `scripts/upload_snap_images.py`(쓰기 권한 키)로 올린다.
 - `build_clip_index.py`는 `.env`를 읽어 DB(`STOCK_DB_PATH`, 없으면 R2 DB 캐시)와 R2 상품 사진으로 재고 79,178개의 임베딩을 계산한다(`--image-dir`를 주면 로컬 사진). 사진은 내려받아 메모리에서만 쓰고 저장하지 않는다. 규칙은 아래 4절 CLIP 필터와 같고, 파일에 규칙 이름(`rule`)이 기록된다.
 - 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절).
 
@@ -63,6 +63,7 @@ python -m pytest
 | `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
 | `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
 | `R2_CLIP_INDEX_KEY` | 없음 | 재고 CLIP 인덱스(`scripts/build_clip_index.py`로 만든 npz)의 R2 object key. `--prepare-cache`가 DB와 함께 `STOCK_CACHE_DIR/clip-index-<sha256>.npz`로 받는다 |
+| `R2_SNAP_IMAGE_PREFIX` | 없음 | 무신사 스냅 착샷 JPEG의 R2 prefix(예: `musinsa-snap`). 02 착샷의 `image_ref`(`hf://datasets/disl/musinsa-snap-new@<revision>#row=<n>`)를 `<prefix>/<revision>/<n>.jpg`로 읽는다. 없거나 객체가 없으면(다른 revision 등) 착샷은 소재·디테일 텍스트만으로 CLIP을 건다 |
 | `STOCK_CLIP_INDEX_PATH` | 없음 | 설정하면 R2 대신 이 인덱스 파일을 쓴다. 둘 다 없으면 `data/clip_index.npz`. 인덱스가 없거나 규칙(`rule`)이 다르면 서버는 뜨고 CLIP 필터만 건너뛴다(`search.clip.skip_reason: no_index`) |
 | `STOCK_HANDOFF_TIMEOUT_SECONDS` | `60` | 두 inventory route의 전체 HTTP 처리 제한 시간(초, 0 초과 600 이하). 넘으면 504 `TIMEOUT` |
 
@@ -78,7 +79,7 @@ python -m pytest
 
 ```powershell
 python scripts/run_agent.py --request examples/request-example.json   # 02 결과 1건
-python scripts/validate_requests.py                                   # 정확도 검증 10건 (성별 여·남·공용·없음)
+python scripts/validate_requests.py                                   # 정확도 검증 10건 (성별 여·남·공용·없음, 무신사 착샷·상품 이미지 CLIP 8건)
 python -m stock_agent.server                                 # HTTP API
 ```
 
@@ -204,18 +205,18 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 함께 팔 짝 재고를 트렌드 아이템의 무신사 이미지와 소재·질감·디테일 무드가 비슷한 것으로 좁힌다. 색은 조합 색상표가 정하므로 CLIP은 색을 보지 않는다.
 
 - 기준 이미지 고르기: 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products`에서
-  1. `kind: snap_garment`(무신사 스냅 착샷)이고 `image_url`이 있는 것 중 `score`(트렌드 아이템과의 일치도)가 가장 높은 1장
-  2. 착샷이 없으면 `kind: catalog_item`(무신사 상품 이미지)이고 `image_url`이 있는 것(`has_image: false` 제외) 중 `score`가 가장 높은 1장.
+  1. `kind: snap_garment`(무신사 스냅 착샷) 중 `score`(트렌드 아이템과의 일치도)가 가장 높은 1장. 02 착샷은 `image_url` 없이 `image_ref`(HF parquet 행 참조)만 주므로, R2에 미리 올린 착샷 JPEG(`R2_SNAP_IMAGE_PREFIX`)로 읽는다. `multi_wearer_suspected: true`(여러 명이 찍혔을 수 있는 사진)는 뺀다
+  2. 착샷이 없으면 `kind: catalog_item`(무신사 상품 이미지, `image_url` 또는 http `image_ref`) 중 `score`가 가장 높은 1장.
      상품 이미지는 트렌드 아이템 카테고리(예: 블라우스)라 짝 재고(하의)와 카테고리가 다르지만, 소재·질감·디테일만 비교하므로 그대로 쓴다
   3. 둘 다 없으면 CLIP 필터 없이 찾는다(`no_reference`)
 - 기준 이미지가 있으면 **항상** 건다. 기준과 재고 인덱스는 같은 규칙으로 임베딩한다
   - 이미지: 흑백으로 바꿔 임베딩(색 제외, 명암·질감·형태만)
   - 텍스트: 소재 + 디테일을 영어 대응어로(CLIP은 영어 모델이라 한글 단어를 구분하지 못함). 기준은 02 `materials`·`details`(`DetailName`, 넥라인·칼라 제외), 재고는 `article_attrs.materials` + H&M 상품 설명에서 키워드로 뽑은 `DetailName`. 02 표준 어휘(vocabulary_v1) 소재 26개·디테일 40개를 쓴다
-  - 합치기: 이미지 0.6 + 텍스트 0.4. 텍스트가 비면 이미지만, 이미지를 내려받지 못하면(5초) 텍스트만
+  - 합치기: 이미지 0.6 + 텍스트 0.4. 텍스트가 비면 이미지만, 이미지를 열지 못하면(URL 5초, 착샷은 R2) 텍스트만
 - 재고 후보 임베딩은 CLIP 인덱스에서 읽는다. 후보를 재고 색별로 나눠 각 색 안에서 유사도 상위 10%(올림, 색마다 최소 1개)를 남긴다. 유사도 수준이 기준 이미지마다 달라(H&M 사진 기준 중앙값 0.81~0.86) 고정 기준값은 쓰지 않고, 색 안에서만 비교해 흑백에 남은 밝기 차이로 밝은 색 재고가 쏠려 남지 않게 한다(조합 색상표가 고른 색 구성 유지). 후보를 0개로 만들지 않는다. 인덱스에 없는 후보는 유사도 0
 - 걸지 못한 경우(인덱스 없음·규칙 다름 `no_index`, 후보가 인덱스에 하나도 없음 `no_match`, 이미지를 열 수 없고 소재·디테일도 없음 `no_query`)는 후보를 그대로 두고 그 사실을 기록한다
-- 응답 `search.outfit_reference`(`status` used/skipped, `skip_reason`, `kind` snap_garment/catalog_item, `product_id`, `image_url`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `text_used`, `n_before`, `n_after`, `n_indexed`, `keep_ratio` 0.1, `keep_rule` per_color_top; 기준 이미지가 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(기준 이미지 URL, 착샷 `external_outfit_image` / 상품 이미지 `external_product_image`)이 붙는다
-- 기준 이미지는 03 서버가 직접 내려받는다. 외부 서비스로 보내지 않는다
+- 응답 `search.outfit_reference`(`status` used/skipped, `skip_reason`, `kind` snap_garment/catalog_item, `product_id`, `image_url`, `image_ref`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `text_used`, `n_before`, `n_after`, `n_indexed`, `keep_ratio` 0.1, `keep_rule` per_color_top; 기준 이미지가 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(기준 이미지 URL, 착샷은 `image_ref`, 착샷 `external_outfit_image` / 상품 이미지 `external_product_image`)이 붙는다
+- 기준 이미지는 03 서버가 직접 읽는다(상품 이미지는 URL, 착샷은 R2). 외부 서비스로 보내지 않는다
 
 ### 응답
 
