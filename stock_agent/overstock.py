@@ -349,7 +349,6 @@ def get_sales_trend(con, article_ids: list[str], weeks: int = 4) -> pd.DataFrame
         """, [mid, mid, start, DATA_END]).df()
     finally:
         con.unregister("trend_ids")
-    df["trend"] = [trend_ratio(r, p) for r, p in zip(df.recent_sold, df.prev_sold)]
     df.attrs["period"] = {"recent": (mid + timedelta(days=1), DATA_END), "prev": (start + timedelta(days=1), mid)}
     return df
 

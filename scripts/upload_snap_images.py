@@ -6,7 +6,8 @@ R2에 이미 같은 크기로 있는 파일은 건너뛰므로, 중간에 끊겨
 
 키: 쓰기 권한(Object Read & Write) 키를 R2_UPLOAD_ACCESS_KEY_ID·R2_UPLOAD_SECRET_ACCESS_KEY로 준다.
     없으면 .env의 R2_ACCESS_KEY_ID·R2_SECRET_ACCESS_KEY를 쓴다(읽기 전용 키면 AccessDenied).
-    버킷·엔드포인트는 .env의 R2_BUCKET·R2_ENDPOINT(또는 R2_ACCOUNT_ID)를 쓴다.
+    버킷·엔드포인트는 .env의 R2_BUCKET·R2_ENDPOINT(없으면 R2_ACCOUNT_ID로 만든 주소)를 쓴다.
+    업로드용 키는 이 실행에만 넣고 서버 .env·secret store에는 넣지 않는다(서버는 읽기 전용 키).
 
 실행 (레포 맨 위 폴더에서)
   python scripts/upload_snap_images.py --dry-run     # 올릴 개수만 확인
@@ -35,9 +36,9 @@ import boto3  # noqa: E402
 from botocore.config import Config  # noqa: E402
 
 s = R2Settings.from_env()
-key_id = os.environ.get("R2_UPLOAD_ACCESS_KEY_ID") or os.environ["R2_ACCESS_KEY_ID"]
-secret = os.environ.get("R2_UPLOAD_SECRET_ACCESS_KEY") or os.environ["R2_SECRET_ACCESS_KEY"]
-client = boto3.client("s3", endpoint_url=s.endpoint, aws_access_key_id=key_id, aws_secret_access_key=secret,
+key_id = os.environ.get("R2_UPLOAD_ACCESS_KEY_ID") or s.access_key_id
+secret = os.environ.get("R2_UPLOAD_SECRET_ACCESS_KEY") or s.secret_access_key
+client = boto3.client("s3", endpoint_url=s.endpoint_url, aws_access_key_id=key_id, aws_secret_access_key=secret,
                       region_name="auto", config=Config(max_pool_connections=args.workers,
                                                         retries={"max_attempts": 5, "mode": "standard"}))
 prefix = args.prefix.strip("/")

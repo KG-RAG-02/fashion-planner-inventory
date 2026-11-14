@@ -4,15 +4,12 @@ import pandas as pd
 import pytest
 
 from stock_agent.agent import (
-    TemplateSummarizer,
-    allowed_numbers,
     build_product,
     build_reason,
-    numbers_in,
     read_season,
     reason_detail,
     run,
-    safe_summary,
+    template_summary,
     validate_output,
 )
 from stock_agent.overstock import resolve_pair_areas
@@ -38,26 +35,9 @@ REQ = {"schema_version": "1.0", "request_id": "req_test", "season": "2027-SS",
 
 # ---- summary
 def test_template_summary_numbers_come_from_facts():
-    text = TemplateSummarizer().summarize(FACTS)
+    text = template_summary(FACTS)
     assert "5,199개" in text and "149개" in text and "1위 팬츠(베이지)" in text
     assert "어울리는 색 중 가장 많이 겹치는 색" in text and text.endswith("재고 금액 447만 원(가상), 판매율 62%(가상).")
-    assert numbers_in(text) <= allowed_numbers(FACTS)
-
-
-def test_safe_summary_rejects_made_up_numbers():
-    class Liar:
-        def summarize(self, facts):
-            return "재고가 99,999개로 매우 많습니다."
-    text, warn = safe_summary(Liar(), FACTS)
-    assert "99,999" not in text and warn
-
-
-def test_safe_summary_keeps_good_custom_summary():
-    class Good:
-        def summarize(self, facts):
-            return f"후보 {facts['n_candidates']:,}개 중 재고 {facts['top1_stock_qty']}개."
-    text, warn = safe_summary(Good(), FACTS)
-    assert text == "후보 5,199개 중 재고 149개." and warn == []
 
 
 # ---- 공통 입력 오류 (DB 없이): product·trend_result 없음
@@ -108,7 +88,7 @@ def test_read_season():
 @pytest.mark.parametrize("season", [None, "", {"value": None, "source": "inferred"}, {"year": 2027, "origin": "user_requested"}])
 def test_missing_season_is_error(season):
     resp = run({**REQ, "season": season}, con=None)
-    assert resp["status"] == "error" and "쿼리 전처리" in resp["errors"][0]["message"]
+    assert resp["status"] == "error" and "applied_filters.season" in resp["errors"][0]["message"]
 
 
 def test_missing_season_message_shows_received_fields():
@@ -437,7 +417,8 @@ def test_snap_applies_clip_and_records_it(con):
     assert sorted(clip.calls[0][0]) == ["a1", "a2"] and clip.calls[0][1]["image_url"] == SNAP["image_url"]
     s = tr["search"]
     assert s["clip"] == {"applied": True, "skip_reason": None, "image_used": True, "text_used": True, "n_before": 2,
-                         "n_after": 1, "n_indexed": 2, "keep_ratio": 0.1, "keep_rule": "per_color_top"}
+                         "n_after": 1, "n_indexed": 2, "keep_ratio": 0.1, "keep_rule": "per_color_top",
+                         "image_skip": None}
     o = s["outfit_reference"]
     assert o["status"] == "used" and o["kind"] == "snap_garment" and o["product_id"] == "musinsa_snap:1"
     assert o["score"] == 0.8                                                    # 상품 이미지(0.95)보다 착샷 우선
@@ -464,7 +445,7 @@ def test_catalog_image_used_when_no_snap(con):
     o = tr["search"]["outfit_reference"]
     assert resp["status"] == "ok" and clip.calls[0][1]["image_url"] == CATALOG["image_url"]
     assert o["status"] == "used" and o["kind"] == "catalog_item" and o["product_id"] == "otpensource:9"
-    assert any(x.startswith("무신사 상품 이미지(상품 otpensource:9") for x in tr["limitations"])
+    assert any(x.startswith("무신사 상품 이미지(otpensource:9, 트렌드 아이템 블라우스)와 ") for x in tr["limitations"])
     assert any("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로" in x for x in tr["limitations"])
     e6 = {e["evidence_id"]: e for e in resp["evidence"]}["stock-agent:E-006"]
     assert e6["source_type"] == "external_product_image" and e6["source_name"].startswith("무신사 상품 이미지")
@@ -507,3 +488,24 @@ def test_snap_without_user_category_uses_all_items(con):
     req = {k: v for k, v in REQ.items() if k != "target_category"}
     resp = run({**req, "trend": trend(SNAP_BLOUSE, skirt)}, con, clip_filter=clip)
     assert resp["trend_result"]["search"]["outfit_reference"]["product_id"] == "musinsa_snap:skirt"
+
+
+def test_clip_notes_reasons():
+    from stock_agent.agent import clip_notes
+    snap = {"kind": "snap_garment", "product_id": "musinsa_snap:22:아우터", "item_category": "재킷"}
+    base = {"applied": True, "skip_reason": None, "image_used": False, "text_used": True, "n_before": 10, "n_after": 1,
+            "n_indexed": 10, "keep_ratio": 0.1}
+    notes = clip_notes(snap, {**base, "image_skip": "no_snap_store"})
+    assert notes[0].startswith("무신사 스냅 착샷(musinsa_snap:22:아우터, 트렌드 아이템 재킷)과 ")
+    assert "R2_SNAP_IMAGE_PREFIX" in notes[1]
+    assert "다른 데이터셋 버전" in clip_notes(snap, {**base, "image_skip": "not_found"})[1]
+    assert clip_notes({"kind": "snap_garment"}, {**base, "applied": False, "skip_reason": "no_model"}) == [
+        "CLIP 모델을 불러오지 못해 무신사 스냅 착샷과의 유사도(CLIP) 필터 없이 찾았습니다."]
+
+
+def test_evidence_manifest_id_is_db_version(con):
+    """근거 manifest_id = 계산에 쓴 DB 버전. 외부 이미지 근거 E-006은 null, 버전을 모르면 null."""
+    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=FakeClip(keep=["a2"]), manifest_id="v-13")
+    ids = {e["evidence_id"].rsplit(":", 1)[-1]: e["manifest_id"] for e in resp["evidence"]}
+    assert ids.pop("E-006") is None and set(ids.values()) == {"v-13"}
+    assert {e["manifest_id"] for e in run(REQ, con)["evidence"]} == {None}

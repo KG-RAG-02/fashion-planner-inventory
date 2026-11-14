@@ -96,7 +96,7 @@ class TrendIn(BaseModel):
 
 
 class InventoryRequest(BaseModel):
-    """03 stock-agent 요청 = 02 쿼리 전처리·트렌드 결과(TrendAnalysisResult) 그대로.
+    """03 stock-agent 요청 = 02 트렌드 결과(TrendAnalysisResult, 전처리된 쿼리 조건 applied_filters 포함) 그대로.
     applied_filters가 없으면 400. 입구(stock_agent/trend_request.py)에서 내부 형식으로 바꾼다."""
     model_config = ConfigDict(extra="allow")
 
@@ -250,9 +250,9 @@ class TrendResult(BaseModel):
                                                "areas(짝 영역), colors(최종 조회 색), color_mode(max_overlap/any/none), color_overlap, "
                                                "color_attempts(조회한 색 단계별 mode·colors·n_candidates), relaxed(완화한 트렌드 색 조건), "
                                                "excluded_categories, outfit_reference(CLIP 기준 이미지: status used/skipped, "
-                                               "skip_reason no_reference/no_index/no_match/no_query/no_candidates, kind snap_garment/catalog_item, "
+                                               "skip_reason no_reference/no_index/no_match/no_model/no_query/no_candidates, kind snap_garment/catalog_item, "
                                                "product_id, image_url, image_ref, score, source, item_id, item_category), clip(applied, skip_reason, "
-                                               "image_used, text_used, n_before, n_after, n_indexed, keep_ratio, keep_rule; 기준 이미지가 없으면 null), segments(찾은 고객군, []=전체), "
+                                               "image_used, text_used, n_before, n_after, n_indexed, keep_ratio, keep_rule, image_skip; 기준 이미지가 없으면 null), segments(찾은 고객군, []=전체), "
                                                "segment_basis(segment/gender/item_gender/all)")
     limitations: list[str]
     errors: list[Error] = []
@@ -307,32 +307,6 @@ class HandoffResponse(BaseModel):
     producer: HandoffProducer
     status: Literal["ok", "partial", "no_results", "error"]
     result: InventoryResponse
-
-
-class HandoffErrorResponse(BaseModel):
-    """Request-level error when no valid outer request ID exists."""
-    schema_version: str = "1.0"
-    request_id: Optional[str] = None
-    agent_id: str = "stock-agent"
-    status: Literal["error"] = "error"
-    summary: str
-    products: list[Any] = []
-    trend_results: list[Any] = []
-    evidence: list[Any] = []
-    errors: list[Error]
-
-
-class Health(BaseModel):
-    status: Literal["ok", "error"]
-    agent_id: str
-    db: str
-    db_version: Optional[str] = None
-    message: Optional[str] = None
-    missing_tables: list[str]
-    images: str
-    images_found: bool = Field(description="로컬 이미지 폴더 또는 R2 prefix 설정 여부; 원격 object는 요청 시 확인")
-    clip_index_loaded: bool = Field(False, description="CLIP 인덱스를 불러왔는지. false면 CLIP 필터는 no_index로 건너뜀")
-    clip_n_indexed: int = Field(0, description="CLIP 인덱스의 상품 수")
 
 
 RESPONSES = {

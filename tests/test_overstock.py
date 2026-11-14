@@ -171,7 +171,6 @@ def test_get_sales_trend(con):
     df = get_sales_trend(con, ["a1", "a4", "a5"], weeks=4).set_index("article_id")
     assert df.loc["a1", "recent_sold"] == 1 and df.loc["a1", "prev_sold"] == 1   # 9/20 vs 8/1
     assert df.loc["a4", "recent_sold"] == 0 and df.loc["a4", "prev_sold"] == 1
-    assert df.loc["a5", "trend"] == -1.0
 
 
 # ---- 또래 대비 추세 + 판매 적으면 중립
@@ -191,7 +190,7 @@ def test_peer_relative_trend():
     assert abs(out.loc["x1", "trend"]) < 0.25 and out.loc["x1", "trend_raw"] == -0.7
     # x2는 그대로인데 또래가 줄었으니 상대적으로 좋음(+)
     assert out.loc["x2", "trend"] > 0.5
-    # 0·0, 1·2는 판매가 적어 중립: 예전 규칙이면 -1 이었음
+    # 0·0, 1·2는 판매가 적어 중립(trend 0). trend_raw는 -1
     assert out.loc["x3", "trend"] == 0 and out.loc["x3", "trend_raw"] == -1
     assert out.loc["x3", "trend_basis"] == "too_few_sales" and out.loc["x4", "trend"] == 0
     assert out.loc["x1", "trend_basis"] == "peer_relative"

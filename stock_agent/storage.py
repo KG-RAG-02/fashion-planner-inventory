@@ -1,9 +1,8 @@
 """Cloudflare R2 object access for the stock database and product images.
 
-R2 uses its S3-compatible API. Credentials are read from environment variables;
-the historical ``Access Key ID`` / ``Secret Access Key`` dotenv names are
-accepted temporarily so existing local setups can be migrated without copying
-secret values into source files.
+R2 uses its S3-compatible API. Credentials are read from environment variables
+(``R2_ACCESS_KEY_ID`` / ``R2_SECRET_ACCESS_KEY``; the Cloudflare dashboard labels
+``Access Key ID`` / ``Secret Access Key`` are also accepted as dotenv names).
 """
 
 from __future__ import annotations

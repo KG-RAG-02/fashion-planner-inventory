@@ -30,18 +30,15 @@
     evidence       E-001~E-006 데이터 출처
     errors         공통 입력 오류만 (트렌드별 오류는 trend_result.errors)
 
-summary는 Summarizer가 쓴다. 기본은 TemplateSummarizer(정해진 문장 틀).
-어떤 Summarizer든 summary 속 숫자는 facts에 있는 숫자여야 하며, 아니면 템플릿으로 되돌린다.
+summary는 정해진 문장 틀(template_summary)로 만든다. 문장 속 숫자는 모두 facts에서 가져온다.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Protocol
 
 import pandas as pd
 
@@ -69,9 +66,9 @@ from stock_agent.synthetic import VERSION as STOCK_VERSION
 from stock_agent.trend_input import USER_COLOR_BASES, TrendInput, read_trend
 
 SCHEMA_VERSION = "1.0"
-AGENT_ID = "stock-agent"      # 2026-11-06 변경 (기존 기본값 own-product-inventory-agent)
+AGENT_ID = "stock-agent"
 NS = "stock-agent"            # evidence_id 앞부분: stock-agent:E-001
-# 시즌은 02 쿼리 전처리가 정해서 준다(미입력이면 02가 다음 시즌으로 정함, origin=default_next).
+# 시즌은 02 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).
 # 03은 계산하지 않고 받은 값과 출처를 그대로 쓴다.
 REQUIRED = ("request_id", "season")
 SEASON_SOURCES = ("user", "inferred", "unknown")   # 응답 season_basis.source 값
@@ -84,70 +81,28 @@ USER_COLOR_RULE = "조합표 v1, 사용자 색과 어울리는 색 중 가장 �
 
 # ---------------------------------------------------------------- summary
 
-class Summarizer(Protocol):
-    def summarize(self, facts: dict) -> str: ...
-
-
-class TemplateSummarizer:
-    """정해진 문장 틀로 summary를 만든다."""
-
-    def summarize(self, f: dict) -> str:
-        areas = ", ".join(f["areas"])
-        basis = f.get("area_basis", "user")
-        if basis == "all":
-            where = f"카테고리 미지정으로 전체 영역({areas})"
-        elif basis == "trend":
-            where = f"트렌드 카테고리({', '.join(f['given_areas'])})의 짝 카테고리({areas})"
-        else:
-            where = f"{f['target']} 기획용 짝 카테고리({areas})"
-        if f["n_items"] == 0:
-            return f"{f['season_label']} {where}에서 조건에 맞는 과잉재고를 찾지 못했습니다."
-        label = f.get("color_label", "트렌드 색")
-        rule = ("하나라도 어울리는 색·같은 색" if f.get("color_mode") == "any"
-                else "어울리는 색 중 가장 많이 겹치는 색·같은 색")
-        color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
-                      else "트렌드 색 조건을 풀어 색 조건 없이" if f.get("colors_relaxed")
-                      else "트렌드 색이 없어 색 조건 없이")
-        text = (f"{f['season_label']} {where} 중 {color_part} 재고 후보 {f['n_candidates']:,}개를 비교해, "
-                f"{f['top1_rank']}위 {f['top1_category']}({f['top1_color']}) 재고 {f['top1_stock_qty']:,}개"
-                f"(가상 재고)를 골랐습니다.")
-        return text + (f" {f['reason_detail']}" if f.get("reason_detail") else "")
-
-
-_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
-
-
-def numbers_in(text: str) -> set[str]:
-    return {m.replace(",", "") for m in _NUM.findall(text)}
-
-
-def allowed_numbers(facts: dict) -> set[str]:
-    out: set[str] = set()
-
-    def walk(v):
-        if isinstance(v, bool):
-            return
-        if isinstance(v, (int, float)):
-            out.add(str(int(v)) if float(v).is_integer() else str(v))
-        elif isinstance(v, str):
-            out.update(numbers_in(v))
-        elif isinstance(v, (list, tuple)):
-            for x in v:
-                walk(x)
-        elif isinstance(v, dict):
-            for x in v.values():
-                walk(x)
-    walk(facts)
-    return out
-
-
-def safe_summary(summarizer: Summarizer, facts: dict) -> tuple[str, list[str]]:
-    """summary 속 숫자를 facts와 대조. 맞지 않으면 템플릿으로 되돌리고 경고."""
-    text = summarizer.summarize(facts)
-    extra = numbers_in(text) - allowed_numbers(facts)
-    if extra:
-        return TemplateSummarizer().summarize(facts), [f"summary에 근거 없는 숫자 {sorted(extra)}가 있어 템플릿 문장으로 바꿨습니다."]
-    return text, []
+def template_summary(f: dict) -> str:
+    """정해진 문장 틀로 summary를 만든다. 숫자는 facts에 있는 값만 쓴다."""
+    areas = ", ".join(f["areas"])
+    basis = f.get("area_basis", "user")
+    if basis == "all":
+        where = f"카테고리 미지정으로 전체 영역({areas})"
+    elif basis == "trend":
+        where = f"트렌드 카테고리({', '.join(f['given_areas'])})의 짝 카테고리({areas})"
+    else:
+        where = f"{f['target']} 기획용 짝 카테고리({areas})"
+    if f["n_items"] == 0:
+        return f"{f['season_label']} {where}에서 조건에 맞는 과잉재고를 찾지 못했습니다."
+    label = f.get("color_label", "트렌드 색")
+    rule = ("하나라도 어울리는 색·같은 색" if f.get("color_mode") == "any"
+            else "어울리는 색 중 가장 많이 겹치는 색·같은 색")
+    color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
+                  else "트렌드 색 조건을 풀어 색 조건 없이" if f.get("colors_relaxed")
+                  else "트렌드 색이 없어 색 조건 없이")
+    text = (f"{f['season_label']} {where} 중 {color_part} 재고 후보 {f['n_candidates']:,}개를 비교해, "
+            f"{f['top1_rank']}위 {f['top1_category']}({f['top1_color']}) 재고 {f['top1_stock_qty']:,}개"
+            f"(가상 재고)를 골랐습니다.")
+    return text + (f" {f['reason_detail']}" if f.get("reason_detail") else "")
 
 
 # ---------------------------------------------------------------- 공통 입력 (02)
@@ -171,7 +126,7 @@ def read_season(value) -> tuple[str | None, str]:
 
 # 시즌이 없을 때 원인을 단정하지 않고 확인할 곳을 알려 준다
 # (02가 안 만듦 / 필드 이름·위치가 달라 03이 못 알아봄)
-SEASON_HINT = ("시즌은 02 쿼리 전처리가 정해 applied_filters.season에 담고, 입구가 내부 형식의 season으로 옮깁니다. "
+SEASON_HINT = ("시즌은 02 결과의 applied_filters.season으로 받고, 입구가 내부 형식의 season으로 옮깁니다. "
                "02 결과에 시즌이 있는지, 내부 형식이면 필드 이름이 season인지 확인하세요.")
 
 
@@ -405,10 +360,13 @@ def same_trend_colors(product_color: str, trend_colors: list[str]) -> list[str]:
 
 
 def _evidence(now: str, period, areas, colors, trend_period, with_images: bool = False,
-              outfit_ref: dict | None = None) -> list[dict]:
-    """데이터 출처. outfit_ref: CLIP 유사도 필터의 기준 이미지(무신사 착샷·상품 이미지) (E-006, 쓴 경우만)."""
+              outfit_ref: dict | None = None, manifest_id: str | None = None) -> list[dict]:
+    """데이터 출처. outfit_ref: CLIP 유사도 필터의 기준 이미지(무신사 착샷·상품 이미지) (E-006, 쓴 경우만).
+
+    manifest_id: E-001~E-005(DB·H&M 사진)를 계산한 DB 버전. E-006(외부 이미지)은 null.
+    """
     common = {"published_at": None, "observed_at": DATA_END.isoformat(), "fetched_at": now,
-              "permission_status": LICENSE, "manifest_id": "TBD"}
+              "permission_status": LICENSE, "manifest_id": manifest_id}
     image_ev = [{"evidence_id": f"{NS}:E-005", "source_id": "hm_images", "source_type": "internal_product_image",
                  "source_name": "H&M 상품 이미지", "data_nature": "fact",
                  "locator": "images/<article_id 앞 3자리>/<article_id>.jpg", **common}] if with_images else []
@@ -421,7 +379,8 @@ def _evidence(now: str, period, areas, colors, trend_period, with_images: bool =
             "source_name": ("무신사 상품 이미지" if catalog else "무신사 스냅 착샷")
                            + " (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
             "data_nature": "fact", "locator": outfit_ref.get("image_url") or outfit_ref.get("image_ref"),
-            **{**common, "observed_at": None, "permission_status": "02 트렌드 결과의 무신사 이미지"}})
+            **{**common, "observed_at": None, "manifest_id": None,
+               "permission_status": "02 트렌드 결과로 받은 이미지, 비상업적 연구용"}})
     return [
         {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",
          "source_name": f"가상 재고 ({STOCK_VERSION})", "data_nature": "sample",
@@ -579,7 +538,7 @@ def _pick_with_images(ranked: pd.DataFrame, image_dir, limitations: list[str]):
 
 
 def _to_vocab_frame(cand: pd.DataFrame) -> pd.DataFrame:
-    """예전 이름으로 만든 DB도 vocabulary_v1 이름으로 (티셔츠, 울/캐시미어 등)."""
+    """DB 값을 vocabulary_v1 이름으로 (티셔츠, 울/캐시미어 등)."""
     if cand.empty:
         return cand
     cand = cand.copy()
@@ -621,8 +580,8 @@ def pairing_notes(am, areas: list[str], c: Common) -> list[str]:
 
 # ---------------------------------------------------------------- 실행
 
-def run(request: dict, con, summarizer: Summarizer | None = None,
-        now: datetime | None = None, image_dir: str | None = None, clip_filter=None) -> dict:
+def run(request: dict, con, now: datetime | None = None, image_dir: str | None = None, clip_filter=None,
+        manifest_id: str | None = None) -> dict:
     """요청 1건(트렌드 1개) → 응답 dict. con은 read_only DuckDB 연결.
 
     - season 필수(02가 정해서 줌). 03은 시즌을 계산하지 않는다
@@ -645,11 +604,10 @@ def run(request: dict, con, summarizer: Summarizer | None = None,
                             f"trend 필드에 담아 주세요. {_missing_detail(req, ['trend'])}")
     c = trend_common(c, trend)
     ti = read_trend(trend, list(c.target_areas), list(c.user_colors))
-    return run_trend(req, c, ti, con, summarizer, now, image_dir, ref=pick_reference(trend, list(c.target_areas)),
-                     clip_filter=clip_filter)
+    return run_trend(req, c, ti, con, now, image_dir, ref=pick_reference(trend, list(c.target_areas)),
+                     clip_filter=clip_filter, manifest_id=manifest_id)
 
 
-COLOR_MODES = ("max_overlap", "any", "none")
 COLOR_MODE_NAMES = {"max_overlap": "가장 많이 겹치는 색", "any": "하나라도 어울리는 색", "none": "색 조건 없음(21색 전체)"}
 
 
@@ -697,10 +655,19 @@ def relaxed_notes(ti: TrendInput, tried: list[dict]) -> list[str]:
 
 
 def _ref_label(ref: dict) -> str:
-    """기준 이미지 설명: 무신사 스냅 착샷 / 무신사 상품 이미지(블라우스)."""
-    if ref.get("kind") == "catalog_item":
-        return f"무신사 상품 이미지(상품 {ref.get('product_id')}, 트렌드 아이템 {ref.get('item_category')})"
-    return f"무신사 스냅 착샷(상품 {ref.get('product_id')}, 트렌드 아이템 {ref.get('item_category')}와 일치도가 가장 높은 스냅)"
+    """기준 이미지 설명: 무신사 스냅 착샷(…) / 무신사 상품 이미지(…)."""
+    parts = [str(ref.get("product_id"))] if ref.get("product_id") else []
+    if ref.get("item_category"):
+        parts.append(f"트렌드 아이템 {ref['item_category']}")
+    detail = f"({', '.join(parts)})" if parts else ""
+    return ("무신사 상품 이미지" if ref.get("kind") == "catalog_item" else "무신사 스냅 착샷") + detail
+
+
+IMAGE_SKIP_NOTES = {
+    "no_snap_store": "착샷 이미지 저장소(R2_SNAP_IMAGE_PREFIX)가 설정되지 않아",
+    "not_found": "착샷 이미지가 저장소에 없어(다른 데이터셋 버전 등)",
+    "host_not_allowed": "기준 이미지 주소가 허용된 무신사 이미지 서버가 아니어서",
+}
 
 
 def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
@@ -710,9 +677,10 @@ def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
     if clip is None or clip.get("skip_reason") == "no_candidates":
         return []
     label = _ref_label(ref)
-    wa = "와" if ref.get("kind") == "catalog_item" else "과"       # "…블라우스)와" / "…스냅)과"
+    wa = "와" if ref.get("kind") == "catalog_item" else "과"       # "…이미지(…)와" / "…착샷(…)과"
     if not clip["applied"]:
         why = {"no_index": "CLIP 인덱스가 없어", "no_match": "재고 후보가 CLIP 인덱스에 없어",
+               "no_model": "CLIP 모델을 불러오지 못해",
                "no_query": "기준 이미지를 열 수 없고 소재·디테일 정보도 없어"}[clip["skip_reason"]]
         return [f"{why} {label}{wa}의 유사도(CLIP) 필터 없이 찾았습니다."]
     out = [f"{label}{wa} 소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 "
@@ -720,7 +688,8 @@ def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
     if ref.get("kind") == "catalog_item":
         out.append("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로 썼습니다.")
     if not clip["image_used"]:
-        out.append("기준 이미지를 열 수 없어 소재·디테일 텍스트만으로 유사도를 계산했습니다.")
+        why = IMAGE_SKIP_NOTES.get(clip.get("image_skip"), "기준 이미지를 열 수 없어")
+        out.append(f"{why} 소재·디테일 텍스트만으로 유사도를 계산했습니다.")
     elif not clip.get("text_used", True):
         out.append("기준 이미지에 소재·디테일 정보가 없어 이미지만으로 유사도를 계산했습니다.")
     if clip["n_indexed"] < clip["n_before"]:
@@ -728,16 +697,14 @@ def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
     return out
 
 
-def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer | None = None,
-              now: datetime | None = None, image_dir: str | None = None, ref: dict | None = None,
-              clip_filter=None) -> dict:
+def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = None, image_dir: str | None = None,
+              ref: dict | None = None, clip_filter=None, manifest_id: str | None = None) -> dict:
     """공통 값 검사가 끝난 뒤 트렌드 1개를 처리한다.
 
     ref: pick_reference로 고른 CLIP 기준 이미지(착샷, 없으면 상품 이미지). None이면 CLIP 필터 없음
     clip_filter: (후보, 기준 이미지) → (남은 후보, ClipInfo). 기본은 clip_matcher.clip_filter (테스트에서 바꿈)
     """
     now = now or datetime.now(timezone.utc)
-    summarizer = summarizer or TemplateSummarizer()
     period, target = c.period, c.target
     season_basis = _season_basis(c)
     search = {"trend_colors": ti.colors, "trend_color_basis": ti.color_basis, "trend_color_items": ti.color_items,
@@ -861,8 +828,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
         "top1_stock_qty": None if row is None else int(row.stock_qty),
         "reason_detail": None if reason is None else reason_detail(reason),
     }
-    summary, warn = safe_summary(summarizer, facts)
-    limitations += warn
+    summary = template_summary(facts)
 
     status = "no_results" if row is None else ("partial" if errors else "ok")
     tr = _trend_result(ti, status, summary, search,
@@ -871,7 +837,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
     product = None if row is None else build_product(row, period, image)
     resp = _output(req, status, product, tr, season_basis,
                    evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None,
-                                      outfit_ref=ref if clip and clip["applied"] else None))
+                                      outfit_ref=ref if clip and clip["applied"] else None, manifest_id=manifest_id))
     problems = validate_output(resp)
     if problems:
         return error_output(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))

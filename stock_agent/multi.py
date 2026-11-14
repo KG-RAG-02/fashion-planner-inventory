@@ -17,7 +17,7 @@
     products        [상품 or null, ...]   트렌드 순서대로 n개. 상품을 못 고른 트렌드는 null
     trend_results   [trend_result, ...]   n개. trend_results[i] ↔ products[i] (product_index = i)
                     trend_results[i].evidence_ids = 그 트렌드의 근거 ID (evidence에서 찾음)
-    evidence        트렌드마다 E-001~E-005. 이어 붙이면 ID가 겹쳐서 앞에 트렌드 ID를 붙임
+    evidence        트렌드마다 E-001~E-005(CLIP을 걸었으면 E-006). 이어 붙이면 ID가 겹쳐서 앞에 트렌드 ID를 붙임
                     (stock-agent:style_007:E-001), 항목마다 style_id
     status          모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 그 밖(상품 0개) → no_results
     summary         전체 한 줄 (트렌드별 문장은 trend_results[].summary)
@@ -69,8 +69,11 @@ def _record_input_provenance(result: dict, source: dict) -> dict:
 
 
 def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None,
-                clip_filter=None) -> dict:
-    """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다."""
+                clip_filter=None, manifest_id: str | None = None) -> dict:
+    """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다.
+
+    manifest_id: 근거 E-001~E-005의 manifest_id에 넣을 DB 버전(API는 R2 객체 버전 또는 로컬 파일 sha256). 없으면 null.
+    """
     res = request if isinstance(request, dict) else {}
     if not is_trend_result(res):
         return error_response(res, "invalid_input",
@@ -88,16 +91,17 @@ def run_request(request: dict, con, image_dir: str | None = None, now: datetime 
     input_notes = req.pop("_input_notes", [])
     if not req.get("season"):
         result = error_response(req, "missing_fields",
-                                "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 "
-                                "(사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
+                                "필수 입력이 없습니다: applied_filters.season. 02 결과의 applied_filters.season에 시즌이 있어야 합니다 "
+                                "(쿼리 전처리에서 사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
                                 f"받은 applied_filters: {res.get('applied_filters')!r}")
         return _record_input_provenance(result, res)
-    result = run_internal(req, con, image_dir=image_dir, now=now, clip_filter=clip_filter, input_notes=input_notes)
+    result = run_internal(req, con, image_dir=image_dir, now=now, clip_filter=clip_filter, input_notes=input_notes,
+                          manifest_id=manifest_id)
     return _record_input_provenance(result, res)
 
 
 def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | None = None,
-                 clip_filter=None, input_notes: list[str] | None = None) -> dict:
+                 clip_filter=None, input_notes: list[str] | None = None, manifest_id: str | None = None) -> dict:
     """내부 형식 요청 → 응답. 트렌드가 1개여도 같은 형식으로 돌려준다."""
     req = req if isinstance(req, dict) else {}
     input_notes = input_notes or []
@@ -119,7 +123,7 @@ def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | N
     season_basis = None
     for i, t in enumerate(trends):
         one = {**common, "trend": t}
-        out = run(one, con, image_dir=image_dir, now=now, clip_filter=clip_filter)
+        out = run(one, con, image_dir=image_dir, now=now, clip_filter=clip_filter, manifest_id=manifest_id)
         tr = out["trend_result"]
         tr["product_index"] = i
         tr["limitations"] = [*tr["limitations"], *input_notes]

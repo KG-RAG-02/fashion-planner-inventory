@@ -5,8 +5,9 @@
     텍스트: 소재 + 디테일의 영어 대응어 (clip_vocab.clip_text). 기준은 02 materials·details,
             재고는 article_attrs.materials + 상품 설명에서 뽑은 디테일(attributes.extract_details)
     합치기(fuse): image 0.6 + text 0.4. 텍스트가 비면 이미지만, 이미지가 없으면 텍스트만
-기준 이미지 열기(load_reference_image): image_url(http)을 먼저, 없거나 실패하면 착샷 image_ref를 R2에서
+기준 이미지 열기(load_reference_image): image_url을 먼저, 없거나 실패하면 착샷 image_ref를 R2에서
     (configure_snap_images, R2_SNAP_IMAGE_PREFIX/<revision>/<row>.jpg).
+    image_url은 https이고 무신사 이미지 서버(ALLOWED_IMAGE_HOSTS: msscdn.net)인 것만, 5초·리다이렉트 없음·최대 10MB로 받는다.
 기준 쪽과 인덱스 쪽(scripts/build_clip_index.py)이 이 모듈의 to_gray·fuse와 clip_vocab.clip_text를 같이 쓴다.
 인덱스 파일에는 규칙 이름(INDEX_RULE)이 들어 있고, 다르면 인덱스를 쓰지 않는다(no_index).
 
@@ -20,10 +21,14 @@
 clip_filter는 (남은 후보, 정보)를 돌려준다. 정보(ClipInfo.to_dict)는 응답 search.clip에 그대로 들어간다.
     applied       필터를 실제로 걸었는가
     skip_reason   걸지 않은 이유: no_candidates(재고 후보 0개), no_index(인덱스 파일 없음·규칙 다름),
-                  no_match(후보가 인덱스에 하나도 없음), no_query(기준 이미지를 열 수 없고 소재·디테일도 없음)
+                  no_match(후보가 인덱스에 하나도 없음), no_model(CLIP 모델을 불러오지 못함),
+                  no_query(기준 이미지를 열 수 없고 소재·디테일도 없음)
     image_used    기준 이미지 임베딩을 썼는가 (false면 텍스트만)
     text_used     소재·디테일 텍스트를 썼는가 (false면 이미지만)
     n_before, n_after, n_indexed(인덱스에 있던 후보 수), keep_ratio(색별로 남긴 비율), keep_rule(per_color_top)
+    image_skip    기준 이미지를 쓰지 못한 이유(이미지를 썼으면 null): no_image(이미지 참조 없음),
+                  host_not_allowed(허용되지 않은 URL), no_snap_store(착샷 저장소 R2_SNAP_IMAGE_PREFIX 설정 없음),
+                  not_found(착샷이 저장소에 없음, 다른 데이터셋 버전 등), load_failed(내려받기·열기 실패)
 """
 
 from __future__ import annotations
@@ -60,10 +65,6 @@ def configure(path) -> Optional[Path]:
     """서버가 쓸 인덱스 경로를 정한다 (api.lifespan). None이면 인덱스 없음."""
     global _index_path
     _index_path = None if path is None else Path(path)
-    return _index_path
-
-
-def index_path() -> Optional[Path]:
     return _index_path
 
 
@@ -131,14 +132,32 @@ def fuse(image_emb: Optional[np.ndarray], text_emb: Optional[np.ndarray]) -> Opt
     return _normalize(np.asarray(out, dtype=np.float32))
 
 
+ALLOWED_IMAGE_HOSTS = ("msscdn.net",)    # 기준 이미지 URL은 무신사 이미지 서버(image.msscdn.net 등)만 내려받는다
+MAX_IMAGE_BYTES = 10 * 1024 * 1024        # 기준 이미지 1장 최대 크기
+
+
+def image_host_allowed(url) -> bool:
+    """https이고 호스트가 ALLOWED_IMAGE_HOSTS(또는 그 하위 도메인)인 URL만 허용한다."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(url.strip())
+    except Exception:
+        return False
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and any(host == h or host.endswith("." + h) for h in ALLOWED_IMAGE_HOSTS)
+
+
 def _load_url_image(url: str):
-    """URL → PIL 이미지. 실패하면 None."""
+    """허용된 https URL → PIL 이미지 (5초, 리다이렉트 없음, 최대 MAX_IMAGE_BYTES). 실패하면 None."""
     from PIL import Image
     import requests
     try:
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        return Image.open(BytesIO(resp.content))
+        with requests.get(url, timeout=5, stream=True, allow_redirects=False) as resp:
+            resp.raise_for_status()
+            raw = resp.raw.read(MAX_IMAGE_BYTES + 1, decode_content=True)
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise ValueError(f"이미지가 {MAX_IMAGE_BYTES:,} bytes보다 큼")
+        return Image.open(BytesIO(raw))
     except Exception as e:
         logger.warning("기준 이미지 로드 실패 (%s): %s", url, e)
         return None
@@ -153,40 +172,60 @@ def configure_snap_images(source) -> None:
     _snap_source = source
 
 
+# 기준 이미지를 쓰지 못한 이유 (ClipInfo.image_skip)
+IMAGE_SKIPS = ("no_image", "host_not_allowed", "no_snap_store", "not_found", "load_failed")
+
+
 def _load_snap_image(image_ref: str):
-    """착샷 image_ref → PIL 이미지 (R2). 설정이 없거나 실패하면 None."""
+    """착샷 image_ref → (PIL 이미지, None) 또는 (None, 이유). R2에서 읽는다."""
     from PIL import Image
     if _snap_source is None:
         logger.warning("착샷 이미지 저장소(R2_SNAP_IMAGE_PREFIX) 설정 없음: %s", image_ref)
-        return None
+        return None, "no_snap_store"
     try:
         raw = _snap_source.fetch_snap_image(image_ref)
-        return None if raw is None else Image.open(BytesIO(raw))
+        return (None, "not_found") if raw is None else (Image.open(BytesIO(raw)), None)
     except Exception as e:
         logger.warning("착샷 이미지 로드 실패 (%s): %s", image_ref, e)
-        return None
+        return None, "load_failed"
 
 
 def load_reference_image(ref: dict):
-    """기준 이미지: image_url(http)을 먼저, 없거나 실패하면 착샷 image_ref(R2)."""
-    img = _load_url_image(ref["image_url"]) if ref.get("image_url") else None
-    if img is None and ref.get("image_ref"):
-        img = _load_snap_image(ref["image_ref"])
-    return img
+    """기준 이미지 → (PIL 이미지, None) 또는 (None, 이유 IMAGE_SKIPS).
+
+    image_url(허용된 무신사 이미지 서버 https)을 먼저, 없거나 실패하면 착샷 image_ref(R2).
+    """
+    reason = "no_image"
+    url = ref.get("image_url")
+    if url:
+        if not image_host_allowed(url):
+            logger.warning("허용되지 않은 기준 이미지 주소: %s", url)
+            reason = "host_not_allowed"
+        else:
+            img = _load_url_image(url)
+            if img is not None:
+                return img, None
+            reason = "load_failed"
+    if ref.get("image_ref"):
+        img, reason = _load_snap_image(ref["image_ref"])
+        if img is not None:
+            return img, None
+    return None, reason
 
 
-def query_embedding(ref: dict) -> tuple[Optional[np.ndarray], bool, bool]:
-    """기준 이미지 ref → (쿼리 임베딩, image_used, text_used)."""
+def query_embedding(ref: dict) -> tuple[Optional[np.ndarray], bool, bool, Optional[str]]:
+    """기준 이미지 ref → (쿼리 임베딩, image_used, text_used, image_skip). 모델을 못 불러오면 예외."""
     text = clip_text(ref.get("materials"), ref.get("details"))
     text_emb = encode_texts([text])[0] if text else None
-    img = load_reference_image(ref)
+    img, skip = load_reference_image(ref)
     img_emb = None
     if img is not None:
         try:
             img_emb = encode_images([img])[0]
         except Exception as e:
             logger.warning("기준 이미지 임베딩 실패: %s", e)
-    return fuse(img_emb, text_emb), img_emb is not None, text_emb is not None
+            skip = "load_failed"
+    return fuse(img_emb, text_emb), img_emb is not None, text_emb is not None, skip
 
 
 # ---------------------------------------------------------------- 인덱스
@@ -239,7 +278,7 @@ def _get_index(path: Path | None = None) -> Optional[ClipIndex]:
 @dataclass
 class ClipInfo:
     applied: bool
-    skip_reason: Optional[str] = None      # no_candidates / no_index / no_match / no_query
+    skip_reason: Optional[str] = None      # no_candidates / no_index / no_match / no_model / no_query
     image_used: bool = False
     text_used: bool = False
     n_before: int = 0
@@ -247,6 +286,7 @@ class ClipInfo:
     n_indexed: int = 0
     keep_ratio: float = KEEP_RATIO
     keep_rule: str = KEEP_RULE
+    image_skip: Optional[str] = None       # 기준 이미지를 쓰지 못한 이유 (IMAGE_SKIPS). 이미지를 썼으면 None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -276,7 +316,7 @@ def warm_up(path: Path | None = None) -> dict:
 def clip_filter(cand: pd.DataFrame, ref: dict, path: Path | None = None) -> tuple[pd.DataFrame, ClipInfo]:
     """기준 이미지 ↔ 재고 후보 유사도 필터 → (남은 후보, ClipInfo).
 
-    걸지 못하면(인덱스 없음·후보가 인덱스에 없음·쿼리 없음) 후보를 그대로 돌려주고 applied=False.
+    걸지 못하면(인덱스 없음·후보가 인덱스에 없음·모델 없음·쿼리 없음) 후보를 그대로 돌려주고 applied=False.
     """
     n = int(len(cand))
     if cand.empty:
@@ -293,9 +333,13 @@ def clip_filter(cand: pd.DataFrame, ref: dict, path: Path | None = None) -> tupl
     if not found_ids:
         return cand, ClipInfo(False, "no_match", n_before=n, n_after=n)
 
-    query, image_used, text_used = query_embedding(ref)
+    try:
+        query, image_used, text_used, image_skip = query_embedding(ref)
+    except Exception as e:      # 모델 가중치를 못 받음 등: CLIP 없이 순위를 매긴다
+        logger.warning("CLIP 모델로 기준 임베딩을 만들지 못함: %s", e)
+        return cand, ClipInfo(False, "no_model", n_before=n, n_after=n)
     if query is None:
-        return cand, ClipInfo(False, "no_query", n_before=n, n_after=n)
+        return cand, ClipInfo(False, "no_query", n_before=n, n_after=n, image_skip=image_skip)
 
     # cosine 유사도 (임베딩이 이미 정규화돼 있으므로 내적 = cosine). 인덱스에 없는 후보는 0
     sims = found_embs @ query
@@ -304,7 +348,8 @@ def clip_filter(cand: pd.DataFrame, ref: dict, path: Path | None = None) -> tupl
     cand["_clip_sim"] = cand["article_id"].map(lambda x: id_to_sim.get(str(x), 0.0))
 
     result = keep_top_per_color(cand).drop(columns=["_clip_sim"]).reset_index(drop=True)
-    return result, ClipInfo(True, None, image_used, text_used, n, int(len(result)), len(found_ids))
+    return result, ClipInfo(True, None, image_used, text_used, n, int(len(result)), len(found_ids),
+                            image_skip=None if image_used else image_skip)
 
 
 def keep_top_per_color(cand: pd.DataFrame, ratio: float = KEEP_RATIO) -> pd.DataFrame:

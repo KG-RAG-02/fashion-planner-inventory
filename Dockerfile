@@ -4,7 +4,7 @@
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.
 # CLIP 유사도 필터는 재고 CLIP 인덱스가 있을 때만 동작하고, 없으면 건너뛴다. 인덱스는 R2(R2_CLIP_INDEX_KEY)에서
 # --prepare-cache가 DB와 함께 /cache에 받아 두거나, STOCK_CLIP_INDEX_PATH로 붙인 파일을 쓴다.
-# 인덱스가 있으면 서버 시작 때 CLIP 모델(ViT-B-32)을 미리 불러오므로 healthcheck start-period를 길게 둔다.
+# 인덱스가 있으면 서버 시작 때 CLIP 모델(open_clip ViT-B-32-quickgelu, OpenAI 가중치)을 미리 불러오므로 healthcheck start-period를 길게 둔다.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

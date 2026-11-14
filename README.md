@@ -18,7 +18,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 
 - 처리는 정해진 규칙과 SQL·계산으로만 한다(외부 모델 API 호출 없음). 같은 입력·데이터면 같은 결과가 나온다. 단, 기준 이미지를 내려받지 못한 요청은 소재·디테일 텍스트만으로 CLIP 유사도를 계산하므로 결과가 다를 수 있다(`search.clip.image_used`)
 - 재고 후보가 0개면 트렌드 색 조건만 단계적으로 완화한다. 사용자 색·사용자 카테고리는 완화하지 않는다
-- CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(ViT-B-32, OpenAI 가중치에 맞춘 QuickGELU 설정)과 미리 만든 재고 임베딩 인덱스로 계산한다
+- CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(open_clip `ViT-B-32-quickgelu`, OpenAI 가중치)과 미리 만든 재고 임베딩 인덱스로 계산한다
 
 - producer agent_id: `stock-agent`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
 - 재고·판매가는 가상 데이터(`data_nature: sample`). 상세 규칙은 `docs/issues_draft.md`
@@ -41,8 +41,8 @@ python -m pytest
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
 - 생성된 DuckDB·이미지·CLIP 인덱스는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, DB object key·이미지 prefix·CLIP 인덱스 key·무신사 착샷 prefix를 환경 설정(`R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_CLIP_INDEX_KEY`, `R2_SNAP_IMAGE_PREFIX`)에 등록한다. 무신사 착샷은 `scripts/extract_snap_images.py`로 HF parquet에서 꺼내 `scripts/upload_snap_images.py`(쓰기 권한 키)로 올린다.
-- `build_clip_index.py`는 `.env`를 읽어 DB(`STOCK_DB_PATH`, 없으면 R2 DB 캐시)와 R2 상품 사진으로 재고 79,178개의 임베딩을 계산한다(`--image-dir`를 주면 로컬 사진). 사진은 내려받아 메모리에서만 쓰고 저장하지 않는다. 규칙은 아래 4절 CLIP 필터와 같고, 파일에 규칙 이름(`rule`)이 기록된다.
-- 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절).
+- `build_clip_index.py`는 `.env`를 읽어 DB(`STOCK_DB_PATH`, 없으면 R2 DB 캐시)와 R2 상품 사진으로 의류 재고 79,178개 중 사진이나 소재·디테일이 있는 79,174개의 임베딩을 계산한다(`--image-dir`를 주면 로컬 사진). 사진은 내려받아 메모리에서만 쓰고 저장하지 않는다. 규칙은 아래 'API › 요청'의 CLIP 유사도 필터와 같고, 파일에 규칙 이름(`rule`)이 기록된다.
+- 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절). local-file 모드와 `scripts/run_agent.py`는 R2 착샷 저장소를 쓰지 않으므로 착샷 기준 이미지는 소재·디테일 텍스트만으로 CLIP을 건다(`search.clip.image_skip: no_snap_store`).
 
 ## 2. 환경 설정
 
@@ -72,7 +72,7 @@ python -m pytest
 - API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m stock_agent.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `STOCK_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
 - 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
 - `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
-- Project_08 Stock timeout과 새 route의 HTTP deadline은 기본 60초입니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`; 통합 배포는 180초). 트렌드는 순서대로 처리하고, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 내려받기(최대 5초)·CLIP 임베딩 계산이 더해집니다. 초과 요청은 504로 응답하지만 이미 시작한 동기 DB 조회·이미지 내려받기의 강제 취소는 보장하지 않습니다.
+- 두 inventory route의 HTTP deadline은 기본 60초이고(`STOCK_HANDOFF_TIMEOUT_SECONDS`), 통합 배포는 180초로 둡니다. Project_08은 Stock 응답을 210초까지 기다립니다. 트렌드는 순서대로 처리하고, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 읽기(상품 이미지 URL 5초, 착샷은 R2)·CLIP 임베딩 계산이 더해집니다. 초과 요청은 504로 응답하지만 이미 시작한 동기 DB 조회·이미지 내려받기의 강제 취소는 보장하지 않습니다.
 - 서버는 시작할 때 CLIP 인덱스를 읽고(내려받지 않음: R2 인덱스는 `--prepare-cache`로 준비), 인덱스가 있으면 CLIP 모델도 미리 불러온다(첫 요청이 느리지 않게). `/health`의 `clip_index_loaded`·`clip_n_indexed`로 상태를 본다. CLIP 모델 가중치는 처음 불러올 때 내려받으므로 컨테이너가 인터넷에 나갈 수 있거나 `HOME`(`/tmp`) 아래 캐시가 준비되어 있어야 한다.
 
 ## 3. 로컬 실행
@@ -212,22 +212,23 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 - 기준 이미지가 있으면 **항상** 건다. 기준과 재고 인덱스는 같은 규칙으로 임베딩한다
   - 이미지: 흑백으로 바꿔 임베딩(색 제외, 명암·질감·형태만)
   - 텍스트: 소재 + 디테일을 영어 대응어로(CLIP은 영어 모델이라 한글 단어를 구분하지 못함). 기준은 02 `materials`·`details`(`DetailName`, 넥라인·칼라 제외), 재고는 `article_attrs.materials` + H&M 상품 설명에서 키워드로 뽑은 `DetailName`. 02 표준 어휘(vocabulary_v1) 소재 26개·디테일 40개를 쓴다
-  - 합치기: 이미지 0.6 + 텍스트 0.4. 텍스트가 비면 이미지만, 이미지를 열지 못하면(URL 5초, 착샷은 R2) 텍스트만
+  - 합치기: 이미지 0.6 + 텍스트 0.4. 텍스트가 비면 이미지만, 이미지를 열지 못하면 텍스트만. 못 연 이유는 `search.clip.image_skip`(`no_image` 참조 없음, `host_not_allowed` 허용되지 않은 URL, `no_snap_store` 착샷 저장소 설정 없음, `not_found` 착샷이 저장소에 없음(다른 데이터셋 버전 등), `load_failed` 내려받기·열기 실패)과 limitations에 적는다
 - 재고 후보 임베딩은 CLIP 인덱스에서 읽는다. 후보를 재고 색별로 나눠 각 색 안에서 유사도 상위 10%(올림, 색마다 최소 1개)를 남긴다. 유사도 수준이 기준 이미지마다 달라(H&M 사진 기준 중앙값 0.81~0.86) 고정 기준값은 쓰지 않고, 색 안에서만 비교해 흑백에 남은 밝기 차이로 밝은 색 재고가 쏠려 남지 않게 한다(조합 색상표가 고른 색 구성 유지). 후보를 0개로 만들지 않는다. 인덱스에 없는 후보는 유사도 0
-- 걸지 못한 경우(인덱스 없음·규칙 다름 `no_index`, 후보가 인덱스에 하나도 없음 `no_match`, 이미지를 열 수 없고 소재·디테일도 없음 `no_query`)는 후보를 그대로 두고 그 사실을 기록한다
-- 응답 `search.outfit_reference`(`status` used/skipped, `skip_reason`, `kind` snap_garment/catalog_item, `product_id`, `image_url`, `image_ref`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `text_used`, `n_before`, `n_after`, `n_indexed`, `keep_ratio` 0.1, `keep_rule` per_color_top; 기준 이미지가 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(기준 이미지 URL, 착샷은 `image_ref`, 착샷 `external_outfit_image` / 상품 이미지 `external_product_image`)이 붙는다
-- 기준 이미지는 03 서버가 직접 읽는다(상품 이미지는 URL, 착샷은 R2). 외부 서비스로 보내지 않는다
+- 걸지 못한 경우(인덱스 없음·규칙 다름 `no_index`, 후보가 인덱스에 하나도 없음 `no_match`, CLIP 모델을 불러오지 못함 `no_model`, 이미지를 열 수 없고 소재·디테일도 없음 `no_query`)는 후보를 그대로 두고 그 사실을 기록한다
+- 응답 `search.outfit_reference`(`status` used/skipped, `skip_reason`, `kind` snap_garment/catalog_item, `product_id`, `image_url`, `image_ref`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `text_used`, `n_before`, `n_after`, `n_indexed`, `keep_ratio` 0.1, `keep_rule` per_color_top, `image_skip`; 기준 이미지가 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(기준 이미지 URL, 착샷은 `image_ref`, 착샷 `external_outfit_image` / 상품 이미지 `external_product_image`)이 붙는다
+- 기준 이미지는 03 서버가 직접 읽는다. 상품 이미지 URL은 https이고 무신사 이미지 서버(`msscdn.net`, 예: `image.msscdn.net`)인 것만 5초·리다이렉트 없음·최대 10MB로 내려받고, 착샷은 R2에서 읽는다. 이미지는 임베딩 계산에만 쓰고 외부 서비스로 보내지 않는다
+- 무신사 착샷·상품 이미지는 02 트렌드 결과로 받은 이미지이며 비상업적 연구용으로만 쓴다(착샷 원본: Hugging Face `disl/musinsa-snap-new`)
 
 ### 응답
 
 `stock_agent/multi.py`가 트렌드마다 `agent.run`을 돌려 순서대로 이어 붙인다.
-Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 담는다. 새 HTTP route는 이 producer payload 전체를 v0.1 envelope의 `result`에 보존한다.
+Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 담는다. canonical HTTP route는 이 producer payload 전체를 v0.1 envelope의 `result`에 보존한다.
 
 | 필드 | 설명 |
 |---|---|
 | `products` | 트렌드 순서대로 n개. 상품 정보만(`style_id`, `sku_ids`, `category`, `season`, `attributes`, `inventory`, `image`). 상품을 못 고른 트렌드는 `null`. 같은 상품이 여러 번 나올 수 있음 |
 | `trend_results` | n개. `trend_results[i]` ↔ `products[i]` (`product_index`). `style`, `status`, `rank`, `reason`(근거 숫자), `summary`(추천 이유 한 줄), `search`(찾은 조건), `limitations`, `errors`, `evidence_ids`(이 트렌드의 근거 ID) |
-| `evidence` | 트렌드마다 데이터 출처 E-001~E-006(E-005 상품 사진, E-006 CLIP 기준 이미지는 쓴 경우만). `evidence_id` = `stock-agent:<style.id>:E-001`, `style_id`. 근거는 여기 한 곳에 모으고 `evidence_ids`로 가리킴 |
+| `evidence` | 트렌드마다 데이터 출처 E-001~E-006(E-005 상품 사진, E-006 CLIP 기준 이미지는 쓴 경우만). `evidence_id` = `stock-agent:<style.id>:E-001`, `style_id`. `manifest_id`는 계산에 쓴 DB 버전(`/health`의 `db_version`), E-006은 `null`. 근거는 여기 한 곳에 모으고 `evidence_ids`로 가리킴 |
 | `status` | 모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 상품 0개 → no_results |
 
 ### 오류 코드
@@ -245,7 +246,7 @@ Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상�
 일부 트렌드만 실패하면 200이고 오류는 `trend_results[i].errors`에 있다. 안쪽 함수 `agent.run`(트렌드 1개)은 안쪽 코드를 그대로 쓴다.
 
 - 상품은 H&M 이미지가 있는 최상위 1개(1위에 이미지가 없으면 다음 순위, `rank`는 실제 순위). 사진은 `image`에 base64 JPEG. 이미지가 하나도 없으면 1위를 `image: null`로.
-- 카테고리·소재 이름은 트렌드 팀 vocabulary_v1을 따른다(예: `티셔츠`, `울/캐시미어`). 예전 이름으로 만든 DB도 응답은 새 이름으로 나간다.
+- 카테고리·소재 이름은 트렌드 팀 vocabulary_v1을 따른다(예: `티셔츠`, `울/캐시미어`). DB 값이 다른 표기(`티셔츠·캐주얼상의`, `울·캐시미어` 등)여도 응답은 vocabulary_v1 이름으로 바꿔 낸다(`attributes.to_vocab`).
 
 HTTP route와 producer contract의 역할은 `contracts/README.md`를 따른다.
 
@@ -253,18 +254,19 @@ HTTP route와 producer contract의 역할은 `contracts/README.md`를 따른다.
 
 ```
 stock_agent/   season.py  attributes.py  synthetic.py  overstock.py  trend_input.py  trend_request.py  agent.py
-               snap.py  clip_vocab.py  clip_matcher.py  multi.py  errors.py  api.py  schemas.py  env.py  server.py
+               snap.py  snap_image.py  clip_vocab.py  clip_matcher.py  images.py  storage.py  readiness.py
+               multi.py  errors.py  api.py  schemas.py  env.py  server.py  fixture_db.py
 contracts/   producer payload JSON Schema, 예시 및 HTTP envelope 설명
 scripts/     데이터 생성·실행·검증 스크립트
 tests/       단위·SQL·API·계약 테스트 (duckdb·fastapi·jsonschema가 없으면 해당 테스트는 건너뜀)
 examples/    예시 요청 (02 트렌드 결과 형식)
 .env.example 환경변수 예시 (값 없음. 복사해 .env를 만들고, .env는 커밋하지 않음)
-docs/        이슈 초안(범위·계약·결정 사항)
+docs/        이슈 초안(범위·계약·결정 사항), Cloudflare R2 설정(cloudflare-r2.md)
 ```
 
 ### Runtime manifest와 데이터 경계
 
-Stock 포트·route·health 기본값의 단일 소스는 `stock_agent/service-manifest.json`입니다. 로컬/Docker 시작과 Docker healthcheck는 `python -m stock_agent.server`를 사용합니다. 포트는 8002이며 기존 Orchestrator launcher의 8769 기본값은 해당 owner가 이 manifest를 소비하도록 변경해야 합니다. 임시 override는 `VOGUE_STOCK_AGENT_URL=http://127.0.0.1:8002`입니다.
+Stock 포트·route·health 기본값의 단일 소스는 `stock_agent/service-manifest.json`입니다. 로컬/Docker 시작과 Docker healthcheck는 `python -m stock_agent.server`를 사용합니다. 포트는 8002입니다.
 
 입력은 명시적인 Trend `schema_version=1.1`을 요구합니다. unsupported/missing version, producer identity 불일치, request_id/status/nested shape 오류는 DB 조회 전에 거부합니다. JSON 중복 key·NaN/Infinity도 거부합니다. 원본 body는 내부 변환본과 분리하고 `input_provenance.source_payload_sha256`은 원본 **Trend result body**의 python-json-sort/1 hash입니다. envelope hash와 같다고 취급하지 않습니다. Stock이 사용하지 않는 전체 Evidence의 의미 검증과 wire bytes artifact 보존은 P08 retained consumer 책임입니다. 사용자 원문과 적용 필터를 연결하는 stock_call_context도 P08 소유입니다.
 

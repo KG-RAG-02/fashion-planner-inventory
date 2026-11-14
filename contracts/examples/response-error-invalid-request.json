@@ -3,7 +3,7 @@
   "request_id": "req_example_011",
   "agent_id": "stock-agent",
   "status": "error",
-  "summary": "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 (사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). 받은 applied_filters: {'season': None, 'categories': {'include': [{'raw': '블라우스', 'major': '상의', 'minor': '블라우스'}], 'exclude': []}, 'gender': '여', 'attributes': [{'type': 'color', 'value': '화이트'}]}",
+  "summary": "필수 입력이 없습니다: applied_filters.season. 02 결과의 applied_filters.season에 시즌이 있어야 합니다 (쿼리 전처리에서 사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). 받은 applied_filters: {'season': None, 'categories': {'include': [{'raw': '블라우스', 'major': '상의', 'minor': '블라우스'}], 'exclude': []}, 'gender': '여', 'attributes': [{'type': 'color', 'value': '화이트'}]}",
   "products": [],
   "trend_results": [],
   "season_basis": null,
@@ -11,8 +11,16 @@
   "errors": [
     {
       "code": "INVALID_REQUEST",
-      "message": "필수 입력이 없습니다: applied_filters.season. 02 쿼리 전처리가 시즌을 정해 담아야 합니다 (사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). 받은 applied_filters: {'season': None, 'categories': {'include': [{'raw': '블라우스', 'major': '상의', 'minor': '블라우스'}], 'exclude': []}, 'gender': '여', 'attributes': [{'type': 'color', 'value': '화이트'}]}",
+      "message": "필수 입력이 없습니다: applied_filters.season. 02 결과의 applied_filters.season에 시즌이 있어야 합니다 (쿼리 전처리에서 사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). 받은 applied_filters: {'season': None, 'categories': {'include': [{'raw': '블라우스', 'major': '상의', 'minor': '블라우스'}], 'exclude': []}, 'gender': '여', 'attributes': [{'type': 'color', 'value': '화이트'}]}",
       "reason": "missing_fields"
     }
-  ]
+  ],
+  "input_provenance": {
+    "source_agent_id": "trend-analysis-agent",
+    "source_schema_version": "1.1",
+    "internal_schema_version": null,
+    "adapter_version": "stock-trend-input-adapter/1.0",
+    "transformed": true,
+    "source_payload_sha256": "808b7a7575c39911f2bb582725232f0ad8f812bad3c277e4102f7be02c297113"
+  }
 }

@@ -1,6 +1,6 @@
 """CLIP 텍스트 규칙 — 소재(Material 26) + 디테일(DetailName 40)을 영어로
 
-CLIP(ViT-B-32, OpenAI)은 영어로 학습되어 한글 단어의 뜻을 구분하지 못한다(시폰 러플 ↔ 데님 디스트로이드 cosine 0.96).
+CLIP(open_clip ViT-B-32-quickgelu, OpenAI 가중치)은 영어로 학습되어 한글 단어의 뜻을 구분하지 못한다(시폰 러플 ↔ 데님 디스트로이드 cosine 0.96).
 그래서 CLIP에 넣는 텍스트만 02 표준 어휘(vocabulary_v1)의 영어 대응어로 바꾼다. 응답·데이터는 한글 그대로다.
 
 색은 넣지 않는다 (색은 조합 색상표가 정하고, CLIP은 소재·질감·디테일만 본다).

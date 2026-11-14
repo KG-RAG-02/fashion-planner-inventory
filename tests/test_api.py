@@ -89,6 +89,18 @@ def test_clip_index_path_order(monkeypatch, tmp_path):
     assert api.clip_index_path() == clip.DEFAULT_INDEX_PATH
 
 
+@pytest.mark.parametrize("prefix, connected", [("musinsa-snap", True), ("", False)])
+def test_warm_up_clip_connects_snap_store(monkeypatch, prefix, connected):
+    """R2_SNAP_IMAGE_PREFIX가 있으면 착샷 이미지를 R2 저장소에서 읽도록 연결한다."""
+    import stock_agent.api as api
+    import stock_agent.clip_matcher as clip
+    store = type("Store", (), {"settings": type("S", (), {"snap_image_prefix": prefix, "clip_index_key": ""})()})()
+    monkeypatch.setitem(api.state, "object_store", store)
+    monkeypatch.setattr(clip, "warm_up", lambda path=None: {"clip_index_loaded": False, "clip_n_indexed": 0})
+    api.warm_up_clip()
+    assert (clip._snap_source is store) is connected
+
+
 def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
     import stock_agent.clip_matcher as clip
     import stock_agent.api as api

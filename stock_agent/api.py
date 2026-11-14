@@ -6,12 +6,12 @@
                                 오류 code는 팀 공통 코드, HTTP 번호는 stock_agent/errors.py
   GET  /health/live             API 생존
   GET  /health/ready, /health    DB schema·sample snapshot readiness, CLIP 인덱스 상태
-  GET  /docs                    설명서 (요청 예시 4개, 응답 200·400·500 형식)
+  GET  /docs                    설명서 (요청 예시 5개, 응답 200·400·500·503·504 형식)
 
 실행 (로컬):   uvicorn stock_agent.api:app --port 8002
 실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
               없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
-레거시 경로는 기존 클라이언트 호환을 위해 유지한다.
+레거시 경로(/v1/inventory-products)도 canonical 경로와 같은 인증·처리로 제공한다.
 """
 
 from __future__ import annotations
@@ -254,7 +254,8 @@ def _run_inventory(request: Any) -> dict:
         try:
             store = state.get("object_store")
             image_source = store if store is not None and store.images_configured else IMAGE_DIR
-            return _with_runtime_notes(run_request(req, con, image_dir=image_source))
+            return _with_runtime_notes(run_request(req, con, image_dir=image_source,
+                                                   manifest_id=state.get("db_version")))
         except StorageUnavailable:
             return _record_input_provenance(error_response(req, "SOURCE_UNAVAILABLE", "이미지 자료원을 조회하지 못했습니다.",
                                                           reason="image_source_unavailable"), req)

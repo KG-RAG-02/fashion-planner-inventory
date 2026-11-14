@@ -2,7 +2,7 @@
 
 H&M articles의 값을 K-Fashion 어휘로 바꾼다.
 - 카테고리: product_type_name (+ 상품명·설명 키워드) → (영역, 세부 카테고리). 이름은 vocabulary_v1 (예: 티셔츠)
-- 색: colour_group_name → K-Fashion 컬러 20종
+- 색: colour_group_name → K-Fashion 21색
 - 소재: detail_desc 키워드 → K-Fashion 소재 26종 (트렌드 팀 vocabulary_v1 표기, 여러 이름은 '/')
 - 핏: detail_desc 키워드 → K-Fashion 핏
 - 시즌 적합성: 카테고리·소재 규칙 → 입을 수 있는 계절 목록
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import re
 
-AREAS = ("상의", "하의", "아우터", "원피스", "수영복", "[확장]")
 SEASONS = ("봄", "여름", "가을", "겨울")
 
 
@@ -125,7 +124,7 @@ def map_category(segment: str, product_type: str, prod_name: str = "", desc: str
 
 # ---------------------------------------------------------------- 색
 
-# colour_group_name → K-Fashion 컬러 20종(+실버)
+# colour_group_name → K-Fashion 21색
 _COLOR_MAP: dict[str, str] = {
     "Black": "블랙",
     "White": "화이트", "Off White": "화이트", "Transparent": "화이트",
@@ -291,10 +290,10 @@ def extract_details(desc: str | None) -> list[str]:
     return [name for name, pat in _DETAILS if pat.search(text)]
 
 
-# ---------------------------------------------------------------- 예전 표기 → vocabulary_v1
+# ---------------------------------------------------------------- 비표준 표기 → vocabulary_v1
 
-# 2026-11-08 트렌드 팀 vocabulary_v1에 맞춰 이름을 바꿨다. 예전 이름으로 만든 DB도 응답은 새 이름으로 나가게 한다
-OLD_NAMES = {
+# DB 값이 다른 표기(·)여도 응답은 트렌드 팀 vocabulary_v1 표기(/)로 낸다
+VOCAB_ALIASES = {
     "티셔츠·캐주얼상의": "티셔츠",
     "울·캐시미어": "울/캐시미어",
     "시퀸·글리터": "시퀸/글리터",
@@ -303,8 +302,8 @@ OLD_NAMES = {
 
 
 def to_vocab(name):
-    """예전 카테고리·소재 이름 → vocabulary_v1 이름. 그 밖은 그대로."""
-    return OLD_NAMES.get(name, name) if isinstance(name, str) else name
+    """비표준 카테고리·소재 표기 → vocabulary_v1 이름. 그 밖은 그대로."""
+    return VOCAB_ALIASES.get(name, name) if isinstance(name, str) else name
 
 
 # ---------------------------------------------------------------- 시즌 적합성

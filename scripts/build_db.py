@@ -19,7 +19,7 @@ SELECT * REPLACE (lpad(CAST(article_id AS VARCHAR), 10, '0') AS article_id)
 FROM read_parquet('{DATA_DIR}/articles.parquet');
 """)
 
-con.execute("DROP TABLE IF EXISTS customers")   # 예전에 올린 customers가 남아 있으면 지움
+con.execute("DROP TABLE IF EXISTS customers")   # 이 에이전트는 customers 표를 쓰지 않음
 
 con.execute(f"""
 CREATE OR REPLACE TABLE transactions AS

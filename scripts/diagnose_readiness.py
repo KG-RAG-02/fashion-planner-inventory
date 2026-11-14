@@ -30,7 +30,7 @@ def main():
                                ("duckdb", "fastapi", "httpx", "jsonschema", "boto3", "uvicorn", "open_clip", "torch")},
               "r2": {"configured": False, "reachable": None, "authenticated": None},
               "database": {"data_verified": False, "as_of": None, "synthetic": None},
-              "downloads": 0, "uploads": 0, "db_writes": 0, "provider_calls": 0}
+              "downloads": 0, "uploads": 0, "db_writes": 0}
     cache = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "stock-agent"))
     result["existing_cache_files"] = len(list(cache.glob("stock-*.duckdb"))) if cache.is_dir() else 0
     try:

@@ -45,7 +45,7 @@ def cand(*ids, colors=None):
     return pd.DataFrame({"article_id": list(ids), "kf_color": colors or ["블랙"] * len(ids), "stock_qty": [1] * len(ids)})
 
 
-REF = {"kind": "snap_garment", "image_url": "https://img.example/s.jpg", "materials": ["시폰"],
+REF = {"kind": "snap_garment", "image_url": "https://image.msscdn.net/s.jpg", "materials": ["시폰"],
        "details": [{"type": "detail", "value": "러플"}, {"type": "neckline", "value": "브이넥"}]}
 
 
@@ -55,7 +55,7 @@ def test_keeps_top_per_color(index, fake):
     assert list(out["article_id"]) == ["a1"] and "_clip_sim" not in out             # 블랙 4개 → 상위 1개(올림·최소 1)
     assert info.to_dict() == {"applied": True, "skip_reason": None, "image_used": True, "text_used": True,
                               "n_before": 4, "n_after": 1, "n_indexed": 3, "keep_ratio": 0.1,
-                              "keep_rule": "per_color_top"}
+                              "keep_rule": "per_color_top", "image_skip": None}
     assert fake["texts"] == ["chiffon, ruffle"]          # 영어 소재 + 디테일, 넥라인·색·카테고리는 없음
 
 
@@ -81,14 +81,14 @@ def test_image_failure_uses_text_only(index, fake):
 
 
 def test_no_text_uses_image_only(index, fake):
-    out, info = clip.clip_filter(cand("a1", "a2"), {"image_url": "https://img.example/c.jpg"}, index)
+    out, info = clip.clip_filter(cand("a1", "a2"), {"image_url": "https://image.msscdn.net/c.jpg"}, index)
     assert info.applied and (info.image_used, info.text_used) == (True, False) and fake["texts"] == []
 
 
 def test_no_image_and_no_text_is_no_query(index, fake):
     fake["image"] = None
     c = cand("a1", "a2")
-    out, info = clip.clip_filter(c, {"image_url": "https://img.example/c.jpg", "materials": []}, index)
+    out, info = clip.clip_filter(c, {"image_url": "https://image.msscdn.net/c.jpg", "materials": []}, index)
     assert out is c and (info.applied, info.skip_reason) == (False, "no_query")
 
 
@@ -177,26 +177,68 @@ def test_extract_details(desc, expected):
 SNAP_REF = "hf://datasets/disl/musinsa-snap-new@4335d233ef3b54bc5132a4d572d589042a41219d#row=3"
 
 
-def test_snap_image_ref_read_from_snap_source(index, fake, monkeypatch):
+class SnapStore:
+    def __init__(self, data):
+        self.data, self.asked = data, []
+
+    def fetch_snap_image(self, ref):
+        self.asked.append(ref)
+        return self.data
+
+
+def jpeg_bytes():
     Image = pytest.importorskip("PIL.Image")
     import io
     buf = io.BytesIO()
     Image.new("RGB", (4, 4)).save(buf, "JPEG")
-    asked = []
+    return buf.getvalue()
 
-    class Src:
-        def fetch_snap_image(self, ref):
-            asked.append(ref)
-            return buf.getvalue()
+
+def test_snap_image_ref_read_from_snap_source(index, fake, monkeypatch):
+    store = SnapStore(jpeg_bytes())
     monkeypatch.setattr(clip, "_load_url_image", lambda url: pytest.fail("URL이 없으면 열지 않음"))
-    clip.configure_snap_images(Src())
-    assert clip.load_reference_image({"image_url": None, "image_ref": SNAP_REF}).size == (4, 4) and asked == [SNAP_REF]
+    monkeypatch.setattr(clip, "_snap_source", store)
+    img, skip = clip.load_reference_image({"image_url": None, "image_ref": SNAP_REF})
+    assert img.size == (4, 4) and skip is None and store.asked == [SNAP_REF]
     out, info = clip.clip_filter(cand("a1", "a2"), {**REF, "image_url": None, "image_ref": SNAP_REF}, index)
-    assert info.applied and info.image_used and info.text_used
+    assert info.applied and info.image_used and info.text_used and info.image_skip is None
 
 
-def test_snap_image_without_source_uses_text_only(index, fake, monkeypatch):
-    monkeypatch.setattr(clip, "_load_url_image", lambda url: pytest.fail("URL이 없으면 열지 않음"))
-    clip.configure_snap_images(None)
+@pytest.mark.parametrize("store, skip", [(None, "no_snap_store"), (SnapStore(None), "not_found")])
+def test_snap_image_missing_uses_text_only_with_reason(index, fake, monkeypatch, store, skip):
+    monkeypatch.setattr(clip, "_snap_source", store)
     out, info = clip.clip_filter(cand("a1", "a2"), {**REF, "image_url": None, "image_ref": SNAP_REF}, index)
-    assert info.applied and (info.image_used, info.text_used) == (False, True)
+    assert info.applied and (info.image_used, info.text_used, info.image_skip) == (False, True, skip)
+
+
+def test_url_failure_falls_back_to_snap_ref(monkeypatch):
+    store = SnapStore(jpeg_bytes())
+    monkeypatch.setattr(clip, "_load_url_image", lambda url: None)
+    monkeypatch.setattr(clip, "_snap_source", store)
+    img, skip = clip.load_reference_image({"image_url": "https://image.msscdn.net/x.jpg", "image_ref": SNAP_REF})
+    assert img is not None and skip is None and store.asked == [SNAP_REF]
+    assert clip.load_reference_image({"image_url": "https://image.msscdn.net/x.jpg"}) == (None, "load_failed")
+
+
+@pytest.mark.parametrize("url, ok", [
+    ("https://image.msscdn.net/a.jpg", True), ("https://msscdn.net/a.jpg", True),
+    ("http://image.msscdn.net/a.jpg", False), ("https://evil.example/msscdn.net.jpg", False),
+    ("https://image.msscdn.net.evil.example/a.jpg", False), ("https://169.254.169.254/latest", False), ("", False),
+])
+def test_image_host_allowed(url, ok):
+    assert clip.image_host_allowed(url) is ok
+
+
+def test_disallowed_url_is_not_fetched(index, fake, monkeypatch):
+    monkeypatch.setattr(clip, "_load_url_image", lambda url: pytest.fail("허용되지 않은 주소는 받지 않음"))
+    out, info = clip.clip_filter(cand("a1", "a2"), {**REF, "image_url": "https://169.254.169.254/x"}, index)
+    assert info.applied and (info.image_used, info.image_skip) == (False, "host_not_allowed")
+
+
+def test_model_failure_skips_clip(index, fake, monkeypatch):
+    def broken(texts):
+        raise RuntimeError("가중치를 받지 못함")
+    monkeypatch.setattr(clip, "encode_texts", broken)
+    c = cand("a1", "a2")
+    out, info = clip.clip_filter(c, REF, index)
+    assert out is c and (info.applied, info.skip_reason, info.n_after) == (False, "no_model", 2)
