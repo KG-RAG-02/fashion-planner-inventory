@@ -41,9 +41,9 @@ from stock_agent.clip_vocab import clip_text
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "ViT-B-32"
+MODEL_NAME = "ViT-B-32-quickgelu"      # OpenAI 가중치는 QuickGELU로 학습됨 (ViT-B-32로 부르면 정확도가 떨어짐)
 PRETRAINED = "openai"
-INDEX_RULE = "gray-image+material-detail-en/v1"     # 인덱스와 쿼리가 같은 규칙인지 확인
+INDEX_RULE = "gray-image+material-detail-en/v2"     # 인덱스와 쿼리가 같은 규칙인지 확인
 IMAGE_WEIGHT = 0.6
 TEXT_WEIGHT = 0.4
 KEEP_RATIO = 0.10            # 색별로 유사도 상위 이 비율을 남긴다

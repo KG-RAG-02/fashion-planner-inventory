@@ -710,11 +710,12 @@ def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
     if clip is None or clip.get("skip_reason") == "no_candidates":
         return []
     label = _ref_label(ref)
+    wa = "와" if ref.get("kind") == "catalog_item" else "과"       # "…블라우스)와" / "…스냅)과"
     if not clip["applied"]:
         why = {"no_index": "CLIP 인덱스가 없어", "no_match": "재고 후보가 CLIP 인덱스에 없어",
                "no_query": "기준 이미지를 열 수 없고 소재·디테일 정보도 없어"}[clip["skip_reason"]]
-        return [f"{why} {label}과의 유사도(CLIP) 필터 없이 찾았습니다."]
-    out = [f"{label}과 소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 "
+        return [f"{why} {label}{wa}의 유사도(CLIP) 필터 없이 찾았습니다."]
+    out = [f"{label}{wa} 소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 "
            f"{clip['keep_ratio']:.0%}를 남겨 후보 {clip['n_before']:,}개 중 {clip['n_after']:,}개를 남겼습니다."]
     if ref.get("kind") == "catalog_item":
         out.append("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로 썼습니다.")

@@ -18,7 +18,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 
 - 처리는 정해진 규칙과 SQL·계산으로만 한다(외부 모델 API 호출 없음). 같은 입력·데이터면 같은 결과가 나온다. 단, 기준 이미지를 내려받지 못한 요청은 소재·디테일 텍스트만으로 CLIP 유사도를 계산하므로 결과가 다를 수 있다(`search.clip.image_used`)
 - 재고 후보가 0개면 트렌드 색 조건만 단계적으로 완화한다. 사용자 색·사용자 카테고리는 완화하지 않는다
-- CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(ViT-B-32)과 미리 만든 재고 임베딩 인덱스로 계산한다
+- CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(ViT-B-32, OpenAI 가중치에 맞춘 QuickGELU 설정)과 미리 만든 재고 임베딩 인덱스로 계산한다
 
 - producer agent_id: `stock-agent`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
 - 재고·판매가는 가상 데이터(`data_nature: sample`). 상세 규칙은 `docs/issues_draft.md`
