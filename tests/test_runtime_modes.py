@@ -19,7 +19,7 @@ BALLET = {"style": {"id": "style_012", "name": "발레코어"},
           "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"]}]}
 REQ = build_trend_result("req_modes", [BALLET], include=["상의"], gender="여")
 R2_VARS = ("R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_DB_KEY", "R2_IMAGE_PREFIX", "R2_ACCESS_KEY_ID",
-           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key")
+           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key", "R2_CLIP_INDEX_KEY")
 
 
 def ready_db_file(con, path, numeric_ids=False):

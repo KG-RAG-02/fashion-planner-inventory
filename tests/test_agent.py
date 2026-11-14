@@ -401,7 +401,7 @@ def test_user_category_is_not_relaxed(con):
     assert [(a["mode"], a["n_candidates"]) for a in s["color_attempts"]] == [("max_overlap", 0), ("none", 0)]
 
 
-# ---- 무신사 스냅 착샷 → CLIP 유사도 필터 (착샷이 있으면 항상)
+# ---- CLIP 기준 이미지(착샷 → 상품 이미지) → 소재·질감·디테일 유사도 필터 (기준 이미지가 있으면 항상)
 SNAP = {"product_id": "musinsa_snap:1", "image_url": "https://img.example/snap1.jpg", "kind": "snap_garment",
         "source": "musinsa_snap", "score": 0.8, "category_minor": "블라우스", "materials": ["시폰"]}
 CATALOG = {"product_id": "otpensource:9", "image_url": "https://img.example/cat.jpg", "kind": "catalog_item",
@@ -413,8 +413,9 @@ NO_COLOR_BLOUSE = {**SNAP_BLOUSE, "colors": []}        # 색 조건 없음 → �
 class FakeClip:
     """clip_filter 대역: keep에 있는 상품만 남긴다 (None이면 skip_reason으로 건너뜀)."""
 
-    def __init__(self, keep=None, skip_reason=None, image_used=True, fallback=False):
-        self.keep, self.skip_reason, self.image_used, self.fallback = keep, skip_reason, image_used, fallback
+    def __init__(self, keep=None, skip_reason=None, image_used=True, text_used=True):
+        self.keep, self.skip_reason = keep, skip_reason
+        self.image_used, self.text_used = image_used, text_used
         self.calls = []
 
     def __call__(self, cand, ref):
@@ -424,7 +425,8 @@ class FakeClip:
         if self.skip_reason:
             return cand, ClipInfo(False, self.skip_reason, n_before=n, n_after=n)
         out = cand[cand["article_id"].isin(self.keep)].reset_index(drop=True)
-        return out, ClipInfo(True, None, self.image_used, n, len(out), n, 0.6, self.fallback)
+        return out, ClipInfo(True, None, image_used=self.image_used, text_used=self.text_used, n_before=n,
+                             n_after=len(out), n_indexed=n)
 
 
 def test_snap_applies_clip_and_records_it(con):
@@ -434,35 +436,54 @@ def test_snap_applies_clip_and_records_it(con):
     assert resp["status"] == "ok" and resp["product"]["sku_ids"] == ["a2"]     # CLIP이 a1을 걸러냄
     assert sorted(clip.calls[0][0]) == ["a1", "a2"] and clip.calls[0][1]["image_url"] == SNAP["image_url"]
     s = tr["search"]
-    assert s["clip"] == {"applied": True, "skip_reason": None, "image_used": True, "n_before": 2, "n_after": 1,
-                         "n_indexed": 2, "threshold": 0.6, "fallback": False}
+    assert s["clip"] == {"applied": True, "skip_reason": None, "image_used": True, "text_used": True, "n_before": 2,
+                         "n_after": 1, "n_indexed": 2, "keep_ratio": 0.1, "keep_rule": "per_color_top"}
     o = s["outfit_reference"]
-    assert o["status"] == "used" and o["product_id"] == "musinsa_snap:1" and o["score"] == 0.8   # 스냅 중 최고
-    assert any("시각·스타일 유사도(CLIP)로 재고 후보 2개 중 1개를 남겼습니다" in x for x in tr["limitations"])
-    ev = {e["evidence_id"]: e for e in resp["evidence"]}
-    assert ev["stock-agent:E-006"]["locator"] == SNAP["image_url"] and ev["stock-agent:E-006"]["source_id"] == "musinsa_snap"
+    assert o["status"] == "used" and o["kind"] == "snap_garment" and o["product_id"] == "musinsa_snap:1"
+    assert o["score"] == 0.8                                                    # 상품 이미지(0.95)보다 착샷 우선
+    assert any("소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 10%를 남겨 후보 2개 중 1개를 남겼습니다" in x
+               for x in tr["limitations"])
+    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["stock-agent:E-006"]
+    assert e6["locator"] == SNAP["image_url"] and e6["source_id"] == "musinsa_snap"
+    assert e6["source_type"] == "external_outfit_image" and e6["source_name"].startswith("무신사 스냅 착샷")
     assert validate_output(resp) == []
 
 
-def test_clip_fallback_and_text_only_notes(con):
-    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=FakeClip(["a1", "a2"], image_used=False,
-                                                                                  fallback=True))
+def test_clip_text_only_and_image_only_notes(con):
+    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=FakeClip(["a1", "a2"], image_used=False))
     lim = resp["trend_result"]["limitations"]
-    assert any("유사도 0.60 이상인 후보가 없어" in x for x in lim)
-    assert any("텍스트 속성만으로 유사도를 계산했습니다" in x for x in lim)
+    assert any("소재·디테일 텍스트만으로 유사도를 계산했습니다" in x for x in lim)
+    resp = run({**REQ, "trend": trend(NO_COLOR_BLOUSE)}, con, clip_filter=FakeClip(["a1"], text_used=False))
+    assert any("소재·디테일 정보가 없어 이미지만으로" in x for x in resp["trend_result"]["limitations"])
 
 
-def test_no_snap_skips_clip(con):
+def test_catalog_image_used_when_no_snap(con):
+    clip = FakeClip(keep=["a1"])
+    resp = run({**REQ, "trend": trend({**NO_COLOR_BLOUSE, "similar_products": [CATALOG]})}, con, clip_filter=clip)
+    tr = resp["trend_result"]
+    o = tr["search"]["outfit_reference"]
+    assert resp["status"] == "ok" and clip.calls[0][1]["image_url"] == CATALOG["image_url"]
+    assert o["status"] == "used" and o["kind"] == "catalog_item" and o["product_id"] == "otpensource:9"
+    assert any(x.startswith("무신사 상품 이미지(상품 otpensource:9") for x in tr["limitations"])
+    assert any("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로" in x for x in tr["limitations"])
+    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["stock-agent:E-006"]
+    assert e6["source_type"] == "external_product_image" and e6["source_name"].startswith("무신사 상품 이미지")
+    assert validate_output(resp) == []
+
+
+def test_no_reference_skips_clip(con):
     clip = FakeClip(keep=[])
-    resp = run({**REQ, "trend": trend({**BLOUSE, "similar_products": [CATALOG]})}, con, clip_filter=clip)
+    resp = run({**REQ, "trend": trend({**BLOUSE, "similar_products": [{**CATALOG, "image_url": None}]})}, con,
+               clip_filter=clip)
     s = resp["trend_result"]["search"]
     assert resp["status"] == "ok" and clip.calls == [] and s["clip"] is None
-    assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == "no_snap"
+    assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == "no_reference"
     assert "stock-agent:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
-    assert any("무신사 스냅 착샷이 없어" in x for x in resp["trend_result"]["limitations"])
+    assert any("무신사 착샷·상품 이미지가 없어" in x for x in resp["trend_result"]["limitations"])
 
 
-@pytest.mark.parametrize("why, note", [("no_index", "CLIP 인덱스가 없어"), ("no_match", "CLIP 인덱스에 없어")])
+@pytest.mark.parametrize("why, note", [("no_index", "CLIP 인덱스가 없어"), ("no_match", "CLIP 인덱스에 없어"),
+                                       ("no_query", "기준 이미지를 열 수 없고 소재·디테일 정보도 없어")])
 def test_clip_skipped_is_recorded_honestly(con, why, note):
     resp = run({**REQ, "trend": trend(SNAP_BLOUSE)}, con, clip_filter=FakeClip(skip_reason=why))
     s = resp["trend_result"]["search"]

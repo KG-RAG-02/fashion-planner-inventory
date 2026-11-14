@@ -61,13 +61,13 @@ class StyleIn(BaseModel):
 
 
 class ProductMatchIn(BaseModel):
-    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·score·product_id와
-    CLIP 쿼리 텍스트용 category_minor·fit·length_body·patterns·materials·details를 쓴다"""
+    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·has_image·score·product_id와
+    CLIP 쿼리 텍스트용 materials·details(type=detail)를 쓴다"""
     model_config = ConfigDict(extra="allow")
     product_id: Optional[str] = None
-    image_url: Optional[str] = Field(None, description="착샷 이미지 URL")
-    kind: Optional[str] = Field(None, description="snap_garment(무신사 스냅 착장 속 아이템)만 착샷으로 씀. catalog_item은 쓰지 않음")
-    score: Optional[float] = Field(None, description="트렌드 아이템과의 일치도. 가장 높은 스냅 1장을 씀")
+    image_url: Optional[str] = Field(None, description="이미지 URL (CLIP 기준 이미지)")
+    kind: Optional[str] = Field(None, description="snap_garment(무신사 스냅 착샷)를 먼저 쓰고, 없으면 catalog_item(무신사 상품 이미지)")
+    score: Optional[float] = Field(None, description="트렌드 아이템과의 일치도. 같은 kind 안에서 가장 높은 1장을 씀")
 
 
 class ItemIn(BaseModel):
@@ -78,9 +78,9 @@ class ItemIn(BaseModel):
     colors: Optional[list[str]] = Field(None, description="21색. 순서는 의미 없음")
     gender: Optional[str] = Field(None, description="요청 성별이 없을 때 고객군을 정하는 데 씀")
     similar_products: Optional[list[ProductMatchIn]] = Field(
-        None, description="무신사 유사 상품. 사용자 카테고리 아이템(없으면 아이템 전체)의 snap_garment 중 score가 가장 높은 착샷을 "
-                          "기준으로 재고 후보를 시각·스타일 유사도(CLIP)로 거름(cosine 0.60 이상, 없으면 유사도 상위 20개). "
-                          "snap_garment가 없으면 CLIP 필터 없이 찾음. 아이템 자신의 materials·fit은 재고를 거르는 데 쓰지 않음")
+        None, description="무신사 유사 상품. 사용자 카테고리 아이템(없으면 아이템 전체)에서 snap_garment 착샷(없으면 catalog_item "
+                          "상품 이미지) 중 score가 가장 높은 1장을 기준으로 재고 후보를 소재·질감·디테일 유사도(CLIP: 흑백 이미지 + "
+                          "소재·디테일 텍스트, 색 제외)로 거름(재고 색마다 유사도 상위 10%, 색마다 최소 1개). 둘 다 없으면 CLIP 필터 없이 찾음")
 
 
 class TrendIn(BaseModel):
@@ -246,10 +246,10 @@ class TrendResult(BaseModel):
     search: dict[str, Any] = Field(description="이 트렌드로 찾은 조건: trend_colors(기준 색), trend_color_basis, user_colors, user_colors_excluded, trend_categories, "
                                                "areas(짝 영역), colors(최종 조회 색), color_mode(max_overlap/any/none), color_overlap, "
                                                "color_attempts(조회한 색 단계별 mode·colors·n_candidates), relaxed(완화한 트렌드 색 조건), "
-                                               "excluded_categories, outfit_reference(CLIP 기준 무신사 스냅 착샷: status used/skipped, "
-                                               "skip_reason no_snap/no_index/no_match/no_candidates, product_id, image_url, score, source, "
-                                               "item_id, item_category), clip(applied, skip_reason, image_used, n_before, n_after, "
-                                               "n_indexed, threshold, fallback; 착샷이 없으면 null), segments(찾은 고객군, []=전체), "
+                                               "excluded_categories, outfit_reference(CLIP 기준 이미지: status used/skipped, "
+                                               "skip_reason no_reference/no_index/no_match/no_query/no_candidates, kind snap_garment/catalog_item, "
+                                               "product_id, image_url, score, source, item_id, item_category), clip(applied, skip_reason, "
+                                               "image_used, text_used, n_before, n_after, n_indexed, keep_ratio, keep_rule; 기준 이미지가 없으면 null), segments(찾은 고객군, []=전체), "
                                                "segment_basis(segment/gender/item_gender/all)")
     limitations: list[str]
     errors: list[Error] = []
@@ -328,7 +328,7 @@ class Health(BaseModel):
     missing_tables: list[str]
     images: str
     images_found: bool = Field(description="로컬 이미지 폴더 또는 R2 prefix 설정 여부; 원격 object는 요청 시 확인")
-    clip_index_loaded: bool = Field(False, description="CLIP 인덱스를 불러왔는지. false면 착샷 CLIP 필터는 no_index로 건너뜀")
+    clip_index_loaded: bool = Field(False, description="CLIP 인덱스를 불러왔는지. false면 CLIP 필터는 no_index로 건너뜀")
     clip_n_indexed: int = Field(0, description="CLIP 인덱스의 상품 수")
 
 

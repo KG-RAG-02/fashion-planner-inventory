@@ -61,6 +61,34 @@ def test_health_reports_clip_index(make_client, monkeypatch):
     assert body["clip_index_loaded"] is True and body["clip_n_indexed"] == 6
 
 
+def test_clip_index_path_order(monkeypatch, tmp_path):
+    """STOCK_CLIP_INDEX_PATH → R2 캐시(R2_CLIP_INDEX_KEY, 서버는 받지 않음) → 기본 data/clip_index.npz."""
+    import stock_agent.api as api
+    import stock_agent.clip_matcher as clip
+    from stock_agent.storage import StorageUnavailable
+
+    class Store:
+        def __init__(self, key, cached):
+            self.settings = type("S", (), {"clip_index_key": key})()
+            self.cached, self.calls = cached, []
+
+        def prepare_clip_index(self, allow_download):
+            self.calls.append(allow_download)
+            if self.cached is None:
+                raise StorageUnavailable("no cache")
+            return self.cached, "v1"
+
+    monkeypatch.setenv("STOCK_CLIP_INDEX_PATH", str(tmp_path / "x.npz"))
+    assert api.clip_index_path() == str(tmp_path / "x.npz")
+    monkeypatch.delenv("STOCK_CLIP_INDEX_PATH")
+    monkeypatch.setitem(api.state, "object_store", Store("clip/i.npz", tmp_path / "cached.npz"))
+    assert api.clip_index_path() == tmp_path / "cached.npz" and api.state["object_store"].calls == [False]
+    monkeypatch.setitem(api.state, "object_store", Store("clip/i.npz", None))
+    assert api.clip_index_path() is None                                  # 캐시 없음 → 인덱스 없음
+    monkeypatch.setitem(api.state, "object_store", Store("", None))
+    assert api.clip_index_path() == clip.DEFAULT_INDEX_PATH
+
+
 def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
     import stock_agent.clip_matcher as clip
     import stock_agent.api as api

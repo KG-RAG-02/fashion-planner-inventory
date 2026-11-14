@@ -28,7 +28,7 @@
 
 같은 상품을 여러 트렌드가 고르면 products에 그대로 여러 번 들어간다(중복 허용).
 
-clip_filter: 착샷 CLIP 필터 함수(agent.run에 그대로 넘김). 기본은 clip_matcher.clip_filter, 테스트에서 바꾼다.
+clip_filter: CLIP 유사도 필터 함수(agent.run에 그대로 넘김). 기본은 clip_matcher.clip_filter, 테스트에서 바꾼다.
 """
 
 from __future__ import annotations

@@ -12,7 +12,8 @@
        후보가 0개면 트렌드 색 조건만 완화해 다시 조회: 하나라도 어울리는 색 → 트렌드 색 조건 풀기(21색 전체).
        사용자 색·사용자 카테고리는 완화하지 않는다
     4. 최근 판매 추세 (같은 영역 후보 대비)
-    5. 무신사 스냅 착샷이 있으면 CLIP 유사도 필터 (snap.py, clip_matcher.py)
+    5. 기준 이미지(무신사 스냅 착샷, 없으면 무신사 상품 이미지)가 있으면 소재·질감·디테일 CLIP 유사도 필터
+       (흑백 이미지 + 소재·디테일 텍스트, 색 제외. snap.py, clip_matcher.py)
     6. 과잉재고 순위 → H&M 사진이 있는 최상위 1개
     7. 추천 이유(reason), 템플릿 summary, 근거(evidence)
 
@@ -62,7 +63,7 @@ from stock_agent.overstock import (
     split_exclude,
 )
 from stock_agent.season import DATA_END, SEASON_LABELS_KO, map_season
-from stock_agent.snap import pick_snap
+from stock_agent.snap import pick_reference
 from stock_agent.snap import reference as snap_reference
 from stock_agent.synthetic import VERSION as STOCK_VERSION
 from stock_agent.trend_input import USER_COLOR_BASES, TrendInput, read_trend
@@ -405,17 +406,20 @@ def same_trend_colors(product_color: str, trend_colors: list[str]) -> list[str]:
 
 def _evidence(now: str, period, areas, colors, trend_period, with_images: bool = False,
               outfit_ref: dict | None = None) -> list[dict]:
-    """데이터 출처. outfit_ref: CLIP 유사도 필터의 기준으로 쓴 무신사 스냅 착샷 (E-006, 쓴 경우만)."""
+    """데이터 출처. outfit_ref: CLIP 유사도 필터의 기준 이미지(무신사 착샷·상품 이미지) (E-006, 쓴 경우만)."""
     common = {"published_at": None, "observed_at": DATA_END.isoformat(), "fetched_at": now,
               "permission_status": LICENSE, "manifest_id": "TBD"}
     image_ev = [{"evidence_id": f"{NS}:E-005", "source_id": "hm_images", "source_type": "internal_product_image",
                  "source_name": "H&M 상품 이미지", "data_nature": "fact",
                  "locator": "images/<article_id 앞 3자리>/<article_id>.jpg", **common}] if with_images else []
     if outfit_ref:
+        catalog = outfit_ref.get("kind") == "catalog_item"
         image_ev.append({
-            "evidence_id": f"{NS}:E-006", "source_id": outfit_ref.get("source") or "musinsa_snap",
-            "source_type": "external_outfit_image",
-            "source_name": "무신사 스냅 착샷 (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
+            "evidence_id": f"{NS}:E-006",
+            "source_id": outfit_ref.get("source") or ("musinsa_catalog" if catalog else "musinsa_snap"),
+            "source_type": "external_product_image" if catalog else "external_outfit_image",
+            "source_name": ("무신사 상품 이미지" if catalog else "무신사 스냅 착샷")
+                           + " (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
             "data_nature": "fact", "locator": outfit_ref.get("image_url"),
             **{**common, "observed_at": None, "permission_status": "02 트렌드 결과의 무신사 이미지"}})
     return [
@@ -641,7 +645,7 @@ def run(request: dict, con, summarizer: Summarizer | None = None,
                             f"trend 필드에 담아 주세요. {_missing_detail(req, ['trend'])}")
     c = trend_common(c, trend)
     ti = read_trend(trend, list(c.target_areas), list(c.user_colors))
-    return run_trend(req, c, ti, con, summarizer, now, image_dir, snap=pick_snap(trend, list(c.target_areas)),
+    return run_trend(req, c, ti, con, summarizer, now, image_dir, ref=pick_reference(trend, list(c.target_areas)),
                      clip_filter=clip_filter)
 
 
@@ -692,33 +696,44 @@ def relaxed_notes(ti: TrendInput, tried: list[dict]) -> list[str]:
     return [head]
 
 
+def _ref_label(ref: dict) -> str:
+    """기준 이미지 설명: 무신사 스냅 착샷 / 무신사 상품 이미지(블라우스)."""
+    if ref.get("kind") == "catalog_item":
+        return f"무신사 상품 이미지(상품 {ref.get('product_id')}, 트렌드 아이템 {ref.get('item_category')})"
+    return f"무신사 스냅 착샷(상품 {ref.get('product_id')}, 트렌드 아이템 {ref.get('item_category')}와 일치도가 가장 높은 스냅)"
+
+
 def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
-    """착샷·CLIP 설명 (limitations)."""
+    """기준 이미지·CLIP 설명 (limitations)."""
     if ref is None:
-        return ["트렌드 아이템의 유사 상품에 무신사 스냅 착샷이 없어(판매 상품만 있음) 착샷 유사도(CLIP) 필터 없이 찾았습니다."]
+        return ["트렌드 아이템의 유사 상품에 무신사 착샷·상품 이미지가 없어 소재·디테일 유사도(CLIP) 필터 없이 찾았습니다."]
     if clip is None or clip.get("skip_reason") == "no_candidates":
         return []
+    label = _ref_label(ref)
     if not clip["applied"]:
-        why = {"no_index": "CLIP 인덱스가 없어", "no_match": "재고 후보가 CLIP 인덱스에 없어"}[clip["skip_reason"]]
-        return [f"{why} 무신사 스냅 착샷(상품 {ref.get('product_id')})과의 유사도(CLIP) 필터 없이 찾았습니다."]
-    out = [f"무신사 스냅 착샷(상품 {ref.get('product_id')}, 트렌드 아이템 {ref.get('item_category')}와 일치도가 가장 높은 스냅)과 "
-           f"시각·스타일 유사도(CLIP)로 재고 후보 {clip['n_before']:,}개 중 {clip['n_after']:,}개를 남겼습니다."]
-    if clip["fallback"]:
-        out.append(f"유사도 {clip['threshold']:.2f} 이상인 후보가 없어 유사도가 높은 순으로 {clip['n_after']:,}개를 남겼습니다.")
+        why = {"no_index": "CLIP 인덱스가 없어", "no_match": "재고 후보가 CLIP 인덱스에 없어",
+               "no_query": "기준 이미지를 열 수 없고 소재·디테일 정보도 없어"}[clip["skip_reason"]]
+        return [f"{why} {label}과의 유사도(CLIP) 필터 없이 찾았습니다."]
+    out = [f"{label}과 소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 "
+           f"{clip['keep_ratio']:.0%}를 남겨 후보 {clip['n_before']:,}개 중 {clip['n_after']:,}개를 남겼습니다."]
+    if ref.get("kind") == "catalog_item":
+        out.append("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로 썼습니다.")
     if not clip["image_used"]:
-        out.append("착샷 이미지를 열 수 없어 착샷의 텍스트 속성만으로 유사도를 계산했습니다.")
+        out.append("기준 이미지를 열 수 없어 소재·디테일 텍스트만으로 유사도를 계산했습니다.")
+    elif not clip.get("text_used", True):
+        out.append("기준 이미지에 소재·디테일 정보가 없어 이미지만으로 유사도를 계산했습니다.")
     if clip["n_indexed"] < clip["n_before"]:
         out.append(f"CLIP 인덱스에 없는 후보 {clip['n_before'] - clip['n_indexed']:,}개는 유사도 0으로 보았습니다.")
     return out
 
 
 def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer | None = None,
-              now: datetime | None = None, image_dir: str | None = None, snap: dict | None = None,
+              now: datetime | None = None, image_dir: str | None = None, ref: dict | None = None,
               clip_filter=None) -> dict:
     """공통 값 검사가 끝난 뒤 트렌드 1개를 처리한다.
 
-    snap: pick_snap으로 고른 무신사 스냅 착샷 (없으면 None → CLIP 필터 없음)
-    clip_filter: (후보, 착샷) → (남은 후보, ClipInfo). 기본은 clip_matcher.clip_filter (테스트에서 바꿈)
+    ref: pick_reference로 고른 CLIP 기준 이미지(착샷, 없으면 상품 이미지). None이면 CLIP 필터 없음
+    clip_filter: (후보, 기준 이미지) → (남은 후보, ClipInfo). 기본은 clip_matcher.clip_filter (테스트에서 바꿈)
     """
     now = now or datetime.now(timezone.utc)
     summarizer = summarizer or TemplateSummarizer()
@@ -728,7 +743,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
               "user_colors": ti.user_colors, "user_colors_excluded": ti.user_colors_excluded,
               "trend_categories": ti.categories, "excluded_categories": c.excluded, "areas": None,
               "colors": None, "color_mode": None, "color_overlap": None, "color_attempts": [], "relaxed": [],
-              "outfit_reference": snap_reference(snap, None), "clip": None,
+              "outfit_reference": snap_reference(ref, None), "clip": None,
               "segments": list(c.segments), "segment_basis": c.segment_basis}
 
     def trend_error(code: str, message: str) -> dict:
@@ -808,15 +823,15 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
             cand["trend"] = 0.0
             limitations.append("최근 판매 추세를 계산하지 못해 순위에서 추세를 중립값으로 두었습니다.")
 
-    # 착샷이 있으면 CLIP 유사도 필터를 항상 건다 (후보를 0개로 만들지 않음)
+    # 기준 이미지(착샷, 없으면 상품 이미지)가 있으면 CLIP 유사도 필터를 항상 건다 (후보를 0개로 만들지 않음)
     clip = None
-    if snap is not None:
+    if ref is not None:
         if clip_filter is None:
             from stock_agent.clip_matcher import clip_filter
-        cand, info = clip_filter(cand, snap)
+        cand, info = clip_filter(cand, ref)
         clip = info.to_dict()
-    search.update({"outfit_reference": snap_reference(snap, clip), "clip": clip})
-    limitations += clip_notes(snap, clip)
+    search.update({"outfit_reference": snap_reference(ref, clip), "clip": clip})
+    limitations += clip_notes(ref, clip)
 
     ranked = rank_overstock(cand)                        # 후보 전체 순위
     row, image = _pick_with_images(ranked, image_dir or DEFAULT_IMAGE_DIR, limitations)
@@ -855,7 +870,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
     product = None if row is None else build_product(row, period, image)
     resp = _output(req, status, product, tr, season_basis,
                    evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None,
-                                      outfit_ref=snap if clip and clip["applied"] else None))
+                                      outfit_ref=ref if clip and clip["applied"] else None))
     problems = validate_output(resp)
     if problems:
         return error_output(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))

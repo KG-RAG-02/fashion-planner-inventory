@@ -34,7 +34,7 @@ def r2_env(monkeypatch, tmp_path):
                         "R2_SECRET_ACCESS_KEY": "synthetic-secret-access-key",
                         "STOCK_CACHE_DIR": str(tmp_path / "cache")}.items():
         monkeypatch.setenv(name, value)
-    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "STOCK_DB_PATH"):
+    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH"):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -94,3 +94,53 @@ def test_prepare_cache_without_r2_settings_fails_before_any_client(monkeypatch, 
     monkeypatch.setattr(storage, "_client", lambda settings: pytest.fail("must not build an R2 client"))
     code, report, _ = _run(capsys)
     assert code == 1 and report["reason"] == "StorageConfigurationError" and report["status"] == "error"
+
+
+# ---- CLIP 인덱스 (R2_CLIP_INDEX_KEY)
+class FakeR2Objects:
+    """key별로 다른 객체를 돌려주는 가짜 R2."""
+
+    def __init__(self, objects: dict):
+        self.objects, self.downloads = objects, []
+
+    def head_object(self, Bucket, Key):
+        return {"ETag": f'"etag-{len(self.objects[Key])}"', "ContentLength": len(self.objects[Key])}
+
+    def get_object(self, Bucket, Key, **kwargs):
+        self.downloads.append(Key)
+        return {"Body": BytesIO(self.objects[Key]), "ContentLength": len(self.objects[Key])}
+
+
+def _index_bytes(tmp_path, rule):
+    import numpy as np
+    from stock_agent.clip_matcher import INDEX_RULE
+    path = tmp_path / "idx.npz"
+    np.savez(path, article_ids=np.array(["a1", "a2"]), embeddings=np.zeros((2, 4), dtype=np.float16),
+             rule=np.array(rule or INDEX_RULE))
+    return path.read_bytes()
+
+
+@pytest.mark.parametrize("rule, ok", [(None, True), ("color-image/v0", False)])
+def test_prepare_cache_also_fetches_clip_index(r2_env, con, tmp_path, capsys, rule, ok):
+    db = ready_db_file(con, tmp_path / "source.duckdb").read_bytes()
+    client = FakeR2Objects({"db/stock.duckdb": db, "clip/clip_index.npz": _index_bytes(tmp_path, rule)})
+    r2_env.setenv("R2_CLIP_INDEX_KEY", "clip/clip_index.npz")
+    r2_env.setattr(storage, "_client", lambda settings: client)
+    code, report, out = _run(capsys)
+    idx = report["clip_index"]
+    assert client.downloads == ["db/stock.duckdb", "clip/clip_index.npz"]
+    assert (code == 0) is ok and (report["status"] == "ready") is ok
+    if ok:
+        assert idx["status"] == "ready" and idx["n_indexed"] == 2 and idx["sha256"]
+        assert any(p.name.startswith("clip-index-") and p.suffix == ".npz" for p in (tmp_path / "cache").iterdir())
+    else:
+        assert idx["reason"] == "clip_index_rule_mismatch" and idx["rule"] == "color-image/v0"
+    assert "clip/clip_index.npz" not in out
+
+
+def test_prepare_cache_without_clip_key_skips_index(r2_env, con, tmp_path, capsys):
+    client = FakeR2Objects({"db/stock.duckdb": ready_db_file(con, tmp_path / "source.duckdb").read_bytes()})
+    r2_env.delenv("R2_CLIP_INDEX_KEY", raising=False)
+    r2_env.setattr(storage, "_client", lambda settings: client)
+    code, report, _ = _run(capsys)
+    assert code == 0 and "clip_index" not in report and client.downloads == ["db/stock.duckdb"]

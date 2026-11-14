@@ -14,11 +14,14 @@
 ## 흐름
 
 ```
-01 사용자 쿼리 ──▶ 02 쿼리 전처리·트렌드 분석 ──(결과 그대로)──▶ 03 상품 재고 (stock-agent) ──▶ 05 새 상품 기획·최종 기획서
-                                                                    04 타사판매·시장성 (앞 단계 입력 없음) ──▶ 05
+사용자 쿼리 ──▶ 오케스트레이터 (Project_08): 쿼리 전처리 → ①②③④ 순차 blocking 호출 → 결과 통합 → 기획안 초안 UI
+                 ① trend-analysis-agent (02)       ◀ 전처리된 쿼리                                  ▶ TrendResult + Evidence
+                 ② stock-agent (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
+                 ③ new-product-agent (05)          ◀ 전처리된 쿼리 + TrendResult + InventoryProductResult ▶ PlanningDraft
+                 ④ sales-market-agent (04)         ◀ PlanningDraft                                  ▶ MarketData
 ```
 
-Project_08은 직전 Trend producer의 result 객체를 `input`에 그대로 넣습니다. 03 입구에서만 내부 처리 모양으로 바꾸며(`stock_agent/trend_request.py`), 외부 input을 평탄화하거나 Trend 필드/버전을 다시 쓰지 않습니다. Project_08은 검증 뒤 변경하지 않은 Stock `result`를 다음 단계에 전달합니다.
+에이전트끼리는 직접 부르지 않고 오케스트레이터(Project_08)가 순서대로 부릅니다. Project_08은 직전 Trend producer의 result 객체(전처리된 쿼리 조건 `applied_filters` 포함)를 `input`에 그대로 넣습니다. 03 입구에서만 내부 처리 모양으로 바꾸며(`stock_agent/trend_request.py`), 외부 input을 평탄화하거나 Trend 필드/버전을 다시 쓰지 않습니다. Project_08은 검증 뒤 변경하지 않은 Stock `result`를 다음 단계(new-product-agent)에 전달하고, 기획안 초안 조립에도 씁니다.
 
 ## 요청
 
@@ -35,7 +38,7 @@ Project_08은 직전 Trend producer의 result 객체를 `input`에 그대로 넣
 | `applied_filters.attributes` 중 그 밖(소재·핏 등) | 쓰지 않음 |
 | `applied_filters.gender` | 고객군 (아래) |
 | `trends[].style`, `trends[].items` | 트렌드 색·카테고리 (아이템 자신의 소재·핏은 재고를 거르는 데 쓰지 않음) |
-| `trends[].items[].similar_products` | `kind: snap_garment`이고 `image_url`이 있는 것 중 `score`가 가장 높은 착샷 1장 → CLIP 유사도 필터 (아래) |
+| `trends[].items[].similar_products` | `kind: snap_garment` 착샷(없으면 `catalog_item` 상품 이미지) 중 `image_url`이 있고 `score`가 가장 높은 1장 → CLIP 유사도 필터 (아래). `materials`·`details`(`DetailName`)를 CLIP 텍스트로 씀 |
 | `evidence`, `limitations` 등 | 쓰지 않음 |
 
 **성별 → 고객군** (H&M 고객군)
@@ -49,7 +52,7 @@ Project_08은 직전 Trend producer의 result 객체를 `input`에 그대로 넣
 - 요청 성별이 없으면 트렌드마다 Item `gender`로 정합니다. 여러 성별이면 고객군을 합치고, `공용`이 있거나 모두 비어 있으면 전체입니다.
 - 정한 결과는 `trend_results[i].search.segments`, `segment_basis`(`gender` / `item_gender` / `all`)와 limitations에 나옵니다.
 
-**착샷 CLIP 필터**: 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products` 중 `snap_garment` 착샷(score 최고 1장)이 있으면 항상, 재고 후보를 착샷과의 시각·스타일 유사도(CLIP ViT-B-32, 이미지 0.6 + 착샷 02 속성 텍스트 0.4)로 거릅니다. cosine 0.60 이상인 후보만 남기고, 하나도 없으면 유사도 상위 20개를 남깁니다(후보를 0개로 만들지 않음). 착샷 이미지를 열 수 없으면 텍스트만으로 계산합니다. 스냅이 없으면(`catalog_item`만) CLIP 필터 없이 찾습니다. 재고 후보 임베딩은 미리 만든 CLIP 인덱스(`STOCK_CLIP_INDEX_PATH`)에서 읽고, 인덱스가 없으면 필터 없이 찾고 그 사실을 기록합니다. 착샷 이미지는 03 서버가 직접 내려받으며 외부 서비스로 보내지 않습니다.
+**CLIP 유사도 필터**: 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products`에서 `snap_garment` 착샷(score 최고 1장)을, 없으면 `catalog_item` 상품 이미지(score 최고 1장, `has_image: false` 제외)를 기준 이미지로 골라 항상 겁니다. 상품 이미지는 트렌드 아이템 카테고리라 짝 재고와 카테고리가 달라도 그대로 씁니다. 색은 조합 색상표가 정하므로 CLIP은 색을 보지 않습니다: 기준 이미지와 재고 사진을 흑백으로 임베딩하고, 텍스트는 소재 + 디테일(02 vocabulary_v1 `Material` 26개·`DetailName` 40개)의 영어 대응어만 씁니다(CLIP ViT-B-32는 영어 모델). 이미지 0.6 + 텍스트 0.4이고, 텍스트가 비면 이미지만, 이미지를 열 수 없으면 텍스트만 씁니다. 후보를 재고 색별로 나눠 각 색 안에서 유사도 상위 10%(올림, 색마다 최소 1개)를 남깁니다. 유사도 수준이 기준 이미지마다 달라 고정 기준값은 쓰지 않고, 색 안에서만 비교해 밝은 색 재고로 쏠리지 않게 합니다(후보를 0개로 만들지 않음). 둘 다 없으면 CLIP 필터 없이 찾습니다. 재고 후보 임베딩은 미리 만든 CLIP 인덱스(R2 `R2_CLIP_INDEX_KEY`를 `--prepare-cache`로 받은 캐시, 또는 `STOCK_CLIP_INDEX_PATH`)에서 읽고, 인덱스가 없거나 규칙이 다르면 필터 없이 찾고 그 사실을 기록합니다. 기준 이미지는 03 서버가 직접 내려받으며 외부 서비스로 보내지 않습니다.
 
 **사용자 색**: 트렌드 아이템 색이 비어 있으면(02가 색을 확인하지 못함) "트렌드 아이템 색이 확인되지 않아(미확인)", 색은 있는데 안 겹치면 "트렌드 아이템 색에 없습니다"로 limitations에 구분해 적습니다. 두 경우 모두 사용자 색과 어울리는 색으로 찾습니다.
 
@@ -60,7 +63,7 @@ Project_08은 직전 Trend producer의 result 객체를 `input`에 그대로 넣
 - 색: 기준 색과 어울리는 색 중 가장 많이 겹치는 색 + 기준 색 자체(톤온톤)에서 찾습니다. 상품 색이 기준 색과 같으면 `reason.color.tone_on_tone`에 그 색이 있습니다.
 - 완화: 재고 조회(짝 영역 · 색 · 시즌 · 고객군 · 재고 > 0 · 제외 카테고리) 결과가 0개면 트렌드 색 조건만 넓혀 다시 조회합니다. 순서는 `max_overlap`(가장 많이 겹치는 색) → `any`(하나라도 어울리는 색, 결과 색이 같으면 건너뜀) → `none`(트렌드 색 조건을 풀고 21색 전체)입니다. 사용자 색(`target_colors`)과 사용자 카테고리는 완화하지 않습니다. 조회한 단계는 `search.color_attempts`(`mode`, `colors`, `n_candidates`), 최종 단계는 `search.color_mode`, 완화한 조건은 `search.relaxed`(`color_rule` max_overlap → any, 또는 `trend_colors` → `[]`)와 limitations에 있습니다.
 - 상품 선택: 과잉재고 순위에서 H&M 사진이 있는 최상위 상품입니다. 1위에 사진이 없으면 사진이 있는 다음 순위를 고르고(`rank`는 실제 순위) limitations에 적습니다.
-- 착샷: `search.outfit_reference`(`status` used/skipped, `skip_reason` no_snap/no_index/no_match/no_candidates, `product_id`, `image_url`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `n_before`, `n_after`, `n_indexed`, `threshold`, `fallback`; 착샷이 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(`locator` = 착샷 URL)이 붙습니다.
+- CLIP 기준 이미지: `search.outfit_reference`(`status` used/skipped, `skip_reason` no_reference/no_index/no_match/no_query/no_candidates, `kind` snap_garment/catalog_item, `product_id`, `image_url`, `score`, `source`, `item_id`, `item_category`), `search.clip`(`applied`, `skip_reason`, `image_used`, `text_used`, `n_before`, `n_after`, `n_indexed`, `keep_ratio`, `keep_rule`; 기준 이미지가 없으면 `null`). CLIP 필터를 걸었으면 근거 `E-006`(`locator` = 기준 이미지 URL, `source_type` 착샷 external_outfit_image / 상품 이미지 external_product_image)이 붙습니다.
 
 - `products[i]` ↔ `trend_results[i]`. 트렌드마다 상품 1개(사진 포함). 못 고르면 `null`.
 - producer result 1.0에는 `findings`와 최상위 `limitations`가 없습니다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 있습니다. HTTP envelope는 producer result 외부를 감싸며 필드를 이동·재구성하지 않습니다.
@@ -94,7 +97,7 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 - 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. `STOCK_DB_PATH`가 설정되면 API는 R2 설정·HEAD 없이 그 로컬 파일을 read-only로 엽니다(local-file 모드, readiness `db: local-file`).
 - `/health/live`는 API 생존 200이며 `/health/ready`와 `/health`는 column/type, nonempty tables, sample snapshot 및 수치 검사를 통과해야 200입니다. 실패는 503입니다. `image_objects_verified=false`를 따로 표시합니다. `clip_index_loaded`·`clip_n_indexed`는 서버 시작 때 CLIP 인덱스를 불러왔는지와 상품 수이며, 200/503 판정에는 쓰지 않습니다(인덱스가 없으면 착샷 CLIP 필터만 건너뜀).
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
-- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `STOCK_DB_PATH`(선택, local-file 모드), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `STOCK_CLIP_INDEX_PATH`(선택, 기본 `data/clip_index.npz`, Docker `/data/clip_index.npz`), `STOCK_HANDOFF_TIMEOUT_SECONDS`(선택, 기본 60). 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
+- 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `STOCK_DB_PATH`(선택, local-file 모드), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `R2_CLIP_INDEX_KEY`(선택, R2 CLIP 인덱스 key, `--prepare-cache`가 캐시에 받음), `STOCK_CLIP_INDEX_PATH`(선택, 로컬 인덱스 파일), `STOCK_HANDOFF_TIMEOUT_SECONDS`(선택, 기본 60). 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 

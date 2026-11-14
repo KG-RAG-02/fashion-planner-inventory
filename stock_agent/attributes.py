@@ -238,6 +238,59 @@ def extract_fit(desc: str | None, area: str | None) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------- 디테일 (CLIP 인덱스용)
+
+# detail_desc 키워드 → 02 표준 DetailName(vocabulary_v1 40개). article_attrs에는 넣지 않고 CLIP 인덱스를 만들 때만 쓴다.
+_DETAILS = [
+    ("비즈", re.compile(r"\b(beads?|beaded|beading)\b")),
+    ("단추", re.compile(r"\bbuttons?\b")),
+    ("니트꽈배기", re.compile(r"\bcable[- ]knit")),
+    ("체인", re.compile(r"\bchains?\b")),
+    ("컷오프", re.compile(r"\b(raw[- ]edged?|cut[- ]off)\b")),
+    ("더블브레스티드", re.compile(r"\bdouble[- ]breasted\b")),
+    ("드롭숄더", re.compile(r"\b(dropped|drop) shoulders?\b")),
+    ("자수", re.compile(r"\bembroider")),
+    ("프릴", re.compile(r"\bfrill")),
+    ("프린지", re.compile(r"\bfringe")),
+    ("플레어", re.compile(r"\bflared?\b")),
+    ("퀼팅", re.compile(r"\bquilt")),
+    ("리본", re.compile(r"\b(bows?|ribbons?)\b")),
+    ("롤업", re.compile(r"\b(roll[- ]?up|turn[- ]?ups?|turned[- ]up)\b")),
+    ("러플", re.compile(r"\b(ruffles?|ruffled|flounces?|flounced)\b")),
+    ("셔링", re.compile(r"\b(shirring|smock(ed|ing)|gathers|gathered)\b")),
+    ("슬릿", re.compile(r"\bslits?\b")),
+    ("스팽글", re.compile(r"\b(sequins?|sequinned|spangles?)\b")),
+    ("스티치", re.compile(r"\b(top-?stitching|decorative stitching|contrasting stitching|visible stitching)\b")),
+    ("스터드", re.compile(r"(?<!press-)(?<!press )\bstuds?\b|\bstudded\b")),   # press-stud(똑딱단추)는 제외
+    ("퍼트리밍", re.compile(r"\b(fur|pile)[- ]trim")),
+    ("글리터", re.compile(r"\b(glitter|glittery)\b")),
+    ("후드", re.compile(r"\b(hood|hooded)\b")),
+    ("레이스업", re.compile(r"\b(lace[- ]?up|lacing)\b")),
+    ("패딩", re.compile(r"\bpadded\b")),
+    ("패치워크", re.compile(r"\bpatchwork\b")),
+    ("페플럼", re.compile(r"\bpeplum\b")),
+    ("플리츠", re.compile(r"\bpleat")),
+    ("포켓", re.compile(r"\bpockets?\b")),
+    ("폼폼", re.compile(r"\bpom-?poms?\b")),
+    ("퍼프", re.compile(r"\bpuff(ed|y)? sleeves?\b")),
+    ("태슬", re.compile(r"\btassels?\b")),
+    ("집업", re.compile(r"\b(zip[- ]through|zip[- ]up|full[- ]zip)\b")),
+    ("띠", re.compile(r"\b(tie belt|tie-belt|belt|ties at the waist|waist tie)\b")),
+    ("디스트로이드", re.compile(r"\b(distressed|ripped|rips|destroyed|trashed|(hard-)?worn details)\b")),
+    ("드롭웨이스트", re.compile(r"\b(dropped|drop) waist\b")),
+    ("버클", re.compile(r"\bbuckles?\b")),
+    ("컷아웃", re.compile(r"\bcut[- ]?outs?\b")),
+    ("X스트랩", re.compile(r"\b(criss-?cross|crossover|crossed) (back )?straps?\b")),
+    ("비대칭", re.compile(r"\basymmetric")),
+]
+
+
+def extract_details(desc: str | None) -> list[str]:
+    """detail_desc에서 02 표준 DetailName 목록 (표준 순서). 없으면 빈 목록."""
+    text = _s(desc).lower()
+    return [name for name, pat in _DETAILS if pat.search(text)]
+
+
 # ---------------------------------------------------------------- 예전 표기 → vocabulary_v1
 
 # 2026-11-08 트렌드 팀 vocabulary_v1에 맞춰 이름을 바꿨다. 예전 이름으로 만든 DB도 응답은 새 이름으로 나가게 한다

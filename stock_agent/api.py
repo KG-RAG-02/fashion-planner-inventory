@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
         state["object_store"] = None
         state["db_error"] = type(e).__name__
         state["readiness"] = {"db_ready": False, "reason": type(e).__name__}
-    state["clip"] = warm_up_clip()   # 인덱스·모델을 미리 불러옴. 없으면 착샷 CLIP 필터는 요청마다 no_index로 기록
+    state["clip"] = warm_up_clip()   # 인덱스·모델을 미리 불러옴. 없으면 CLIP 필터는 요청마다 no_index로 기록
     # 결과를 읽는 사람이 실행 방식을 알 수 있게 trend_results[].limitations에 붙이는 문장
     state["runtime_notes"] = [FIXTURE_LIMITATION] if state["readiness"].get("synthetic_fixture") else []
     yield
@@ -138,11 +138,31 @@ app = FastAPI(
 )
 
 
+def clip_index_path():
+    """CLIP 인덱스 경로. STOCK_CLIP_INDEX_PATH → (R2 모드) R2_CLIP_INDEX_KEY의 검증된 캐시 → 기본 data/clip_index.npz.
+
+    서버는 시작할 때 인덱스를 내려받지 않는다. 캐시는 --prepare-cache가 DB와 함께 채운다.
+    R2_CLIP_INDEX_KEY가 있는데 캐시가 없으면 None (인덱스 없음 → 요청마다 no_index).
+    """
+    from stock_agent import clip_matcher
+    local = os.environ.get("STOCK_CLIP_INDEX_PATH", "").strip()
+    if local:
+        return local
+    store = state.get("object_store")
+    if store is not None and store.settings.clip_index_key:
+        try:
+            return store.prepare_clip_index(allow_download=False)[0]
+        except Exception:
+            return None
+    return clip_matcher.DEFAULT_INDEX_PATH
+
+
 def warm_up_clip() -> dict:
     """CLIP 인덱스·모델 미리 불러오기. open_clip이 없는 등 실패해도 서버는 뜬다."""
     try:
-        from stock_agent.clip_matcher import warm_up
-        return warm_up()
+        from stock_agent import clip_matcher
+        clip_matcher.configure(clip_index_path())
+        return clip_matcher.warm_up()
     except Exception:
         return {"clip_index_loaded": False, "clip_n_indexed": 0}
 

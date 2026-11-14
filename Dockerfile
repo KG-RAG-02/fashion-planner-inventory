@@ -2,13 +2,13 @@
 # DB와 이미지는 이미지에 넣지 않는다. R2 모드는 STOCK_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
 # STOCK_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.
-# 착샷 CLIP 필터는 STOCK_CLIP_INDEX_PATH(기본 /data/clip_index.npz)가 있을 때만 동작하고, 없으면 건너뛴다.
+# CLIP 유사도 필터는 재고 CLIP 인덱스가 있을 때만 동작하고, 없으면 건너뛴다. 인덱스는 R2(R2_CLIP_INDEX_KEY)에서
+# --prepare-cache가 DB와 함께 /cache에 받아 두거나, STOCK_CLIP_INDEX_PATH로 붙인 파일을 쓴다.
 # 인덱스가 있으면 서버 시작 때 CLIP 모델(ViT-B-32)을 미리 불러오므로 healthcheck start-period를 길게 둔다.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    STOCK_CLIP_INDEX_PATH=/data/clip_index.npz
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 COPY requirements.txt .
