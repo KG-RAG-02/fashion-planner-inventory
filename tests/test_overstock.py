@@ -12,7 +12,6 @@ from stock_agent.overstock import (
     get_sales_trend,
     normalize_color,
     rank_overstock,
-    summarize_attributes,
     trend_ratio,
 )
 from stock_agent.season import map_season
@@ -155,25 +154,6 @@ def test_rank_weights_change_order():
     only_stock = {"stock_value": 1, "low_sell_through": 0, "declining_trend": 0, "season_share": 0}
     top = rank_overstock(_cand(), n=4, weights=only_stock)
     assert list(top["article_id"][:2]) == ["A", "C"]  # 동점은 article_id 순
-
-
-# ---- 6. 요약
-def test_summarize_attributes():
-    top = pd.DataFrame({
-        "kf_area": ["하의", "하의", "아우터"],
-        "kf_category": ["청바지", "스커트", "재킷"],
-        "kf_color": ["스카이블루", "그레이", "베이지"],
-        "materials": [["데님", "면"], [], ["면"]],
-        "fit": ["와이드", None, None],
-        "stock_qty": [100, 50, 30],
-    })
-    s = summarize_attributes(top)
-    assert s["n_items"] == 3 and s["total_stock_qty"] == 180
-    assert s["material"] == {"면": 2, "데님": 1}
-    assert s["fit"] == {"정보 없음": 2, "와이드": 1}
-    assert s["area"] == {"하의": 2, "아우터": 1}
-
-
 # ---- 3·4 SQL: PC(duckdb 있음)에서만 실행
 
 
@@ -191,7 +171,6 @@ def test_get_sales_trend(con):
     df = get_sales_trend(con, ["a1", "a4", "a5"], weeks=4).set_index("article_id")
     assert df.loc["a1", "recent_sold"] == 1 and df.loc["a1", "prev_sold"] == 1   # 9/20 vs 8/1
     assert df.loc["a4", "recent_sold"] == 0 and df.loc["a4", "prev_sold"] == 1
-    assert df.loc["a5", "trend"] == -1.0
 
 
 # ---- 또래 대비 추세 + 판매 적으면 중립
@@ -211,7 +190,7 @@ def test_peer_relative_trend():
     assert abs(out.loc["x1", "trend"]) < 0.25 and out.loc["x1", "trend_raw"] == -0.7
     # x2는 그대로인데 또래가 줄었으니 상대적으로 좋음(+)
     assert out.loc["x2", "trend"] > 0.5
-    # 0·0, 1·2는 판매가 적어 중립: 예전 규칙이면 -1 이었음
+    # 0·0, 1·2는 판매가 적어 중립(trend 0). trend_raw는 -1
     assert out.loc["x3", "trend"] == 0 and out.loc["x3", "trend_raw"] == -1
     assert out.loc["x3", "trend_basis"] == "too_few_sales" and out.loc["x4", "trend"] == 0
     assert out.loc["x1", "trend_basis"] == "peer_relative"

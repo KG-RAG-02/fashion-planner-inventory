@@ -1,9 +1,8 @@
 """Cloudflare R2 object access for the stock database and product images.
 
-R2 uses its S3-compatible API. Credentials are read from environment variables;
-the historical ``Access Key ID`` / ``Secret Access Key`` dotenv names are
-accepted temporarily so existing local setups can be migrated without copying
-secret values into source files.
+R2 uses its S3-compatible API. Credentials are read from environment variables
+(``R2_ACCESS_KEY_ID`` / ``R2_SECRET_ACCESS_KEY``; the Cloudflare dashboard labels
+``Access Key ID`` / ``Secret Access Key`` are also accepted as dotenv names).
 """
 
 from __future__ import annotations
@@ -36,6 +35,8 @@ class R2Settings:
     secret_access_key: str = field(repr=False)
     image_prefix: str = ""
     endpoint: str = ""
+    clip_index_key: str = ""          # 선택: 재고 CLIP 인덱스(npz) 객체 key
+    snap_image_prefix: str = ""       # 선택: 무신사 스냅 착샷 JPEG prefix (<prefix>/<revision>/<row>.jpg)
 
     @property
     def endpoint_url(self) -> str:
@@ -72,6 +73,8 @@ class R2Settings:
             secret_access_key=values["R2_SECRET_ACCESS_KEY"],
             image_prefix=os.environ.get("R2_IMAGE_PREFIX", "").strip().strip("/"),
             endpoint=endpoint,
+            clip_index_key=os.environ.get("R2_CLIP_INDEX_KEY", "").strip().lstrip("/"),
+            snap_image_prefix=os.environ.get("R2_SNAP_IMAGE_PREFIX", "").strip().strip("/"),
         )
 
 
@@ -184,6 +187,7 @@ class R2ObjectStore:
         self._image_lock = threading.Lock()
         self._image_notes: list[str] = []
         self.database_metadata: dict = {}
+        self.clip_index_metadata: dict = {}
 
     @property
     def images_configured(self) -> bool:
@@ -250,6 +254,21 @@ class R2ObjectStore:
                     self._image_notes.append(self.IMAGE_CACHE_NOTE)
         return raw
 
+    def fetch_image(self, article_id: str) -> bytes | None:
+        """R2에서 이미지 1장을 받는다(캐시에 저장하지 않음). 없으면 None. CLIP 인덱스 만들기용."""
+        return self._fetch_image(self.object_key_for_image(article_id))
+
+    def fetch_snap_image(self, image_ref: str) -> bytes | None:
+        """무신사 스냅 착샷 image_ref(hf://…musinsa-snap-new@<rev>#row=<n>) → R2 <snap prefix>/<rev>/<n>.jpg.
+
+        prefix가 없거나 참조를 해석할 수 없거나 객체가 없으면(다른 버전 등) None. 캐시에 저장하지 않는다.
+        """
+        from stock_agent.snap_image import snap_object_key
+        if not self.settings.snap_image_prefix:
+            return None
+        key = snap_object_key(self.settings.snap_image_prefix, image_ref)
+        return None if key is None else self._fetch_image(key)
+
     def _fetch_image(self, key: str) -> bytes | None:
         try:
             response = self.client.get_object(Bucket=self.settings.bucket, Key=key)
@@ -300,7 +319,25 @@ class R2ObjectStore:
     def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25,
                          *, allow_download: bool = True) -> tuple[Path, str]:
         """Download the configured DB once per object version to an atomic cache file."""
-        bucket, key = self.settings.bucket, self.settings.db_key
+        path, version, meta = self._prepare_object(self.settings.db_key, "stock", ".duckdb", "R2 DB",
+                                                   attempts, backoff_seconds, allow_download)
+        self.database_metadata = meta
+        return path, version
+
+    def prepare_clip_index(self, attempts: int = 3, backoff_seconds: float = 0.25,
+                           *, allow_download: bool = True) -> tuple[Path, str]:
+        """재고 CLIP 인덱스(R2_CLIP_INDEX_KEY)를 DB와 같은 방식으로 캐시에 받는다 (객체 버전마다 한 번)."""
+        if not self.settings.clip_index_key:
+            raise StorageConfigurationError("R2_CLIP_INDEX_KEY가 설정되지 않았습니다")
+        path, version, meta = self._prepare_object(self.settings.clip_index_key, "clip-index", ".npz",
+                                                   "R2 CLIP 인덱스", attempts, backoff_seconds, allow_download)
+        self.clip_index_metadata = meta
+        return path, version
+
+    def _prepare_object(self, key: str, stem: str, suffix: str, label: str, attempts: int,
+                        backoff_seconds: float, allow_download: bool) -> tuple[Path, str, dict]:
+        """객체 1개를 버전마다 한 번만 받아 cache_dir/<stem>-<sha256(bucket/key/version)><suffix>에 둔다."""
+        bucket = self.settings.bucket
         last_error = None
         for attempt in range(attempts):
             try:
@@ -313,18 +350,17 @@ class R2ObjectStore:
                     raise StorageUnavailable("R2 객체 버전 정보를 확인할 수 없습니다")
                 version_tag = version or etag
                 identity = hashlib.sha256(f"{bucket}/{key}/{version_tag}".encode()).hexdigest()
-                target = self.cache_dir / f"stock-{identity}.duckdb"
-                self.database_metadata = {"version": version_tag, "etag": etag,
-                                          "size_bytes": content_length, "sha256": None,
-                                          "upstream_checksum_verified": False}
+                target = self.cache_dir / f"{stem}-{identity}{suffix}"
+                meta = {"version": version_tag, "etag": etag, "size_bytes": content_length, "sha256": None,
+                        "upstream_checksum_verified": False}
                 if target.is_file() and (content_length is None or target.stat().st_size == content_length):
                     sidecar = target.with_suffix(".sha256")
                     actual = file_sha256(target)
                     if sidecar.is_file() and sidecar.read_text().strip() == actual:
-                        self.database_metadata["sha256"] = actual
-                        return target, version_tag
+                        meta["sha256"] = actual
+                        return target, version_tag, meta
                 if not allow_download:
-                    raise StorageUnavailable("검증된 기존 DB cache가 없습니다. 자동 다운로드는 비활성화되어 있습니다")
+                    raise StorageUnavailable(f"검증된 기존 {label} cache가 없습니다. 자동 다운로드는 비활성화되어 있습니다")
                 fd, partial_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".part",
                                                     dir=target.parent)
                 os.close(fd)
@@ -339,17 +375,17 @@ class R2ObjectStore:
                     size = _read_stream(response["Body"], partial)
                     expected = response.get("ContentLength", content_length)
                     if expected is not None and size != expected:
-                        raise StorageUnavailable("R2 DB 다운로드 크기가 일치하지 않습니다")
+                        raise StorageUnavailable(f"{label} 다운로드 크기가 일치하지 않습니다")
                     os.replace(partial, target)
-                    self.database_metadata["sha256"] = _write_checksum(target)
+                    meta["sha256"] = _write_checksum(target)
                 finally:
                     partial.unlink(missing_ok=True)
-                return target, version_tag
+                return target, version_tag, meta
             except StorageUnavailable as exc:
                 last_error = exc
             except Exception as exc:
                 # Keep provider messages out of logs and API responses; they may contain URLs.
-                last_error = StorageUnavailable("R2 DB를 가져오지 못했습니다")
+                last_error = StorageUnavailable(f"{label}를 가져오지 못했습니다")
             if attempt + 1 < attempts:
                 time.sleep(backoff_seconds * (2 ** attempt))
-        raise last_error or StorageUnavailable("R2 DB를 가져오지 못했습니다")
+        raise last_error or StorageUnavailable(f"{label}를 가져오지 못했습니다")

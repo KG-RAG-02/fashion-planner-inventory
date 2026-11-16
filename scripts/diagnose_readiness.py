@@ -21,16 +21,16 @@ def main():
     from stock_agent.storage import R2Settings, file_sha256
     names = ("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "STOCK_AGENT_SERVICE_TOKEN", "R2_ACCOUNT_ID",
              "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT",
-             "R2_IMAGE_PREFIX", "STOCK_CACHE_DIR", "STOCK_DB_PATH", "LLM_API_KEY", "LLM_MODEL",
-             "LLM_TIMEOUT", "Access Key ID", "Secret Access Key")
+             "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_CACHE_DIR", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH",
+             "Access Key ID", "Secret Access Key")
     result = {"observed_at": datetime.now(timezone.utc).isoformat(),
               "dotenv_exists": Path(".env").is_file(), "dotenv_loaded_by_probe": False,
               "process_env_present": {key: bool(os.getenv(key)) for key in names},
               "dependencies": {key: bool(importlib.util.find_spec(key)) for key in
-                               ("duckdb", "fastapi", "httpx", "jsonschema", "boto3", "uvicorn", "openai")},
+                               ("duckdb", "fastapi", "httpx", "jsonschema", "boto3", "uvicorn", "open_clip", "torch")},
               "r2": {"configured": False, "reachable": None, "authenticated": None},
               "database": {"data_verified": False, "as_of": None, "synthetic": None},
-              "downloads": 0, "uploads": 0, "db_writes": 0, "provider_calls": 0}
+              "downloads": 0, "uploads": 0, "db_writes": 0}
     cache = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "stock-agent"))
     result["existing_cache_files"] = len(list(cache.glob("stock-*.duckdb"))) if cache.is_dir() else 0
     try:

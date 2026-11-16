@@ -1,12 +1,12 @@
 """과잉재고 분석 함수 (#E)
 
-호출 순서 (규칙 방식은 이 순서로 부른다. LLM agent는 llm_agent.py의 도구로 감싸 LLM이 골라 부른다)
-1. get_matching_categories  짝 카테고리
-2. get_matching_colors      조합 색상표로 어울리는 색
+호출 순서 (agent.run_trend가 이 순서로 부른다)
+1. resolve_pair_areas       짝 카테고리 (get_matching_categories의 교집합, 없으면 합집합)
+2. get_matching_colors      조합 색상표로 어울리는 색 (후보 0개면 any_matching_colors → 21색 전체로 완화)
 3. get_inventory_status     후보 상품 + 재고·판매율·시즌 판매 비중 (SQL)
 4. get_sales_trend          최근 4주 vs 직전 4주 (SQL)
-5. rank_overstock           네 지표 동일 가중 → 상위 N
-6. summarize_attributes     상위 N의 색·카테고리·소재·핏 분포
+   (착샷이 있으면 clip_matcher.clip_filter로 후보를 거름)
+5. rank_overstock           네 지표 동일 가중 → 순위
 
 SQL 값은 모두 파라미터로 넘긴다. DB는 읽기 전용 연결을 받는다.
 """
@@ -20,8 +20,6 @@ import pandas as pd
 
 from stock_agent.attributes import map_color
 from stock_agent.season import DATA_END, SeasonPeriod
-
-TOP_N = 50          # 순위·속성 요약을 보는 후보 수 (응답 상품은 그중 1위 1개, agent.OUTPUT_N)
 
 # ---------------------------------------------------------------- 1. 짝 카테고리
 
@@ -204,7 +202,7 @@ def get_matching_colors(trend_colors: list[str]) -> ColorMatch:
     - 21색마다 트렌드 색 몇 개와 어울리는지(조합표 v1) 센다.
     - 그 수가 가장 큰 색만 후보로 쓴다. 최대가 같은 색이 여러 개면 모두 쓴다.
       예) 트렌드 색 2개: 둘 다와 어울리는 색이 있으면 그 색만, 없으면 각각과 어울리는 색 전부
-    - 최대값은 항상 1 이상이라 후보가 비지 않는다(기준을 넓히는 단계가 필요 없음).
+    - 최대값은 항상 1 이상이라 찾을 색이 비지 않는다. 재고 후보가 0개일 때 넓히는 단계는 agent.run_trend.
     - 트렌드 색 개수 제한은 없다.
     - 기준 색 자체도 항상 찾는다(톤온톤, 2026-11-09 결정). colors = 어울리는 색 + 기준 색(어울리는 색에 없는 것만).
     순서: 처음 나온 순서 유지, 중복 제거.
@@ -227,6 +225,11 @@ def get_matching_colors(trend_colors: list[str]) -> ColorMatch:
     tone = [k for k in known if k not in matching]
     return ColorMatch(matching + tone, unknown, overlap, len(known), counts, matching, tone)
 
+
+
+def any_matching_colors(cm: ColorMatch) -> list[str]:
+    """완화한 색: 기준 색 하나라도와 어울리는 색 전부 + 기준 색 자체(톤온톤)."""
+    return list(cm.counts) + [k for k in cm.tone_on_tone if k not in cm.counts]
 
 # ---------------------------------------------------------------- 3. 후보 재고
 
@@ -346,7 +349,6 @@ def get_sales_trend(con, article_ids: list[str], weeks: int = 4) -> pd.DataFrame
         """, [mid, mid, start, DATA_END]).df()
     finally:
         con.unregister("trend_ids")
-    df["trend"] = [trend_ratio(r, p) for r, p in zip(df.recent_sold, df.prev_sold)]
     df.attrs["period"] = {"recent": (mid + timedelta(days=1), DATA_END), "prev": (start + timedelta(days=1), mid)}
     return df
 
@@ -356,11 +358,11 @@ def get_sales_trend(con, article_ids: list[str], weeks: int = 4) -> pd.DataFrame
 WEIGHTS = {"stock_value": 0.25, "low_sell_through": 0.25, "declining_trend": 0.25, "season_share": 0.25}
 
 
-def rank_overstock(cand: pd.DataFrame, n: int = TOP_N, weights: dict | None = None) -> pd.DataFrame:
+def rank_overstock(cand: pd.DataFrame, n: int | None = None, weights: dict | None = None) -> pd.DataFrame:
     """많이 남았는데 잘 안 팔리는 순서.
 
     cand 컬럼: article_id, stock_value_krw, sell_through, trend, season_share
-    각 지표를 후보 안 백분위(0~1)로 바꾼 뒤 가중 평균. 동점은 article_id 순.
+    각 지표를 후보 안 백분위(0~1)로 바꾼 뒤 가중 평균. 동점은 article_id 순. n=None이면 후보 전체.
     """
     w = weights or WEIGHTS
     if cand.empty:
@@ -377,25 +379,7 @@ def rank_overstock(cand: pd.DataFrame, n: int = TOP_N, weights: dict | None = No
     df["s_declining_trend"] = 1 - pct(df["trend"]) + 1 / len(df)
     df["s_season_share"] = pct(df["season_share_filled"])
     df["score"] = sum(w[k] * df[f"s_{k}"] for k in w) / sum(w.values())
-    df = df.sort_values(["score", "article_id"], ascending=[False, True]).head(n).reset_index(drop=True)
+    df = df.sort_values(["score", "article_id"], ascending=[False, True])
+    df = (df if n is None else df.head(n)).reset_index(drop=True)
     df["rank"] = range(1, len(df) + 1)
     return df
-
-
-# ---------------------------------------------------------------- 6. 속성 요약
-
-def summarize_attributes(top: pd.DataFrame) -> dict:
-    """상위 상품의 분포. 핏·색이 비어 있으면 '정보 없음'."""
-    def counts(s: pd.Series) -> dict:
-        return {str(k): int(v) for k, v in s.fillna("정보 없음").value_counts().items()}
-
-    mats = top["materials"].explode() if len(top) else pd.Series(dtype=object)
-    return {
-        "n_items": int(len(top)),
-        "total_stock_qty": int(top["stock_qty"].sum()) if len(top) else 0,
-        "area": counts(top["kf_area"]),
-        "category": counts(top["kf_category"]),
-        "color": counts(top["kf_color"]),
-        "material": counts(mats.dropna()) if len(mats) else {},
-        "fit": counts(top["fit"]),
-    }

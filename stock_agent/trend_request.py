@@ -1,6 +1,6 @@
 """02 트렌드 결과(TrendAnalysisResult) → 03 내부 요청 (2026-11-08 결정)
 
-02 쿼리 전처리·트렌드 에이전트가 자기 결과(trend_analysis_result_v1)를 그대로 03에 보낸다(push).
+오케스트레이터(Project_08)가 02 trend-analysis-agent 결과(trend_analysis_result_v1)를 그대로 03에 보낸다.
 03 바깥 입구(API·multi.run_request)는 이 형식만 받는다. 입구에서 이 함수로 내부 형식으로 바꾸고,
 안쪽 코드(변수 이름·타입)는 그대로 쓴다.
 

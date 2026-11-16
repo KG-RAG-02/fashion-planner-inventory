@@ -40,7 +40,6 @@ def test_request_example_in_docs_is_contract_example():
 
 
 @pytest.mark.parametrize("req", [
-    TREND_RESULT_EXAMPLE,                                               # LLM 없음 → SOURCE_UNAVAILABLE
     {**TREND_RESULT_EXAMPLE, "status": "no_results", "trends": []},     # 02 no_results
     {**TREND_RESULT_EXAMPLE, "status": "error", "trends": []},          # 02 error
     {**TREND_RESULT_EXAMPLE, "applied_filters": {**TREND_RESULT_EXAMPLE["applied_filters"], "season": None}},  # 시즌 없음
@@ -51,19 +50,25 @@ def test_real_responses_match_schema(req):
     assert errors(RES, run_request(req, con=None)) == []
 
 
+def test_real_ok_response_matches_schema(con, tmp_path):
+    r = run_request(TREND_RESULT_EXAMPLE, con, image_dir=str(tmp_path))
+    assert errors(RES, r) == [] and r["status"] in ("ok", "partial", "no_results")
+
+
 def test_snap_request_and_response_match_schema(con, tmp_path):
-    """무신사 스냅 착샷이 있는 02 결과 → 착샷 소재·핏 단계를 쓴 응답도 계약에 맞음 (작은 DB)"""
-    from stock_agent.llm import PolicyLLM
+    """무신사 스냅 착샷이 있는 02 결과 → CLIP 필터를 쓴 응답도 계약에 맞음 (작은 DB, 가짜 CLIP)"""
+    from stock_agent.clip_matcher import ClipInfo
     trend = json.loads(json.dumps(TREND_RESULT_EXAMPLE["trends"][0]))
     trend["items"][0]["similar_products"] = [
         {"product_id": "musinsa_snap:1", "name": "스냅", "brand": "Musinsa", "image_url": "https://img.example/s.jpg",
          "source": "musinsa_snap", "kind": "snap_garment", "score": 0.8}]
     req = {**TREND_RESULT_EXAMPLE, "trends": [trend]}
     assert errors(REQ, req) == []
-    answer = {"full_outfit": True, "garments": {"하의": {"visible": True, "materials": ["데님"], "fit": "와이드"},
-                                                "아우터": {"visible": False}}}
-    r = run_request(req, con, image_dir=str(tmp_path), llm=PolicyLLM(vision=[answer]))
+
+    def fake_clip(cand, ref):
+        return cand, ClipInfo(True, None, True, len(cand), len(cand), len(cand))
+    r = run_request(req, con, image_dir=str(tmp_path), clip_filter=fake_clip)
     assert errors(RES, r) == [] and r["status"] == "ok"
     s = r["trend_results"][0]["search"]
-    assert s["outfit_reference"]["status"] == "used" and s["attribute_tier"]["tier"] == "A"
+    assert s["outfit_reference"]["status"] == "used" and s["clip"]["applied"] is True
     assert "stock-agent:style_012:E-006" in r["trend_results"][0]["evidence_ids"]

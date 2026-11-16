@@ -2,7 +2,8 @@
 
   python -m stock_agent.server [--host 0.0.0.0]   run the API (port from service-manifest.json)
   python -m stock_agent.server --check-ready      exit 0 when GET /health/ready answers 200
-  python -m stock_agent.server --prepare-cache    data job: download the configured R2 DB into
+  python -m stock_agent.server --prepare-cache    data job: download the configured R2 DB (and the CLIP
+                                                  index when R2_CLIP_INDEX_KEY is set) into
                                                   STOCK_CACHE_DIR (checksummed), inspect it, report
 """
 from __future__ import annotations
@@ -23,17 +24,19 @@ def _report(report: dict, code: int) -> int:
 
 
 def prepare_cache() -> int:
-    """Download the configured R2 DB once, then inspect the cache file read-only.
+    """Download the configured R2 DB (and CLIP index) once, then inspect the cache files read-only.
 
     The API never downloads at startup; this is the separate data job that fills its cache.
     Writes ``stock-<sha256(bucket/key/version)>.duckdb`` plus the ``.sha256`` sidecar into
     ``STOCK_CACHE_DIR`` (an already verified version is reused), prints one JSON report
     (DuckDB library version, the file's storage version, readiness) without credentials,
     endpoint, bucket or key, and returns 0 only when the database is ready.
+    With ``R2_CLIP_INDEX_KEY`` it also caches ``clip-index-<sha256>.npz`` and reports ``clip_index``
+    (version, size, loaded, n_indexed); a missing or unreadable index fails the job.
     """
     import duckdb
 
-    from stock_agent.llm import read_dotenv
+    from stock_agent.env import read_dotenv
     from stock_agent.readiness import database_storage_info, inspect_database
     from stock_agent.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
 
@@ -60,8 +63,34 @@ def prepare_cache() -> int:
     finally:
         con.close()
     report["readiness"] = {k: v for k, v in readiness.items() if k != "schema"}
-    report["status"] = "ready" if readiness["db_ready"] else "not_ready"
-    return _report(report, 0 if readiness["db_ready"] else 1)
+    clip_ok = True
+    if store.settings.clip_index_key:
+        report["clip_index"], clip_ok = _prepare_clip_index(store)
+    ready = readiness["db_ready"] and clip_ok
+    report["status"] = "ready" if ready else "not_ready"
+    return _report(report, 0 if ready else 1)
+
+
+def _prepare_clip_index(store) -> tuple[dict, bool]:
+    """R2 CLIP 인덱스를 캐시에 받고 규칙이 맞는지 열어 본다."""
+    from stock_agent.storage import StorageUnavailable
+    try:
+        path, version = store.prepare_clip_index(allow_download=True)
+    except (StorageUnavailable, OSError) as exc:
+        return {"status": "error", "reason": type(exc).__name__, "message": str(exc)}, False
+    info = {"version": version, "size_bytes": path.stat().st_size, "sha256": store.clip_index_metadata.get("sha256")}
+    try:
+        import numpy as np
+        from stock_agent.clip_matcher import INDEX_RULE
+        with np.load(path, allow_pickle=False) as data:
+            rule = str(data["rule"]) if "rule" in data.files else None
+            n = int(len(data["article_ids"]))
+    except Exception as exc:
+        return {**info, "status": "error", "reason": "clip_index_open_failed", "message": type(exc).__name__}, False
+    if rule != INDEX_RULE:
+        return {**info, "status": "error", "reason": "clip_index_rule_mismatch", "rule": rule,
+                "expected_rule": INDEX_RULE}, False
+    return {**info, "status": "ready", "rule": rule, "n_indexed": n}, True
 
 
 def main(argv: list[str] | None = None) -> int:

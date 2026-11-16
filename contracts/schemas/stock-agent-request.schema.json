@@ -273,7 +273,7 @@
     },
     "trend_item": {
       "type": "object",
-      "description": "03이 쓰는 Item 필드. 소재·핏은 vocabulary_v1 값만 쓰고, approx에 든 값은 쓰지 않는다(limitations에 적음).",
+      "description": "03이 쓰는 Item 필드: category_major·category_minor(트렌드 카테고리), colors(트렌드 색), gender(요청 성별이 없을 때 고객군), similar_products(snap_garment 착샷, 없으면 catalog_item 상품 이미지 → CLIP 유사도 필터). materials·fit·approx는 받기만 하고 재고를 거르는 데 쓰지 않는다.",
       "properties": {
         "category_major": {
           "anyOf": [

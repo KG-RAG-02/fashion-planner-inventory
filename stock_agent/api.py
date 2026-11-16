@@ -5,13 +5,13 @@
                                 products[i] ↔ trend_results[i] (stock_agent/multi.py)
                                 오류 code는 팀 공통 코드, HTTP 번호는 stock_agent/errors.py
   GET  /health/live             API 생존
-  GET  /health/ready, /health    DB schema·sample snapshot readiness
-  GET  /docs                    설명서 (요청 예시 4개, 응답 200·400·500 형식)
+  GET  /health/ready, /health    DB schema·sample snapshot readiness, CLIP 인덱스 상태
+  GET  /docs                    설명서 (요청 예시 5개, 응답 200·400·500·503·504 형식)
 
 실행 (로컬):   uvicorn stock_agent.api:app --port 8002
 실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
               없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
-레거시 경로는 기존 클라이언트 호환을 위해 유지한다.
+레거시 경로(/v1/inventory-products)도 canonical 경로와 같은 인증·처리로 제공한다.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from stock_agent.llm import read_dotenv
+from stock_agent.env import read_dotenv
 
 # Load .env before any module snapshots path or storage defaults.
 read_dotenv()
@@ -39,8 +39,6 @@ from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
 from stock_agent.errors import http_status
 from stock_agent.multi import error_response, run_request
 from stock_agent.images import DEFAULT_IMAGE_DIR
-from stock_agent.llm import POLICY_LIMITATION, llm_provider, load_llm
-from stock_agent.llm import UnavailableLLM
 from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, InventoryRequest, ErrorResponse,
                                 HandoffRequest, HandoffResponse)
 from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
@@ -60,8 +58,8 @@ def handoff_timeout_seconds() -> float:
     """Whole-request deadline of the two producer routes: ``STOCK_HANDOFF_TIMEOUT_SECONDS`` (default 60).
 
     Blank, non-numeric or out-of-range values (not in (0, 600]) mean the default. The agent processes
-    trends one after another (about 10 s per trend with an LLM), so a caller that sends many trends
-    needs a longer deadline; its own read timeout must stay above this value.
+    trends one after another (DB queries, CLIP snap image download and embedding per trend), so a caller
+    that sends many trends may need a longer deadline; its own read timeout must stay above this value.
     """
     raw = os.environ.get("STOCK_HANDOFF_TIMEOUT_SECONDS", "").strip()
     try:
@@ -115,11 +113,9 @@ async def lifespan(app: FastAPI):
         state["object_store"] = None
         state["db_error"] = type(e).__name__
         state["readiness"] = {"db_ready": False, "reason": type(e).__name__}
-    state["llm"] = load_llm()       # 아직 연결 전이면 None → 트렌드마다 SOURCE_UNAVAILABLE(reason=no_llm)
-    state["llm_provider"] = llm_provider()
+    state["clip"] = warm_up_clip()   # 인덱스·모델을 미리 불러옴. 없으면 CLIP 필터는 요청마다 no_index로 기록
     # 결과를 읽는 사람이 실행 방식을 알 수 있게 trend_results[].limitations에 붙이는 문장
-    state["runtime_notes"] = ([POLICY_LIMITATION] if state["llm_provider"] == "policy" else []) + \
-        ([FIXTURE_LIMITATION] if state["readiness"].get("synthetic_fixture") else [])
+    state["runtime_notes"] = [FIXTURE_LIMITATION] if state["readiness"].get("synthetic_fixture") else []
     yield
     con = state.pop("con", None)
     if con is not None:
@@ -129,7 +125,7 @@ async def lifespan(app: FastAPI):
     state.pop("object_store", None)
     state.pop("readiness", None)
     state.pop("db_mode", None)
-    state.pop("llm_provider", None)
+    state.pop("clip", None)
     state.pop("runtime_notes", None)
 
 
@@ -142,14 +138,35 @@ app = FastAPI(
 )
 
 
-def _llm_status(llm) -> dict:
-    """health에 보일 LLM 상태. 키 값은 보이지 않는다. 키가 맞는지는 실제 요청에서 알 수 있다."""
-    from stock_agent.llm import UnavailableLLM
-    if llm is None:
-        return {"llm_connected": False, "llm_model": None, "llm_error": "LLM_API_KEY 없음"}
-    if isinstance(llm, UnavailableLLM):
-        return {"llm_connected": False, "llm_model": None, "llm_error": "LLM 설정을 사용할 수 없습니다"}
-    return {"llm_connected": True, "llm_model": getattr(llm, "model", None), "llm_error": None}
+def clip_index_path():
+    """CLIP 인덱스 경로. STOCK_CLIP_INDEX_PATH → (R2 모드) R2_CLIP_INDEX_KEY의 검증된 캐시 → 기본 data/clip_index.npz.
+
+    서버는 시작할 때 인덱스를 내려받지 않는다. 캐시는 --prepare-cache가 DB와 함께 채운다.
+    R2_CLIP_INDEX_KEY가 있는데 캐시가 없으면 None (인덱스 없음 → 요청마다 no_index).
+    """
+    from stock_agent import clip_matcher
+    local = os.environ.get("STOCK_CLIP_INDEX_PATH", "").strip()
+    if local:
+        return local
+    store = state.get("object_store")
+    if store is not None and store.settings.clip_index_key:
+        try:
+            return store.prepare_clip_index(allow_download=False)[0]
+        except Exception:
+            return None
+    return clip_matcher.DEFAULT_INDEX_PATH
+
+
+def warm_up_clip() -> dict:
+    """CLIP 인덱스·모델 미리 불러오기. open_clip이 없는 등 실패해도 서버는 뜬다."""
+    try:
+        from stock_agent import clip_matcher
+        clip_matcher.configure(clip_index_path())
+        store = state.get("object_store")
+        clip_matcher.configure_snap_images(store if store is not None and store.settings.snap_image_prefix else None)
+        return clip_matcher.warm_up()
+    except Exception:
+        return {"clip_index_loaded": False, "clip_n_indexed": 0}
 
 
 def _json(resp: dict, status_code: int = 200) -> JSONResponse:
@@ -211,7 +228,7 @@ def _envelope(request_id: str, result: dict) -> dict:
 
 
 def _with_runtime_notes(result: dict) -> dict:
-    """Append runtime-mode notes (e.g. STOCK_LLM_PROVIDER=policy) to every trend result's limitations."""
+    """Append runtime-mode notes (e.g. synthetic fixture DB) to every trend result's limitations."""
     notes = state.get("runtime_notes") or []
     for tr in result.get("trend_results") or []:
         if notes and isinstance(tr, dict) and isinstance(tr.get("limitations"), list):
@@ -225,7 +242,7 @@ def _run_inventory(request: Any) -> dict:
     try:
         _, upstream, _ = from_trend_result(req)
     except (ValueError, TypeError):
-        return run_request(req, None)  # Domain validation precedes DB/LLM access.
+        return run_request(req, None)  # Domain validation precedes DB access.
     if upstream in {"no_results", "error"} or not req.get("trends"):
         return run_request(req, None)
     if state.get("con") is None or not state.get("readiness", {}).get("db_ready"):
@@ -237,7 +254,8 @@ def _run_inventory(request: Any) -> dict:
         try:
             store = state.get("object_store")
             image_source = store if store is not None and store.images_configured else IMAGE_DIR
-            return _with_runtime_notes(run_request(req, con, image_dir=image_source, llm=state.get("llm")))
+            return _with_runtime_notes(run_request(req, con, image_dir=image_source,
+                                                   manifest_id=state.get("db_version")))
         except StorageUnavailable:
             return _record_input_provenance(error_response(req, "SOURCE_UNAVAILABLE", "이미지 자료원을 조회하지 못했습니다.",
                                                           reason="image_source_unavailable"), req)
@@ -304,7 +322,7 @@ async def _handoff_deadline(request: Request, call_next):
             rid = candidate if isinstance(candidate, str) and candidate.strip() else None
         except Exception:
             pass
-        result = error_response({"request_id": rid}, "llm_failed", f"HTTP 요청 제한 시간({HANDOFF_TIMEOUT_SECONDS:g}초)을 초과했습니다.", reason="timeout")
+        result = error_response({"request_id": rid}, "timeout", f"HTTP 요청 제한 시간({HANDOFF_TIMEOUT_SECONDS:g}초)을 초과했습니다.")
         return _json(_envelope(rid, result) if request.url.path == HANDOFF_PATH and rid else result, 504)
 
 
@@ -323,10 +341,8 @@ def health():
     return _json({"status": "ok" if ok else "error", "api_alive": True, "agent_id": AGENT_ID,
                   "db": state.get("db_mode", "cloudflare-r2"), "db_version": state.get("db_version"),
                   **ready, "images_configured": images_remote or os.path.isdir(IMAGE_DIR),
-                  "image_objects_verified": False, "llm_authenticated": None,
-                  "llm_configured": state.get("llm") is not None and not isinstance(state.get("llm"), UnavailableLLM),
-                  "llm_provider": state.get("llm_provider"),
-                  **_llm_status(state.get("llm"))}, 200 if ok else 503)
+                  "image_objects_verified": False,
+                  **state.get("clip", {"clip_index_loaded": False, "clip_n_indexed": 0})}, 200 if ok else 503)
 
 
 @app.post("/v1/inventory-products", responses=RESPONSES, summary="트렌드마다 과잉재고 1위 상품 1개 (사진·추천 이유 포함)")

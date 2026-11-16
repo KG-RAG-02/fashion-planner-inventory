@@ -1,11 +1,21 @@
-"""stock-agent (#F) — 트렌드 1개 → 과잉재고 상품 1개 (규칙 방식 + 공통 함수)
-
-API는 LLM agent(llm_agent.py)를 쓴다. 이 파일의 run()은 규칙 방식(기준선·정확도 검증용)이고,
-입력 검사(check_common)·응답 조립(build_product, build_reason, _trend_result 등)은 LLM agent도 같이 쓴다.
+"""stock-agent (#F) — 트렌드 1개 → 과잉재고 상품 1개 (규칙 기반)
 
 트렌드 1개(02 결과의 trends[] 한 항목)와 02의 사용자 조건(시즌·카테고리·색·성별)을 받아
-분석 함수 6개를 정해진 순서로 실행하고, 상품 1개(product)와 그 트렌드의 결과(trend_result)를 돌려준다.
+분석 함수를 정해진 순서로 실행하고, 상품 1개(product)와 그 트렌드의 결과(trend_result)를 돌려준다.
 트렌드가 여러 개면 multi.py가 이 run()을 트렌드 수만큼 돌려 이어 붙인다.
+
+처리 순서 (run_trend)
+    1. 짝 영역: 사용자 카테고리의 짝(여러 개면 교집합, 없으면 합집합) → 없으면 트렌드 카테고리의 짝 → 없으면 전체 영역.
+       제외 카테고리는 영역·세부 카테고리 단위로 뺀다
+    2. 색: 기준 색(사용자 색 또는 트렌드 색)과 어울리는 색 중 가장 많이 겹치는 색 + 기준 색 자체(톤온톤)
+    3. 재고 조회 (짝 영역 · 색 · 시즌 · 고객군 · 재고 > 0 · 제외 카테고리)
+       후보가 0개면 트렌드 색 조건만 완화해 다시 조회: 하나라도 어울리는 색 → 트렌드 색 조건 풀기(21색 전체).
+       사용자 색·사용자 카테고리는 완화하지 않는다
+    4. 최근 판매 추세 (같은 영역 후보 대비)
+    5. 기준 이미지(무신사 스냅 착샷, 없으면 무신사 상품 이미지)가 있으면 소재·질감·디테일 CLIP 유사도 필터
+       (흑백 이미지 + 소재·디테일 텍스트, 색 제외. snap.py, clip_matcher.py)
+    6. 과잉재고 순위 → H&M 사진이 있는 최상위 1개
+    7. 추천 이유(reason), 템플릿 summary, 근거(evidence)
 
 요청
     {"request_id": "req_123", "season": {"year": 2027, "season": "SS", "origin": "user_requested"},
@@ -15,23 +25,20 @@ API는 LLM agent(llm_agent.py)를 쓴다. 이 파일의 run()은 규칙 방식(�
 
 응답
     product        상품 정보만 (style_id, sku_ids, category, season, attributes, inventory, image). 못 고르면 null
-    trend_result   style, status, product_index, rank, reason, summary, attribute_summary, search, limitations, errors
+    trend_result   style, status, product_index, rank, reason, summary, search, limitations, errors
     season_basis   대신 쓴 과거 시즌 기간과 시즌 출처
-    evidence       E-001~E-005 데이터 출처
+    evidence       E-001~E-006 데이터 출처
     errors         공통 입력 오류만 (트렌드별 오류는 trend_result.errors)
 
-summary는 Summarizer가 쓴다. 지금은 TemplateSummarizer(LLM 없음).
-어떤 Summarizer든 summary 속 숫자는 facts에 있는 숫자여야 하며, 아니면 템플릿으로 되돌린다.
+summary는 정해진 문장 틀(template_summary)로 만든다. 문장 속 숫자는 모두 facts에서 가져온다.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Protocol
 
 import pandas as pd
 
@@ -41,9 +48,9 @@ from stock_agent.overstock import (
     COLOR_PAIRS,
     KF_COLORS,
     MIN_TREND_SOLD,
-    TOP_N,
     get_inventory_status,
     areas_of,
+    any_matching_colors,
     get_matching_colors,
     get_sales_trend,
     normalize_color,
@@ -51,16 +58,17 @@ from stock_agent.overstock import (
     rank_overstock,
     resolve_pair_areas,
     split_exclude,
-    summarize_attributes,
 )
 from stock_agent.season import DATA_END, SEASON_LABELS_KO, map_season
+from stock_agent.snap import pick_reference
+from stock_agent.snap import reference as snap_reference
 from stock_agent.synthetic import VERSION as STOCK_VERSION
 from stock_agent.trend_input import USER_COLOR_BASES, TrendInput, read_trend
 
 SCHEMA_VERSION = "1.0"
-AGENT_ID = "stock-agent"      # 2026-11-06 변경 (기존 기본값 own-product-inventory-agent)
+AGENT_ID = "stock-agent"
 NS = "stock-agent"            # evidence_id 앞부분: stock-agent:E-001
-# 시즌은 02 쿼리 전처리가 정해서 준다(미입력이면 02가 다음 시즌으로 정함, origin=default_next).
+# 시즌은 02 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).
 # 03은 계산하지 않고 받은 값과 출처를 그대로 쓴다.
 REQUIRED = ("request_id", "season")
 SEASON_SOURCES = ("user", "inferred", "unknown")   # 응답 season_basis.source 값
@@ -73,70 +81,28 @@ USER_COLOR_RULE = "조합표 v1, 사용자 색과 어울리는 색 중 가장 �
 
 # ---------------------------------------------------------------- summary
 
-class Summarizer(Protocol):
-    def summarize(self, facts: dict) -> str: ...
-
-
-class TemplateSummarizer:
-    """LLM 없이 정해진 문장 틀로 summary를 만든다."""
-
-    def summarize(self, f: dict) -> str:
-        areas = ", ".join(f["areas"])
-        basis = f.get("area_basis", "user")
-        if basis == "all":
-            where = f"카테고리 미지정으로 전체 영역({areas})"
-        elif basis == "trend":
-            where = f"트렌드 카테고리({', '.join(f['given_areas'])})의 짝 카테고리({areas})"
-        else:
-            where = f"{f['target']} 기획용 짝 카테고리({areas})"
-        if f["n_items"] == 0:
-            return f"{f['season_label']} {where}에서 조건에 맞는 과잉재고를 찾지 못했습니다."
-        label = f.get("color_label", "트렌드 색")
-        rule = ("하나라도 어울리는 색·같은 색" if f.get("color_mode") == "any"
-                else "어울리는 색 중 가장 많이 겹치는 색·같은 색")
-        color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
-                      else "트렌드 색 조건을 풀어 색 조건 없이" if f.get("colors_relaxed")
-                      else "트렌드 색이 없어 색 조건 없이")
-        text = (f"{f['season_label']} {where} 중 {color_part} 재고 후보 {f['n_candidates']:,}개를 비교해, "
-                f"{f['top1_rank']}위 {f['top1_category']}({f['top1_color']}) 재고 {f['top1_stock_qty']:,}개"
-                f"(가상 재고)를 골랐습니다.")
-        return text + (f" {f['reason_detail']}" if f.get("reason_detail") else "")
-
-
-_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
-
-
-def numbers_in(text: str) -> set[str]:
-    return {m.replace(",", "") for m in _NUM.findall(text)}
-
-
-def allowed_numbers(facts: dict) -> set[str]:
-    out: set[str] = set()
-
-    def walk(v):
-        if isinstance(v, bool):
-            return
-        if isinstance(v, (int, float)):
-            out.add(str(int(v)) if float(v).is_integer() else str(v))
-        elif isinstance(v, str):
-            out.update(numbers_in(v))
-        elif isinstance(v, (list, tuple)):
-            for x in v:
-                walk(x)
-        elif isinstance(v, dict):
-            for x in v.values():
-                walk(x)
-    walk(facts)
-    return out
-
-
-def safe_summary(summarizer: Summarizer, facts: dict) -> tuple[str, list[str]]:
-    """summary 속 숫자를 facts와 대조. 맞지 않으면 템플릿으로 되돌리고 경고."""
-    text = summarizer.summarize(facts)
-    extra = numbers_in(text) - allowed_numbers(facts)
-    if extra:
-        return TemplateSummarizer().summarize(facts), [f"summary에 근거 없는 숫자 {sorted(extra)}가 있어 템플릿 문장으로 바꿨습니다."]
-    return text, []
+def template_summary(f: dict) -> str:
+    """정해진 문장 틀로 summary를 만든다. 숫자는 facts에 있는 값만 쓴다."""
+    areas = ", ".join(f["areas"])
+    basis = f.get("area_basis", "user")
+    if basis == "all":
+        where = f"카테고리 미지정으로 전체 영역({areas})"
+    elif basis == "trend":
+        where = f"트렌드 카테고리({', '.join(f['given_areas'])})의 짝 카테고리({areas})"
+    else:
+        where = f"{f['target']} 기획용 짝 카테고리({areas})"
+    if f["n_items"] == 0:
+        return f"{f['season_label']} {where}에서 조건에 맞는 과잉재고를 찾지 못했습니다."
+    label = f.get("color_label", "트렌드 색")
+    rule = ("하나라도 어울리는 색·같은 색" if f.get("color_mode") == "any"
+            else "어울리는 색 중 가장 많이 겹치는 색·같은 색")
+    color_part = (f"{label}({', '.join(f['trend_colors'])})과 {rule}의" if f["trend_colors"]
+                  else "트렌드 색 조건을 풀어 색 조건 없이" if f.get("colors_relaxed")
+                  else "트렌드 색이 없어 색 조건 없이")
+    text = (f"{f['season_label']} {where} 중 {color_part} 재고 후보 {f['n_candidates']:,}개를 비교해, "
+            f"{f['top1_rank']}위 {f['top1_category']}({f['top1_color']}) 재고 {f['top1_stock_qty']:,}개"
+            f"(가상 재고)를 골랐습니다.")
+    return text + (f" {f['reason_detail']}" if f.get("reason_detail") else "")
 
 
 # ---------------------------------------------------------------- 공통 입력 (02)
@@ -160,7 +126,7 @@ def read_season(value) -> tuple[str | None, str]:
 
 # 시즌이 없을 때 원인을 단정하지 않고 확인할 곳을 알려 준다
 # (02가 안 만듦 / 필드 이름·위치가 달라 03이 못 알아봄)
-SEASON_HINT = ("시즌은 02 쿼리 전처리가 정해 applied_filters.season에 담고, 입구가 내부 형식의 season으로 옮깁니다. "
+SEASON_HINT = ("시즌은 02 결과의 applied_filters.season으로 받고, 입구가 내부 형식의 season으로 옮깁니다. "
                "02 결과에 시즌이 있는지, 내부 형식이면 필드 이름이 season인지 확인하세요.")
 
 
@@ -317,7 +283,7 @@ def trend_common(c: Common, trend: dict) -> Common:
 
 
 def user_color_notes(ti) -> list[str]:
-    """사용자 색을 어떻게 썼는지 (limitations). 규칙 방식·LLM agent가 같은 문장을 쓴다.
+    """사용자 색을 어떻게 썼는지 (limitations).
 
     트렌드 아이템 색이 비어 있는 것(02가 색을 확인하지 못함)과 색은 있는데 안 겹치는 것을 나눠 적는다.
     """
@@ -394,20 +360,27 @@ def same_trend_colors(product_color: str, trend_colors: list[str]) -> list[str]:
 
 
 def _evidence(now: str, period, areas, colors, trend_period, with_images: bool = False,
-              outfit_ref: dict | None = None) -> list[dict]:
-    """데이터 출처. outfit_ref: LLM agent가 소재·핏 기준으로 쓴 무신사 스냅 착샷 (E-006, 쓴 경우만)."""
+              outfit_ref: dict | None = None, manifest_id: str | None = None) -> list[dict]:
+    """데이터 출처. outfit_ref: CLIP 유사도 필터의 기준 이미지(무신사 착샷·상품 이미지) (E-006, 쓴 경우만).
+
+    manifest_id: E-001~E-005(DB·H&M 사진)를 계산한 DB 버전. E-006(외부 이미지)은 null.
+    """
     common = {"published_at": None, "observed_at": DATA_END.isoformat(), "fetched_at": now,
-              "permission_status": LICENSE, "manifest_id": "TBD"}
+              "permission_status": LICENSE, "manifest_id": manifest_id}
     image_ev = [{"evidence_id": f"{NS}:E-005", "source_id": "hm_images", "source_type": "internal_product_image",
                  "source_name": "H&M 상품 이미지", "data_nature": "fact",
                  "locator": "images/<article_id 앞 3자리>/<article_id>.jpg", **common}] if with_images else []
     if outfit_ref:
+        catalog = outfit_ref.get("kind") == "catalog_item"
         image_ev.append({
-            "evidence_id": f"{NS}:E-006", "source_id": outfit_ref.get("source") or "musinsa_snap",
-            "source_type": "external_outfit_image",
-            "source_name": "무신사 스냅 착샷 (02 similar_products, 함께 입은 옷의 소재·핏은 LLM 이미지 판단)",
-            "data_nature": "fact", "locator": outfit_ref.get("image_url"),
-            **{**common, "observed_at": None, "permission_status": "02 트렌드 결과의 무신사 이미지 (팀 확인: OpenAI 전송 허용)"}})
+            "evidence_id": f"{NS}:E-006",
+            "source_id": outfit_ref.get("source") or ("musinsa_catalog" if catalog else "musinsa_snap"),
+            "source_type": "external_product_image" if catalog else "external_outfit_image",
+            "source_name": ("무신사 상품 이미지" if catalog else "무신사 스냅 착샷")
+                           + " (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
+            "data_nature": "fact", "locator": outfit_ref.get("image_url") or outfit_ref.get("image_ref"),
+            **{**common, "observed_at": None, "manifest_id": None,
+               "permission_status": "02 트렌드 결과로 받은 이미지, 비상업적 연구용"}})
     return [
         {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",
          "source_name": f"가상 재고 ({STOCK_VERSION})", "data_nature": "sample",
@@ -524,7 +497,7 @@ def build_product(r, period, image: dict | None = None) -> dict:
 
 
 def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=None, reason=None,
-                  attribute_summary=None, limitations=None, errors=None) -> dict:
+                  limitations=None, errors=None) -> dict:
     return {
         "style": {"id": ti.style_id, "name": ti.name},
         "status": status,
@@ -532,7 +505,6 @@ def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=
         "rank": rank,
         "reason": reason,
         "summary": summary,
-        "attribute_summary": attribute_summary,
         "search": search,
         "limitations": limitations or [],
         "errors": errors or [],
@@ -566,7 +538,7 @@ def _pick_with_images(ranked: pd.DataFrame, image_dir, limitations: list[str]):
 
 
 def _to_vocab_frame(cand: pd.DataFrame) -> pd.DataFrame:
-    """예전 이름으로 만든 DB도 vocabulary_v1 이름으로 (티셔츠, 울/캐시미어 등)."""
+    """DB 값을 vocabulary_v1 이름으로 (티셔츠, 울/캐시미어 등)."""
     if cand.empty:
         return cand
     cand = cand.copy()
@@ -608,8 +580,8 @@ def pairing_notes(am, areas: list[str], c: Common) -> list[str]:
 
 # ---------------------------------------------------------------- 실행
 
-def run(request: dict, con, summarizer: Summarizer | None = None,
-        now: datetime | None = None, image_dir: str | None = None) -> dict:
+def run(request: dict, con, now: datetime | None = None, image_dir: str | None = None, clip_filter=None,
+        manifest_id: str | None = None) -> dict:
     """요청 1건(트렌드 1개) → 응답 dict. con은 read_only DuckDB 연결.
 
     - season 필수(02가 정해서 줌). 03은 시즌을 계산하지 않는다
@@ -631,19 +603,115 @@ def run(request: dict, con, summarizer: Summarizer | None = None,
                             "필수 입력이 없습니다: trend. 02 트렌드 분석 결과의 트렌드 1개({style, items})를 "
                             f"trend 필드에 담아 주세요. {_missing_detail(req, ['trend'])}")
     c = trend_common(c, trend)
-    return run_trend(req, c, read_trend(trend, list(c.target_areas), list(c.user_colors)), con, summarizer, now, image_dir)
+    ti = read_trend(trend, list(c.target_areas), list(c.user_colors))
+    return run_trend(req, c, ti, con, now, image_dir, ref=pick_reference(trend, list(c.target_areas)),
+                     clip_filter=clip_filter, manifest_id=manifest_id)
 
 
-def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer | None = None,
-              now: datetime | None = None, image_dir: str | None = None) -> dict:
-    """공통 값 검사가 끝난 뒤 트렌드 1개를 처리한다."""
+COLOR_MODE_NAMES = {"max_overlap": "가장 많이 겹치는 색", "any": "하나라도 어울리는 색", "none": "색 조건 없음(21색 전체)"}
+
+
+def color_attempts(ti: TrendInput, cm) -> list[tuple[str, list[str]]]:
+    """재고 조회에 쓸 색을 시도 순서대로 [(mode, colors)].
+
+    max_overlap  기준 색과 어울리는 색 중 가장 많이 겹치는 색 + 기준 색 자체(톤온톤)
+    any          후보 0개일 때: 기준 색 하나라도와 어울리는 색 전부 + 톤온톤 (max_overlap과 같으면 건너뜀)
+    none         그래도 0개일 때: 트렌드 색 조건을 풀고 21색 전체
+    사용자 색(USER_COLOR_BASES)은 완화하지 않는다. 기준 색이 없으면 처음부터 none.
+    """
+    if not ti.colors:
+        return [("none", list(KF_COLORS))]
+    out = [("max_overlap", list(cm.colors))]
+    if ti.color_basis in USER_COLOR_BASES:
+        return out
+    wider = any_matching_colors(cm)
+    if set(wider) != set(cm.colors):
+        out.append(("any", wider))
+    if set(KF_COLORS) != set(out[-1][1]):
+        out.append(("none", list(KF_COLORS)))
+    return out
+
+
+def relaxed_conditions(ti: TrendInput, mode: str) -> list[dict]:
+    """최종 조회에서 완화한 트렌드 색 조건 (search.relaxed)."""
+    if not ti.colors or mode == "max_overlap":
+        return []
+    out = [{"condition": "color_rule", "from": "max_overlap", "to": "any"}]
+    if mode == "none":
+        out = [{"condition": "trend_colors", "from": list(ti.colors), "to": []}]
+    return out
+
+
+def relaxed_notes(ti: TrendInput, tried: list[dict]) -> list[str]:
+    """완화 설명 (limitations)."""
+    if len(tried) < 2:
+        return []
+    steps = " → ".join(COLOR_MODE_NAMES[t["mode"]] for t in tried)
+    last = tried[-1]
+    head = f"재고 후보가 없어 트렌드 색({', '.join(ti.colors)}) 조건을 완화했습니다: {steps}."
+    if last["n_candidates"] == 0:
+        return [head + " 완화한 뒤에도 후보가 없습니다."]
+    return [head]
+
+
+def _ref_label(ref: dict) -> str:
+    """기준 이미지 설명: 무신사 스냅 착샷(…) / 무신사 상품 이미지(…)."""
+    parts = [str(ref.get("product_id"))] if ref.get("product_id") else []
+    if ref.get("item_category"):
+        parts.append(f"트렌드 아이템 {ref['item_category']}")
+    detail = f"({', '.join(parts)})" if parts else ""
+    return ("무신사 상품 이미지" if ref.get("kind") == "catalog_item" else "무신사 스냅 착샷") + detail
+
+
+IMAGE_SKIP_NOTES = {
+    "no_snap_store": "착샷 이미지 저장소(R2_SNAP_IMAGE_PREFIX)가 설정되지 않아",
+    "not_found": "착샷 이미지가 저장소에 없어(다른 데이터셋 버전 등)",
+    "host_not_allowed": "기준 이미지 주소가 허용된 무신사 이미지 서버가 아니어서",
+}
+
+
+def clip_notes(ref: dict | None, clip: dict | None) -> list[str]:
+    """기준 이미지·CLIP 설명 (limitations)."""
+    if ref is None:
+        return ["트렌드 아이템의 유사 상품에 무신사 착샷·상품 이미지가 없어 소재·디테일 유사도(CLIP) 필터 없이 찾았습니다."]
+    if clip is None or clip.get("skip_reason") == "no_candidates":
+        return []
+    label = _ref_label(ref)
+    wa = "와" if ref.get("kind") == "catalog_item" else "과"       # "…이미지(…)와" / "…착샷(…)과"
+    if not clip["applied"]:
+        why = {"no_index": "CLIP 인덱스가 없어", "no_match": "재고 후보가 CLIP 인덱스에 없어",
+               "no_model": "CLIP 모델을 불러오지 못해",
+               "no_query": "기준 이미지를 열 수 없고 소재·디테일 정보도 없어"}[clip["skip_reason"]]
+        return [f"{why} {label}{wa}의 유사도(CLIP) 필터 없이 찾았습니다."]
+    out = [f"{label}{wa} 소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 "
+           f"{clip['keep_ratio']:.0%}를 남겨 후보 {clip['n_before']:,}개 중 {clip['n_after']:,}개를 남겼습니다."]
+    if ref.get("kind") == "catalog_item":
+        out.append("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로 썼습니다.")
+    if not clip["image_used"]:
+        why = IMAGE_SKIP_NOTES.get(clip.get("image_skip"), "기준 이미지를 열 수 없어")
+        out.append(f"{why} 소재·디테일 텍스트만으로 유사도를 계산했습니다.")
+    elif not clip.get("text_used", True):
+        out.append("기준 이미지에 소재·디테일 정보가 없어 이미지만으로 유사도를 계산했습니다.")
+    if clip["n_indexed"] < clip["n_before"]:
+        out.append(f"CLIP 인덱스에 없는 후보 {clip['n_before'] - clip['n_indexed']:,}개는 유사도 0으로 보았습니다.")
+    return out
+
+
+def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = None, image_dir: str | None = None,
+              ref: dict | None = None, clip_filter=None, manifest_id: str | None = None) -> dict:
+    """공통 값 검사가 끝난 뒤 트렌드 1개를 처리한다.
+
+    ref: pick_reference로 고른 CLIP 기준 이미지(착샷, 없으면 상품 이미지). None이면 CLIP 필터 없음
+    clip_filter: (후보, 기준 이미지) → (남은 후보, ClipInfo). 기본은 clip_matcher.clip_filter (테스트에서 바꿈)
+    """
     now = now or datetime.now(timezone.utc)
-    summarizer = summarizer or TemplateSummarizer()
     period, target = c.period, c.target
     season_basis = _season_basis(c)
     search = {"trend_colors": ti.colors, "trend_color_basis": ti.color_basis, "trend_color_items": ti.color_items,
               "user_colors": ti.user_colors, "user_colors_excluded": ti.user_colors_excluded,
-              "trend_categories": ti.categories, "areas": None, "colors": None, "color_overlap": None,
+              "trend_categories": ti.categories, "excluded_categories": c.excluded, "areas": None,
+              "colors": None, "color_mode": None, "color_overlap": None, "color_attempts": [], "relaxed": [],
+              "outfit_reference": snap_reference(ref, None), "clip": None,
               "segments": list(c.segments), "segment_basis": c.segment_basis}
 
     def trend_error(code: str, message: str) -> dict:
@@ -661,7 +729,6 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
         return trend_error("invalid_input", str(e))
     areas = exclude_areas(am.areas, c)
     search["areas"] = areas
-    search["excluded_categories"] = c.excluded
 
     limitations = [SAMPLE_WARNING, *period.warnings, segment_note(c)]
     limitations += pairing_notes(am, areas, c)
@@ -682,29 +749,36 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
 
     limitations += user_color_notes(ti)
 
+    cm = None
+    color_label = "사용자 색" if ti.color_basis in USER_COLOR_BASES else "트렌드 색"
     if ti.colors:
         if ti.color_basis == "all_items" and target:
             limitations.append(f"사용자 카테고리({target}) 아이템에 색이 없어 트렌드 아이템 전체의 색을 썼습니다.")
         cm = get_matching_colors(ti.colors)
-        color_label = "사용자 색" if ti.color_basis in USER_COLOR_BASES else "트렌드 색"
-        colors = cm.colors
         if cm.unknown:
             limitations.append(f"K-Fashion 색으로 바꿀 수 없는 트렌드 색은 제외했습니다: {', '.join(cm.unknown)}")
-        if not colors:
+        if not cm.colors:
             return trend_error("invalid_input", f"알 수 있는 트렌드 색이 없습니다: {', '.join(ti.colors)}")
-        if cm.n_trend > 1 and cm.overlap < cm.n_trend:
-            limitations.append(f"{color_label} {cm.n_trend}개 모두와 어울리는 색이 없어, 가장 많은 {cm.overlap}개와 "
-                               f"어울리는 색({', '.join(cm.matching)})으로 찾았습니다.")
         search["color_overlap"] = cm.overlap
     else:
-        colors = list(KF_COLORS)
         limitations.append("트렌드에 색이 없어 색 조건 없이 21색 전체에서 찾았습니다.")
-    search["colors"] = colors
+
+    # 재고 조회: 후보가 0개면 트렌드 색 조건만 완화해 다시 조회 (사용자 색·카테고리는 풀지 않음)
+    tried = []
+    for mode, colors in color_attempts(ti, cm):
+        cand = drop_excluded(_to_vocab_frame(get_inventory_status(con, areas, colors, period, segment=c.segments)), c)
+        tried.append({"mode": mode, "colors": colors, "n_candidates": int(len(cand))})
+        if not cand.empty:
+            break
+    search.update({"colors": colors, "color_mode": mode, "color_attempts": tried,
+                   "relaxed": relaxed_conditions(ti, mode)})
+    if mode == "max_overlap" and cm.n_trend > 1 and cm.overlap < cm.n_trend:
+        limitations.append(f"{color_label} {cm.n_trend}개 모두와 어울리는 색이 없어, 가장 많은 {cm.overlap}개와 "
+                           f"어울리는 색({', '.join(cm.matching)})으로 찾았습니다.")
+    limitations += relaxed_notes(ti, tried)
 
     fetched_at = now.astimezone(timezone.utc).isoformat(timespec="seconds") if now.tzinfo else now.isoformat(timespec="seconds")
     errors: list[dict] = []
-
-    cand = drop_excluded(_to_vocab_frame(get_inventory_status(con, areas, colors, period, segment=c.segments)), c)
     trend_period = {"recent": ("", ""), "prev": ("", "")}
     if not cand.empty:
         try:
@@ -717,20 +791,35 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
             cand["trend"] = 0.0
             limitations.append("최근 판매 추세를 계산하지 못해 순위에서 추세를 중립값으로 두었습니다.")
 
-    ranked = rank_overstock(cand, n=len(cand))           # 후보 전체 순위
-    shortlist = ranked.head(TOP_N)                       # 상위 50개: 속성 요약용
-    row, image = _pick_with_images(ranked, image_dir or DEFAULT_IMAGE_DIR, limitations)
-    attr = {"scope": f"상위 {len(shortlist)}개 후보", **summarize_attributes(shortlist)} if row is not None else None
+    # 기준 이미지(착샷, 없으면 상품 이미지)가 있으면 CLIP 유사도 필터를 항상 건다 (후보를 0개로 만들지 않음)
+    clip = None
+    if ref is not None:
+        if clip_filter is None:
+            from stock_agent.clip_matcher import clip_filter
+        cand, info = clip_filter(cand, ref)
+        clip = info.to_dict()
+    search.update({"outfit_reference": snap_reference(ref, clip), "clip": clip})
+    limitations += clip_notes(ref, clip)
 
-    reason = None if row is None else build_reason(row, am, target, ti, SEASON_LABELS_KO[period.season])
+    ranked = rank_overstock(cand)                        # 후보 전체 순위
+    row, image = _pick_with_images(ranked, image_dir or DEFAULT_IMAGE_DIR, limitations)
+
+    ti_used = replace(ti, colors=[]) if mode == "none" else ti
+    reason = None
+    if row is not None:
+        reason = build_reason(row, am, target, ti_used, SEASON_LABELS_KO[period.season])
+        if mode == "any":
+            reason["color"]["rule"] = reason["color"]["rule"].replace("어울리는 색 중 가장 많이 겹치는 색", "하나라도 어울리는 색")
     facts = {
         "season_label": _season_label(period),
         "target": target or "카테고리 미지정",
         "area_basis": am.basis,
         "given_areas": am.given,
         "areas": areas,
-        "trend_colors": ti.colors,
-        "color_label": "사용자 색" if ti.color_basis in USER_COLOR_BASES else "트렌드 색",
+        "trend_colors": ti_used.colors,
+        "colors_relaxed": bool(ti.colors) and mode == "none",
+        "color_mode": mode,
+        "color_label": color_label,
         "n_candidates": int(len(cand)),
         "n_items": 0 if row is None else 1,
         "top1_rank": None if row is None else int(row.rank),
@@ -739,16 +828,16 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
         "top1_stock_qty": None if row is None else int(row.stock_qty),
         "reason_detail": None if reason is None else reason_detail(reason),
     }
-    summary, warn = safe_summary(summarizer, facts)
-    limitations += warn
+    summary = template_summary(facts)
 
     status = "no_results" if row is None else ("partial" if errors else "ok")
     tr = _trend_result(ti, status, summary, search,
                        rank=None if row is None else int(row.rank), reason=reason,
-                       attribute_summary=attr, limitations=limitations, errors=errors)
+                       limitations=limitations, errors=errors)
     product = None if row is None else build_product(row, period, image)
     resp = _output(req, status, product, tr, season_basis,
-                   evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None))
+                   evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None,
+                                      outfit_ref=ref if clip and clip["applied"] else None, manifest_id=manifest_id))
     problems = validate_output(resp)
     if problems:
         return error_output(req, "invalid_response", "응답 형식 검사 실패: " + "; ".join(problems))
@@ -759,8 +848,8 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, summarizer: Summarizer 
 
 STATUSES = ("ok", "partial", "no_results", "error")
 PRODUCT_KEYS = ("style_id", "sku_ids", "category", "season", "attributes", "inventory", "image")
-TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "attribute_summary",
-                     "search", "limitations", "errors")
+TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "search",
+                     "limitations", "errors")
 
 
 def check_product(prod: dict, where: str) -> list[str]:

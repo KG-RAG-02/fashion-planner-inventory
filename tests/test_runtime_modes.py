@@ -19,7 +19,8 @@ BALLET = {"style": {"id": "style_012", "name": "발레코어"},
           "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"]}]}
 REQ = build_trend_result("req_modes", [BALLET], include=["상의"], gender="여")
 R2_VARS = ("R2_ACCOUNT_ID", "R2_ENDPOINT", "R2_BUCKET", "R2_DB_KEY", "R2_IMAGE_PREFIX", "R2_ACCESS_KEY_ID",
-           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key")
+           "R2_SECRET_ACCESS_KEY", "Access Key ID", "Secret Access Key", "R2_CLIP_INDEX_KEY",
+           "R2_SNAP_IMAGE_PREFIX")
 
 
 def ready_db_file(con, path, numeric_ids=False):
@@ -52,6 +53,7 @@ def local_env(monkeypatch):
         raise AssertionError("local-file mode must not build an R2 object store")
 
     monkeypatch.setattr(api, "R2ObjectStore", no_r2)
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     return monkeypatch
 
 
@@ -66,10 +68,8 @@ def _handoff(body):
 
 def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(local_env, con, tmp_path):
     import stock_agent.api as api
-    from stock_agent.llm import PolicyLLM
     db = ready_db_file(con, tmp_path / "stock-local.duckdb")
     local_env.setenv("STOCK_DB_PATH", str(db))
-    local_env.setattr(api, "load_llm", lambda: PolicyLLM())
     with _client() as c:
         ready = c.get("/health/ready")
         body = ready.json()
@@ -86,8 +86,6 @@ def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(loca
 
 
 def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, con, tmp_path):
-    import stock_agent.api as api
-    local_env.setattr(api, "load_llm", lambda: None)
     db = ready_db_file(con, tmp_path / "stock-local.duckdb")
     sidecar = db.with_suffix(".sha256")
     sidecar.write_text("0" * 64)
@@ -108,62 +106,12 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
         assert "missing.duckdb" not in ready.text
 
 
-# ---------------------------------------------------------------- STOCK_LLM_PROVIDER
-
-@pytest.fixture
-def llm_env(monkeypatch):
-    """개발자 .env·키에 영향받지 않는 LLM 설정."""
-    import stock_agent.llm as llm
-    monkeypatch.setattr(llm, "read_dotenv", lambda *args, **kwargs: None)
-    for name in ("STOCK_LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_TIMEOUT"):
-        monkeypatch.delenv(name, raising=False)
-    return monkeypatch
-
-
-def test_policy_provider_needs_no_key_and_never_builds_openai(llm_env):
-    import stock_agent.llm as llm
-    import stock_agent.llm_openai as llm_openai
-
-    def no_openai(*args, **kwargs):
-        raise AssertionError("policy provider must not build the OpenAI client")
-
-    llm_env.setattr(llm_openai, "OpenAILLM", no_openai)
-    llm_env.setenv("STOCK_LLM_PROVIDER", "policy")
-    assert llm.llm_provider() == "policy" and isinstance(llm.load_llm(), llm.PolicyLLM)
-    llm_env.setenv("LLM_API_KEY", "synthetic-key-not-used")
-    assert isinstance(llm.load_llm(), llm.PolicyLLM)
-    llm_env.setenv("STOCK_LLM_PROVIDER", " Policy ")
-    assert isinstance(llm.load_llm(), llm.PolicyLLM)
-
-
-def test_default_provider_is_openai_and_unknown_provider_fails_closed(llm_env):
-    import stock_agent.llm as llm
-    assert llm.llm_provider() == "openai" and llm.load_llm() is None       # no key → no_llm, as before
-    llm_env.setenv("STOCK_LLM_PROVIDER", "anthropic")
-    assert llm.llm_provider() == "invalid" and isinstance(llm.load_llm(), llm.UnavailableLLM)
-
-
-def test_policy_with_local_file_serves_without_network_and_labels_results(local_env, llm_env, con, tmp_path):
-    from stock_agent.llm import POLICY_LIMITATION
-    llm_env.setenv("STOCK_DB_PATH", str(ready_db_file(con, tmp_path / "stock-local.duckdb")))
-    llm_env.setenv("STOCK_LLM_PROVIDER", "policy")
-    with _client() as c:
-        ready = c.get("/health/ready").json()
-        assert ready["llm_provider"] == "policy" and ready["llm_configured"] is True and ready["db"] == "local-file"
-        r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
-    result = r.json()["result"]
-    assert r.status_code == 200 and result["status"] == "ok" and result["products"][0] is not None
-    assert not [e for tr in result["trend_results"] for e in tr["errors"] if e.get("reason") == "no_llm"]
-    assert all(POLICY_LIMITATION in tr["limitations"] for tr in result["trend_results"])
-
-
 # ---------------------------------------------------------------- image cache (R2 images)
 
 def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_path):
     """R2 이미지 캐시가 read-only여도 사진은 캐시 없이 응답에 넣고 limitations에 적는다."""
     import io
     import stock_agent.api as api
-    from stock_agent.llm import PolicyLLM
     from stock_agent.storage import R2ObjectStore, R2Settings
 
     class ImageObjects:                          # R2 image objects (fake client, no network)
@@ -176,8 +124,7 @@ def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_
             ImageObjects.downloads += 1
             return {"Body": io.BytesIO(b"jpeg"), "ContentLength": 4}
 
-    for name in ("STOCK_DB_PATH", "STOCK_LLM_PROVIDER"):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("STOCK_DB_PATH", raising=False)
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
     db = ready_db_file(con, tmp_path / "stock.duckdb", numeric_ids=True)   # R2 image keys need digit ids
     blocker = tmp_path / "read-only-cache"
@@ -185,7 +132,7 @@ def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_
     store = R2ObjectStore(R2Settings("account", "bucket", "db.duckdb", "id", "secret", image_prefix="images"),
                           client=ImageObjects(), cache_dir=tmp_path / "cache", image_cache_dir=blocker / "images")
     monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", store))
-    monkeypatch.setattr(api, "load_llm", lambda: PolicyLLM())
+    monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     with _client() as c:
         r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
     result = r.json()["result"]

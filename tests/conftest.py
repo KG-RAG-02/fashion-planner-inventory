@@ -3,6 +3,16 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_real_clip_index(monkeypatch, tmp_path):
+    """테스트가 로컬의 실제 CLIP 인덱스(data/clip_index.npz)·R2 인덱스 설정을 읽지 않게 한다 (모델을 불러오지 않음)."""
+    monkeypatch.setenv("STOCK_CLIP_INDEX_PATH", str(tmp_path / "no-clip-index.npz"))
+    monkeypatch.delenv("R2_CLIP_INDEX_KEY", raising=False)
+    monkeypatch.delenv("R2_SNAP_IMAGE_PREFIX", raising=False)
+    from stock_agent import clip_matcher
+    monkeypatch.setattr(clip_matcher, "_snap_source", None)
+
+
 @pytest.fixture
 def con():
     duckdb = pytest.importorskip("duckdb")
