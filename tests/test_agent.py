@@ -509,3 +509,36 @@ def test_evidence_manifest_id_is_db_version(con):
     ids = {e["evidence_id"].rsplit(":", 1)[-1]: e["manifest_id"] for e in resp["evidence"]}
     assert ids.pop("E-006") is None and set(ids.values()) == {"v-13"}
     assert {e["manifest_id"] for e in run(REQ, con)["evidence"]} == {None}
+
+
+# ---- 짝 우선순위 (2026-11-16 사용자 규칙): 상의 → 하의 / 하의 → 상의, 없으면 아우터
+PANTS = {"category_major": "하의", "category_minor": "팬츠", "colors": []}
+
+
+def test_user_pair_priority_areas():
+    assert resolve_pair_areas("상의", None).areas == ["하의"]
+    assert resolve_pair_areas("블라우스", None).areas == ["하의"]
+    assert resolve_pair_areas("하의", None).areas == ["상의", "아우터"]
+    assert resolve_pair_areas(None, ["상의"]).areas == ["하의", "아우터"]   # 트렌드 카테고리 기준은 그대로
+
+
+def test_top_request_pairs_only_bottoms(con):
+    tr = run(REQ, con)["trend_result"]
+    assert tr["search"]["areas"] == ["하의"]
+    assert tr["reason"]["pairing"]["product_area"] == "하의"
+
+
+def test_bottom_request_prefers_tops_then_outerwear(con):
+    req = {**REQ, "target_category": "하의", "trend": trend(PANTS)}
+    resp = run(req, con)
+    tr = resp["trend_result"]
+    assert tr["search"]["area_priority"] == [["상의"], ["아우터"]]
+    assert tr["search"]["areas"] == ["상의"] and resp["product"]["category"] == "탑"
+
+    # 상의 후보가 없으면 아우터 (fixture의 아우터 a3 패딩은 가을·겨울 상품이라 FW로 요청)
+    resp = run({**req, "season": "2026-FW", "exclude_categories": ["탑"]}, con)
+    tr = resp["trend_result"]
+    assert tr["search"]["areas"] == ["아우터"] and resp["product"]["category"] == "패딩"
+    assert [a["areas"] for a in tr["search"]["color_attempts"]] == [["상의"], ["아우터"]]
+    assert any("짝 우선순위 영역(상의)에 재고 후보가 없어" in x for x in tr["limitations"])
+    assert validate_output(resp) == []

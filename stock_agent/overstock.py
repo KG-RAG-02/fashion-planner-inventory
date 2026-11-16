@@ -33,6 +33,15 @@ MATCHING_AREAS: dict[str, list[str]] = {
     "원피스": ["아우터"],
 }
 
+# 사용자 카테고리가 1개일 때의 짝 (2026-11-16 사용자 규칙). 단계별로 찾는다: 앞 단계에 후보가 없을 때만 다음 단계.
+#   상의 기획 → 하의
+#   하의 기획 → 상의, 상의 후보가 없으면 아우터
+# 트렌드 카테고리 교집합(사용자 카테고리 없음)은 위 MATCHING_AREAS를 그대로 쓴다.
+AREA_PRIORITY: dict[str, tuple[tuple[str, ...], ...]] = {
+    "상의": (("하의",),),
+    "하의": (("상의",), ("아우터",)),
+}
+
 # 세부 카테고리로 요청이 와도 영역을 찾을 수 있게
 CATEGORY_TO_AREA: dict[str, str] = {
     **{c: "상의" for c in ["탑", "블라우스", "티셔츠", "티셔츠·캐주얼상의", "니트웨어", "셔츠", "브라탑", "후드티"]},
@@ -110,7 +119,9 @@ def resolve_pair_areas(target, trend_categories: list[str] | None, combine: str 
     given = areas_of(target)
     if given:
         if len(given) == 1 and combine == "auto":
-            return AreaMatch(list(MATCHING_AREAS[given[0]]), "user", given)
+            tiers = AREA_PRIORITY.get(given[0])
+            areas = [a for tier in tiers for a in tier] if tiers else list(MATCHING_AREAS[given[0]])
+            return AreaMatch(areas, "user", given)
         return combine_pairs(given, "user", combine)
     if trend_categories:
         return combine_pairs(areas_of(trend_categories), "trend", combine)
