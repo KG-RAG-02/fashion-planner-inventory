@@ -25,7 +25,7 @@
 
 응답
     product        상품 정보만 (style_id, sku_ids, category, season, attributes, inventory, image). 못 고르면 null
-    trend_result   style, status, product_index, rank, reason, summary, search, limitations, errors
+    trend_result   style, status, product_index, rank, reason, summary, attribute_summary, search, limitations, errors
     season_basis   대신 쓴 과거 시즌 기간과 시즌 출처
     evidence       E-001~E-006 데이터 출처
     errors         공통 입력 오류만 (트렌드별 오류는 trend_result.errors)
@@ -48,6 +48,7 @@ from stock_agent.overstock import (
     COLOR_PAIRS,
     KF_COLORS,
     MIN_TREND_SOLD,
+    TOP_N,
     get_inventory_status,
     areas_of,
     any_matching_colors,
@@ -58,6 +59,7 @@ from stock_agent.overstock import (
     rank_overstock,
     resolve_pair_areas,
     split_exclude,
+    summarize_attributes,
 )
 from stock_agent.season import DATA_END, SEASON_LABELS_KO, map_season
 from stock_agent.snap import pick_reference
@@ -497,7 +499,7 @@ def build_product(r, period, image: dict | None = None) -> dict:
 
 
 def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=None, reason=None,
-                  limitations=None, errors=None) -> dict:
+                  attribute_summary=None, limitations=None, errors=None) -> dict:
     return {
         "style": {"id": ti.style_id, "name": ti.name},
         "status": status,
@@ -505,6 +507,7 @@ def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=
         "rank": rank,
         "reason": reason,
         "summary": summary,
+        "attribute_summary": attribute_summary,
         "search": search,
         "limitations": limitations or [],
         "errors": errors or [],
@@ -802,7 +805,9 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
     limitations += clip_notes(ref, clip)
 
     ranked = rank_overstock(cand)                        # 후보 전체 순위
+    shortlist = ranked.head(TOP_N)                       # 상위 50개: 속성 요약용
     row, image = _pick_with_images(ranked, image_dir or DEFAULT_IMAGE_DIR, limitations)
+    attr = {"scope": f"상위 {len(shortlist)}개 후보", **summarize_attributes(shortlist)} if row is not None else None
 
     ti_used = replace(ti, colors=[]) if mode == "none" else ti
     reason = None
@@ -833,7 +838,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
     status = "no_results" if row is None else ("partial" if errors else "ok")
     tr = _trend_result(ti, status, summary, search,
                        rank=None if row is None else int(row.rank), reason=reason,
-                       limitations=limitations, errors=errors)
+                       attribute_summary=attr, limitations=limitations, errors=errors)
     product = None if row is None else build_product(row, period, image)
     resp = _output(req, status, product, tr, season_basis,
                    evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None,
@@ -848,8 +853,8 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
 
 STATUSES = ("ok", "partial", "no_results", "error")
 PRODUCT_KEYS = ("style_id", "sku_ids", "category", "season", "attributes", "inventory", "image")
-TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "search",
-                     "limitations", "errors")
+TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "attribute_summary",
+                     "search", "limitations", "errors")
 
 
 def check_product(prod: dict, where: str) -> list[str]:
