@@ -12,12 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt .
-# torch CPU-only 먼저 설치 → open-clip-torch가 CUDA 버전을 당기지 않도록
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+# torch CPU-only 먼저 설치 → open-clip-torch가 CUDA 버전을 당기지 않도록.
+# torchvision도 같은 CPU index에서 함께 받는다: PyPI torchvision이 따로 설치되면 torch와 짝이 맞지 않아
+# open_clip import가 'operator torchvision::nms does not exist'로 실패한다(CLIP 필터 전체가 꺼짐).
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
  && pip install --no-cache-dir -r requirements.txt \
  && groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /tmp --no-create-home --shell /usr/sbin/nologin app \
- && install -d -o 10001 -g 10001 -m 0700 /cache
+ && install -d -o 10001 -g 10001 -m 0700 /cache /models
 
 COPY stock_agent ./stock_agent
 

@@ -326,6 +326,7 @@
         "rank",
         "reason",
         "summary",
+        "attribute_summary",
         "search",
         "limitations",
         "errors",
@@ -380,6 +381,12 @@
         },
         "summary": {
           "type": "string"
+        },
+        "attribute_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "search": {
           "type": "object",

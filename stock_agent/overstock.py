@@ -7,6 +7,7 @@
 4. get_sales_trend          최근 4주 vs 직전 4주 (SQL)
    (착샷이 있으면 clip_matcher.clip_filter로 후보를 거름)
 5. rank_overstock           네 지표 동일 가중 → 순위
+6. summarize_attributes     상위 N의 색·카테고리·소재·핏 분포
 
 SQL 값은 모두 파라미터로 넘긴다. DB는 읽기 전용 연결을 받는다.
 """
@@ -21,6 +22,8 @@ import pandas as pd
 from stock_agent.attributes import map_color
 from stock_agent.season import DATA_END, SeasonPeriod
 
+TOP_N = 50          # 속성 요약을 보는 상위 후보 수 (응답 상품은 사진 있는 최상위 1개)
+
 # ---------------------------------------------------------------- 1. 짝 카테고리
 
 MATCHING_AREAS: dict[str, list[str]] = {
@@ -28,6 +31,15 @@ MATCHING_AREAS: dict[str, list[str]] = {
     "하의": ["상의", "아우터"],
     "아우터": ["상의", "하의", "원피스"],
     "원피스": ["아우터"],
+}
+
+# 사용자 카테고리가 1개일 때의 짝 (2026-11-16 사용자 규칙). 단계별로 찾는다: 앞 단계에 후보가 없을 때만 다음 단계.
+#   상의 기획 → 하의
+#   하의 기획 → 상의, 상의 후보가 없으면 아우터
+# 트렌드 카테고리 교집합(사용자 카테고리 없음)은 위 MATCHING_AREAS를 그대로 쓴다.
+AREA_PRIORITY: dict[str, tuple[tuple[str, ...], ...]] = {
+    "상의": (("하의",),),
+    "하의": (("상의",), ("아우터",)),
 }
 
 # 세부 카테고리로 요청이 와도 영역을 찾을 수 있게
@@ -107,7 +119,9 @@ def resolve_pair_areas(target, trend_categories: list[str] | None, combine: str 
     given = areas_of(target)
     if given:
         if len(given) == 1 and combine == "auto":
-            return AreaMatch(list(MATCHING_AREAS[given[0]]), "user", given)
+            tiers = AREA_PRIORITY.get(given[0])
+            areas = [a for tier in tiers for a in tier] if tiers else list(MATCHING_AREAS[given[0]])
+            return AreaMatch(areas, "user", given)
         return combine_pairs(given, "user", combine)
     if trend_categories:
         return combine_pairs(areas_of(trend_categories), "trend", combine)
@@ -383,3 +397,22 @@ def rank_overstock(cand: pd.DataFrame, n: int | None = None, weights: dict | Non
     df = (df if n is None else df.head(n)).reset_index(drop=True)
     df["rank"] = range(1, len(df) + 1)
     return df
+
+
+# ---------------------------------------------------------------- 6. 속성 요약
+
+def summarize_attributes(top: pd.DataFrame) -> dict:
+    """상위 상품의 분포. 핏·색이 비어 있으면 '정보 없음'."""
+    def counts(s: pd.Series) -> dict:
+        return {str(k): int(v) for k, v in s.fillna("정보 없음").value_counts().items()}
+
+    mats = top["materials"].explode() if len(top) else pd.Series(dtype=object)
+    return {
+        "n_items": int(len(top)),
+        "total_stock_qty": int(top["stock_qty"].sum()) if len(top) else 0,
+        "area": counts(top["kf_area"]),
+        "category": counts(top["kf_category"]),
+        "color": counts(top["kf_color"]),
+        "material": counts(mats.dropna()) if len(mats) else {},
+        "fit": counts(top["fit"]),
+    }

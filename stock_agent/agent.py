@@ -25,7 +25,7 @@
 
 응답
     product        상품 정보만 (style_id, sku_ids, category, season, attributes, inventory, image). 못 고르면 null
-    trend_result   style, status, product_index, rank, reason, summary, search, limitations, errors
+    trend_result   style, status, product_index, rank, reason, summary, attribute_summary, search, limitations, errors
     season_basis   대신 쓴 과거 시즌 기간과 시즌 출처
     evidence       E-001~E-006 데이터 출처
     errors         공통 입력 오류만 (트렌드별 오류는 trend_result.errors)
@@ -45,9 +45,11 @@ import pandas as pd
 from stock_agent.attributes import to_vocab
 from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image, take_notes
 from stock_agent.overstock import (
+    AREA_PRIORITY,
     COLOR_PAIRS,
     KF_COLORS,
     MIN_TREND_SOLD,
+    TOP_N,
     get_inventory_status,
     areas_of,
     any_matching_colors,
@@ -58,6 +60,7 @@ from stock_agent.overstock import (
     rank_overstock,
     resolve_pair_areas,
     split_exclude,
+    summarize_attributes,
 )
 from stock_agent.season import DATA_END, SEASON_LABELS_KO, map_season
 from stock_agent.snap import pick_reference
@@ -497,7 +500,7 @@ def build_product(r, period, image: dict | None = None) -> dict:
 
 
 def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=None, reason=None,
-                  limitations=None, errors=None) -> dict:
+                  attribute_summary=None, limitations=None, errors=None) -> dict:
     return {
         "style": {"id": ti.style_id, "name": ti.name},
         "status": status,
@@ -505,6 +508,7 @@ def _trend_result(ti: TrendInput, status: str, summary: str, search: dict, rank=
         "rank": rank,
         "reason": reason,
         "summary": summary,
+        "attribute_summary": attribute_summary,
         "search": search,
         "limitations": limitations or [],
         "errors": errors or [],
@@ -729,6 +733,12 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
         return trend_error("invalid_input", str(e))
     areas = exclude_areas(am.areas, c)
     search["areas"] = areas
+    # 사용자 카테고리 1개에 우선순위가 있으면 영역을 단계별로 찾는다 (AREA_PRIORITY)
+    tiers = [areas]
+    if am.basis == "user" and len(am.given) == 1 and am.given[0] in AREA_PRIORITY:
+        tiers = [[a for a in tier if a in areas] for tier in AREA_PRIORITY[am.given[0]]]
+        tiers = [tier for tier in tiers if tier] or [areas]
+        search["area_priority"] = tiers
 
     limitations = [SAMPLE_WARNING, *period.warnings, segment_note(c)]
     limitations += pairing_notes(am, areas, c)
@@ -764,18 +774,31 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
         limitations.append("트렌드에 색이 없어 색 조건 없이 21색 전체에서 찾았습니다.")
 
     # 재고 조회: 후보가 0개면 트렌드 색 조건만 완화해 다시 조회 (사용자 색·카테고리는 풀지 않음)
-    tried = []
-    for mode, colors in color_attempts(ti, cm):
-        cand = drop_excluded(_to_vocab_frame(get_inventory_status(con, areas, colors, period, segment=c.segments)), c)
-        tried.append({"mode": mode, "colors": colors, "n_candidates": int(len(cand))})
+    tried, tier_tried = [], []
+    for tier_index, tier in enumerate(tiers):
+        tier_tried = []
+        for mode, colors in color_attempts(ti, cm):
+            cand = drop_excluded(_to_vocab_frame(get_inventory_status(con, tier, colors, period, segment=c.segments)), c)
+            attempt = {"mode": mode, "colors": colors, "n_candidates": int(len(cand))}
+            if len(tiers) > 1:
+                attempt["areas"] = tier
+            tier_tried.append(attempt)
+            if not cand.empty:
+                break
+        tried += tier_tried
         if not cand.empty:
+            if tier_index > 0:
+                skipped = [a for t in tiers[:tier_index] for a in t]
+                limitations.append(f"짝 우선순위 영역({', '.join(skipped)})에 재고 후보가 없어 "
+                                   f"다음 영역({', '.join(tier)})에서 찾았습니다.")
             break
-    search.update({"colors": colors, "color_mode": mode, "color_attempts": tried,
+    areas = tier
+    search.update({"areas": areas, "colors": colors, "color_mode": mode, "color_attempts": tried,
                    "relaxed": relaxed_conditions(ti, mode)})
     if mode == "max_overlap" and cm.n_trend > 1 and cm.overlap < cm.n_trend:
         limitations.append(f"{color_label} {cm.n_trend}개 모두와 어울리는 색이 없어, 가장 많은 {cm.overlap}개와 "
                            f"어울리는 색({', '.join(cm.matching)})으로 찾았습니다.")
-    limitations += relaxed_notes(ti, tried)
+    limitations += relaxed_notes(ti, tier_tried)
 
     fetched_at = now.astimezone(timezone.utc).isoformat(timespec="seconds") if now.tzinfo else now.isoformat(timespec="seconds")
     errors: list[dict] = []
@@ -802,7 +825,9 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
     limitations += clip_notes(ref, clip)
 
     ranked = rank_overstock(cand)                        # 후보 전체 순위
+    shortlist = ranked.head(TOP_N)                       # 상위 50개: 속성 요약용
     row, image = _pick_with_images(ranked, image_dir or DEFAULT_IMAGE_DIR, limitations)
+    attr = {"scope": f"상위 {len(shortlist)}개 후보", **summarize_attributes(shortlist)} if row is not None else None
 
     ti_used = replace(ti, colors=[]) if mode == "none" else ti
     reason = None
@@ -833,7 +858,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
     status = "no_results" if row is None else ("partial" if errors else "ok")
     tr = _trend_result(ti, status, summary, search,
                        rank=None if row is None else int(row.rank), reason=reason,
-                       limitations=limitations, errors=errors)
+                       attribute_summary=attr, limitations=limitations, errors=errors)
     product = None if row is None else build_product(row, period, image)
     resp = _output(req, status, product, tr, season_basis,
                    evidence=_evidence(fetched_at, period, areas, colors, trend_period, with_images=image is not None,
@@ -848,8 +873,8 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
 
 STATUSES = ("ok", "partial", "no_results", "error")
 PRODUCT_KEYS = ("style_id", "sku_ids", "category", "season", "attributes", "inventory", "image")
-TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "search",
-                     "limitations", "errors")
+TREND_RESULT_KEYS = ("style", "status", "product_index", "rank", "reason", "summary", "attribute_summary",
+                     "search", "limitations", "errors")
 
 
 def check_product(prod: dict, where: str) -> list[str]:
