@@ -73,4 +73,4 @@
 
 ## 출처
 
-코드: `fashion_planner_inventory/season.py`. 커밋 {{commit:ebd20f1}}(첫 구현). '2020년을 포함한 근거'의 표는 H&M transactions를 직접 집계한 값입니다.
+코드: `fashion_planner_inventory/season.py`. 커밋 [`15900fc`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/15900fccac108c8283f9ce31d24bdda54bdde29a)(첫 구현). '2020년을 포함한 근거'의 표는 H&M transactions를 직접 집계한 값입니다.

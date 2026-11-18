@@ -24,4 +24,4 @@ H&M 데이터에는 상품과 거래가 있지만 재고, 입고량, 원화 판�
 
 ## 출처
 
-코드: `fashion_planner_inventory/synthetic.py`, `scripts/build_virtual_stock.py`. 커밋 {{commit:ebd20f1}}(첫 구현).
+코드: `fashion_planner_inventory/synthetic.py`, `scripts/build_virtual_stock.py`. 커밋 [`15900fc`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/15900fccac108c8283f9ce31d24bdda54bdde29a)(첫 구현).

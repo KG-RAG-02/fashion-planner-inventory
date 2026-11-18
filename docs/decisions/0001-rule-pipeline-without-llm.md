@@ -25,4 +25,4 @@ LLM을 뺍니다. `run_trend`가 유일한 경로입니다: 짝 카테고리, �
 
 ## 출처
 
-커밋 {{commit:809c7aa}}, {{commit:cf3a61e}}, {{commit:2fdbf7d}}(프롬프트 보강), {{commit:44205e1}}(LLM 제거). 코드: `fashion_planner_inventory/agent.py`(`run_trend`).
+커밋 [`5d2b818`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/5d2b8188be61a017ebebdd179d55fb5488feab1c), [`10954fd`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/10954fd5629ef327e470275d3ccfc858e0f4603e), [`46cccc0`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/46cccc09bf790543b761626cd3a842698c376295)(프롬프트 보강), [`e6fcad9`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/e6fcad9365687cbc7dac97218bc4d237d1911ec1)(LLM 제거). 코드: `fashion_planner_inventory/agent.py`(`run_trend`).

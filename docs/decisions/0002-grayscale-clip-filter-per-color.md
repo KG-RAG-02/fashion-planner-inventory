@@ -32,4 +32,4 @@
 
 ## 출처
 
-커밋 {{commit:e31ee34}}(CLIP late fusion), {{commit:3f123bd}}(흑백·소재·디테일, 색별 남기기), {{commit:44e8d94}}(QuickGELU), {{commit:5e721eb}}(실패 처리·허용 목록). 코드: `fashion_planner_inventory/clip_matcher.py`, `clip_vocab.py`, `snap.py`.
+커밋 [`4ee1b67`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/4ee1b67cca35fe888ff37c70a885bc849817c469)(CLIP late fusion), [`7de9df4`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/7de9df4d67733526b7c8d0a547f83d69fa08e21a)(흑백·소재·디테일, 색별 남기기), [`6a8ea5d`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/6a8ea5d9125e41af6f31716fbc8dfa30cbbc2fd2)(QuickGELU), [`bc909c3`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/bc909c3b94fe76a96fd321784a93a4b8fdd6cc4e)(실패 처리·허용 목록). 코드: `fashion_planner_inventory/clip_matcher.py`, `clip_vocab.py`, `snap.py`.

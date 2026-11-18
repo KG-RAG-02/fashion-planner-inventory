@@ -28,4 +28,4 @@
 
 ## 출처
 
-[cloudflare-r2.md](../cloudflare-r2.md), 커밋 {{commit:416c37c}}(R2 DB 연결), {{commit:1b4d4d9}}(local-file 모드), {{commit:838c98a}}(`--prepare-cache`), {{commit:5815f28}}(문서 정정). 코드: `fashion_planner_inventory/storage.py`, `api.py`, `server.py`.
+[cloudflare-r2.md](../cloudflare-r2.md), 커밋 [`7490887`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/74908879b8124ac43421fa9f647a1d0c4f0ac543)(R2 DB 연결), [`9676203`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/96762037b3d05661e984302c484a5bf41964e0e6)(local-file 모드), [`4e2b26d`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/4e2b26d2bd84c61ffb6ccff8ff7a076661b72d2e)(`--prepare-cache`), [`4caa8da`](https://github.com/KG-RAG-02/fashion-planner-inventory/commit/4caa8dafb7fe609f111c52be441fe74e7b60d10c)(문서 정정). 코드: `fashion_planner_inventory/storage.py`, `api.py`, `server.py`.
