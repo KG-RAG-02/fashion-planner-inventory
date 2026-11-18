@@ -1,5 +1,5 @@
 {
-  "manifest_version": "stock-runtime/1.0",
+  "manifest_version": "inventory-runtime",
   "agent_id": "stock-agent",
   "port": 8002,
   "host_bind": "127.0.0.1",
