@@ -1,7 +1,6 @@
 """stock-agent HTTP API
 
-  POST /v1/inventory-products   legacy direct TrendAnalysisResult → 트렌드마다 상품 1개
-  POST /v1/agents/stock-agent/runs  vogue-handoff/0.1 envelope + Bearer auth
+  POST /v1/agents/stock-agent/runs  vogue-handoff/0.1 envelope + Bearer auth, input = TrendAnalysisResult 그대로
                                 products[i] ↔ trend_results[i] (stock_agent/multi.py)
                                 오류 code는 팀 공통 코드, HTTP 번호는 stock_agent/errors.py
   GET  /health/live             API 생존
@@ -11,7 +10,6 @@
 실행 (로컬):   uvicorn stock_agent.api:app --port 8002
 실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
               없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
-레거시 경로(/v1/inventory-products)도 canonical 경로와 같은 인증·처리로 제공한다.
 """
 
 from __future__ import annotations
@@ -39,8 +37,7 @@ from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
 from stock_agent.errors import http_status
 from stock_agent.multi import error_response, run_request
 from stock_agent.images import DEFAULT_IMAGE_DIR
-from stock_agent.schemas import (REQUEST_EXAMPLES, RESPONSES, InventoryRequest, ErrorResponse,
-                                HandoffRequest, HandoffResponse)
+from stock_agent.schemas import HANDOFF_EXAMPLES, ErrorResponse, HandoffRequest, HandoffResponse
 from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
 from stock_agent.readiness import FIXTURE_LIMITATION, inspect_database
 from stock_agent.trend_request import from_trend_result
@@ -49,13 +46,12 @@ from stock_agent.multi import _record_input_provenance
 IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
 HANDOFF_PATH = "/v1/agents/stock-agent/runs"
-INVENTORY_PATH = "/v1/inventory-products"
 DEFAULT_HANDOFF_TIMEOUT_SECONDS = 60.0
 MAX_HANDOFF_TIMEOUT_SECONDS = 600.0
 
 
 def handoff_timeout_seconds() -> float:
-    """Whole-request deadline of the two producer routes: ``STOCK_HANDOFF_TIMEOUT_SECONDS`` (default 60).
+    """Whole-request deadline of the producer route: ``STOCK_HANDOFF_TIMEOUT_SECONDS`` (default 60).
 
     Blank, non-numeric or out-of-range values (not in (0, 600]) mean the default. The agent processes
     trends one after another (DB queries, CLIP snap image download and embedding per trend), so a caller
@@ -181,12 +177,11 @@ def _openapi():
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
-    for path in (HANDOFF_PATH, INVENTORY_PATH):
-        operation = schema.get("paths", {}).get(path, {}).get("post", {})
-        operation["security"] = [{"BearerAuth": []}]
-        operation.setdefault("responses", {})["401"] = {"description": "Missing or invalid Bearer token"}
-        schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {
-            "type": "http", "scheme": "bearer", "bearerFormat": "opaque service token"}
+    operation = schema.get("paths", {}).get(HANDOFF_PATH, {}).get("post", {})
+    operation["security"] = [{"BearerAuth": []}]
+    operation.setdefault("responses", {})["401"] = {"description": "Missing or invalid Bearer token"}
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {
+        "type": "http", "scheme": "bearer", "bearerFormat": "opaque service token"}
     for ops in schema.get("paths", {}).values():
         for op in ops.values():
             op.get("responses", {}).pop("422", None)
@@ -201,7 +196,7 @@ app.openapi = _openapi
 
 @app.exception_handler(RequestValidationError)
 async def _bad_body(request: Request, exc: RequestValidationError):
-    # Both producer routes use the established 400 error payload for malformed JSON.
+    # The producer route uses the established 400 error payload for malformed JSON.
     first = exc.errors()[0] if exc.errors() else {}
     where = ".".join(str(x) for x in first.get("loc", [])[1:]) or "body"
     request_id = None
@@ -275,7 +270,7 @@ def _handoff_error(request_id: str | None, code: str, message: str, *, wrap: boo
 
 @app.middleware("http")
 async def _handoff_deadline(request: Request, call_next):
-    if request.url.path not in {HANDOFF_PATH, INVENTORY_PATH}:
+    if request.url.path != HANDOFF_PATH:
         return await call_next(request)
     token = os.environ.get("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "") or os.environ.get("STOCK_AGENT_SERVICE_TOKEN", "")
     authorization = request.headers.get("authorization", "")
@@ -345,12 +340,6 @@ def health():
                   **state.get("clip", {"clip_index_loaded": False, "clip_n_indexed": 0})}, 200 if ok else 503)
 
 
-@app.post("/v1/inventory-products", responses=RESPONSES, summary="트렌드마다 과잉재고 1위 상품 1개 (사진·추천 이유 포함)")
-def inventory_products(request: Request, body: InventoryRequest = Body(..., openapi_examples=REQUEST_EXAMPLES)):
-    resp = _run_inventory(request.scope["_stock_source_body"])
-    return _json(resp, http_status(resp))
-
-
 HANDOFF_RESPONSES = {
     200: {"model": HandoffResponse, "description": "v0.1 envelope with Stock producer result (ok, partial, no_results)"},
     400: {"description": "INVALID_REQUEST producer result; wrapped when a non-empty external request_id is available"},
@@ -365,7 +354,7 @@ HANDOFF_RESPONSES = {
           description=("인증된 Project_08 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 stock-agent payload schema 1.0 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
-def stock_agent_runs(request: Request, body: HandoffRequest = Body(...)):
+def stock_agent_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):
     body = request.scope["_stock_source_body"]
     rid = body.get("request_id")
     rid = rid if isinstance(rid, str) and rid.strip() else None

@@ -1,7 +1,8 @@
 """/docs 설명서용 요청·응답 형식 (pydantic)
 
-동작 규칙은 multi.run_request(02 결과 → 내부 형식)·agent.run이 정한다. 여기 모델은 설명서에 필드·예시를 보여 주는 용도라
-요청은 느슨하게 받고(빠진 값·잘못된 값은 run이 400으로 알려 줌), 응답 모델은 설명서에만 쓴다.
+동작 규칙은 multi.run_request(02 결과 → 내부 형식)·agent.run이 정한다. 요청 본문은 envelope만 검사하고
+input(02 결과)은 그대로 넘긴다(빠진 값·잘못된 값은 run이 400으로 알려 줌). 응답 모델은 설명서에만 쓴다.
+input의 필드 설명은 contracts/schemas/stock-agent-request.schema.json에 있다.
 """
 
 from __future__ import annotations
@@ -11,105 +12,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ---------------------------------------------------------------- 요청 (02 트렌드 결과 그대로)
-
-class SeasonRequestIn(BaseModel):
-    """02 applied_filters.season (SeasonRequest)"""
-    model_config = ConfigDict(extra="allow")
-    year: Optional[int] = Field(None, description="연도. 예: 2027")
-    season: Optional[str] = Field(None, description="SS 또는 FW")
-    raw: Optional[str] = Field(None, description="사용자가 쓴 말 (03은 쓰지 않음)")
-    origin: Optional[str] = Field(None, description="user_requested = 사용자가 말함, default_next = 02가 다음 시즌으로 정함")
-
-
-class CategoryRefIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    raw: Optional[str] = None
-    major: Optional[str] = Field(None, description="상의 / 하의 / 아우터 / 원피스")
-    minor: Optional[str] = Field(None, description="세부 카테고리 21종. 있으면 이것을 씀")
-
-
-class CategoryFilterIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    include: Optional[list[CategoryRefIn]] = Field(None, description="사용자 기획 카테고리. 있으면 이것의 짝을 찾음 "
-                                                                     "(여러 개면 각 짝의 교집합, 교집합이 없으면 합집합). 완화하지 않음")
-    exclude: Optional[list[CategoryRefIn]] = Field(None, description="제외 카테고리. 영역이면 짝 영역에서 빼고, 세부 카테고리면 "
-                                                                     "그 상품을 후보에서 뺌. include와 겹치면 400")
-
-
-class AttributeIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    type: Optional[str] = Field(None, description="color만 씀 (material·fit·pattern·detail은 쓰지 않음)")
-    value: Optional[str] = Field(None, description="21색 이름. 21색이 아니면 400")
-
-
-class AppliedFiltersIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    season: Optional[SeasonRequestIn] = Field(None, description="**필수.** 02가 정함")
-    categories: Optional[CategoryFilterIn] = None
-    gender: Optional[str] = Field(None, description="남/여/공용 → 고객군. 여 → Ladieswear+Divided, 남 → Menswear+Divided, "
-                                                    "공용 → 전체. 없으면 트렌드마다 Item gender로 정함(섞이면 합침, 공용·없음이면 전체)")
-    attributes: Optional[list[AttributeIn]] = Field(
-        None, description="사용자 색(type=color): 트렌드 아이템 색과 겹치는 사용자 색만 쓰고, 하나도 안 겹치면 사용자 색 전부를 씀"
-                          "(limitations에 적음). 없으면 트렌드 아이템 색을 씀")
-
-
-class StyleIn(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    id: Optional[str] = Field(None, description="트렌드 ID. 예: style_007")
-    name: Optional[str] = Field(None, description="트렌드 이름. 예: 정제된 맥시멀리스트")
-
-
-class ProductMatchIn(BaseModel):
-    """02 similar_products 한 항목 (무신사 유사 상품). 03은 kind·image_url·image_ref·has_image·multi_wearer_suspected·
-    score·product_id와 CLIP 쿼리 텍스트용 materials·details(type=detail)를 쓴다"""
-    model_config = ConfigDict(extra="allow")
-    product_id: Optional[str] = None
-    image_url: Optional[str] = Field(None, description="이미지 URL (CLIP 기준 이미지). 02 착샷은 없음")
-    image_ref: Optional[str] = Field(
-        None, description="이미지 참조. 착샷은 hf://datasets/disl/musinsa-snap-new@<revision>#row=<n> → 03이 R2 착샷 JPEG로 읽음")
-    multi_wearer_suspected: Optional[bool] = Field(None, description="true면 여러 명이 찍혔을 수 있는 착샷 → 기준 이미지로 쓰지 않음")
-    kind: Optional[str] = Field(None, description="snap_garment(무신사 스냅 착샷)를 먼저 쓰고, 없으면 catalog_item(무신사 상품 이미지)")
-    score: Optional[float] = Field(None, description="트렌드 아이템과의 일치도. 같은 kind 안에서 가장 높은 1장을 씀")
-
-
-class ItemIn(BaseModel):
-    """02 트렌드 아이템. 03은 category_major·category_minor·colors·gender·similar_products를 쓴다"""
-    model_config = ConfigDict(extra="allow")
-    category_major: Optional[str] = Field(None, description="상의 / 하의 / 아우터 / 원피스")
-    category_minor: Optional[str] = Field(None, description="세부 카테고리 21종. 예: 셔츠, 재킷")
-    colors: Optional[list[str]] = Field(None, description="21색. 순서는 의미 없음")
-    gender: Optional[str] = Field(None, description="요청 성별이 없을 때 고객군을 정하는 데 씀")
-    similar_products: Optional[list[ProductMatchIn]] = Field(
-        None, description="무신사 유사 상품. 사용자 카테고리 아이템(없으면 아이템 전체)에서 snap_garment 착샷(없으면 catalog_item "
-                          "상품 이미지) 중 score가 가장 높은 1장을 기준으로 재고 후보를 소재·질감·디테일 유사도(CLIP: 흑백 이미지 + "
-                          "소재·디테일 텍스트, 색 제외)로 거름(재고 색마다 유사도 상위 10%, 색마다 최소 1개). 둘 다 없으면 CLIP 필터 없이 찾음")
-
-
-class TrendIn(BaseModel):
-    """02 결과의 trends[] 한 항목 그대로"""
-    model_config = ConfigDict(extra="allow")
-    style: Optional[StyleIn] = None
-    items: Optional[list[ItemIn]] = Field(
-        None, description="트렌드 색(사용자 색이 없을 때): 사용자 카테고리 아이템의 색 → 없으면 아이템 전체의 색 → 없으면 색 조건 없음. "
-                          "트렌드 카테고리: 아이템의 category_minor (없으면 category_major)")
-
-
-class InventoryRequest(BaseModel):
-    """03 stock-agent 요청 = 02 트렌드 결과(TrendAnalysisResult, 전처리된 쿼리 조건 applied_filters 포함) 그대로.
-    applied_filters가 없으면 400. 입구(stock_agent/trend_request.py)에서 내부 형식으로 바꾼다."""
-    model_config = ConfigDict(extra="allow")
-
-    schema_version: Optional[str] = Field(None, description="**필수.** Trend producer schema 1.1")
-    request_id: Optional[str] = Field(None, description="**필수.** 응답에 그대로 돌려줌")
-    status: Optional[str] = Field(None, description="**필수.** ok → 처리 / no_results → 조회하지 않고 no_results / "
-                                                    "error → 400 INVALID_REQUEST(reason=upstream_error)")
-    applied_filters: Optional[AppliedFiltersIn] = Field(None, description="**필수.** 02가 적용한 사용자 조건")
-    trends: Optional[list[TrendIn]] = Field(
-        None, description="**필수.** 트렌드 목록 (1개여도 목록). 트렌드마다 상품 1개씩, 순서대로 돌려줌")
-    evidence: Optional[list[Any]] = Field(None, description="02 근거 (03은 쓰지 않음)")
-    limitations: Optional[list[str]] = Field(None, description="02 한계. status=no_results·error일 때 응답 summary에 옮김")
-
+# ---------------------------------------------------------------- 요청 예시 (02 트렌드 결과 그대로)
 
 _BALLET = {"style": {"id": "style_012", "name": "발레코어", "definition": "발레복에서 온 가볍고 여린 실루엣"},
            "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"], "gender": "여"},
@@ -310,12 +213,11 @@ class HandoffResponse(BaseModel):
     result: InventoryResponse
 
 
-RESPONSES = {
-    200: {"model": InventoryResponse, "description": "정상 (status: ok / partial / no_results)"},
-    400: {"model": ErrorResponse, "description": "INVALID_REQUEST: 필수 값 없음, 잘못된 값, 지원하지 않는 버전, 02 status=error. "
-                                                 "원인은 errors[].reason"},
-    500: {"model": ErrorResponse, "description": "INTERNAL_ERROR: 내부 오류"},
-    503: {"model": ErrorResponse, "description": "SOURCE_UNAVAILABLE: DB 연결 실패(reason=db_unavailable), "
-                                                 "이미지 자료원 조회 실패(reason=image_source_unavailable)"},
-    504: {"model": ErrorResponse, "description": "TIMEOUT: HTTP 처리 제한 시간(STOCK_HANDOFF_TIMEOUT_SECONDS) 초과"},
+
+
+# canonical 경로 /docs 예시: 위 02 결과 예시를 envelope의 input에 그대로 넣는다
+HANDOFF_EXAMPLES = {
+    name: {"summary": ex["summary"],
+           "value": {"contract_version": "vogue-handoff/0.1", "request_id": ex["value"]["request_id"], "input": ex["value"]}}
+    for name, ex in REQUEST_EXAMPLES.items()
 }

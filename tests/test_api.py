@@ -108,91 +108,82 @@ def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
     assert api.warm_up_clip() == {"clip_index_loaded": False, "clip_n_indexed": 0}
 
 
+def _run(client, body):
+    """canonical 경로로 02 결과를 보내고 (HTTP 상태, producer 결과)를 돌려준다."""
+    r = client.post("/v1/agents/stock-agent/runs", json={
+        "contract_version": "vogue-handoff/0.1", "request_id": body["request_id"], "input": body})
+    return r, (r.json()["result"] if "result" in r.json() else r.json())
+
+
 def test_post_ok(client):
-    r = client.post("/v1/inventory-products", json=REQ)
+    r, body = _run(client, REQ)
     assert r.status_code == 200
-    body = r.json()
     assert body["status"] == "ok" and body["products"][0]["sku_ids"] == ["a1"]
     assert body["trend_results"][0]["style"]["id"] == "style_012" and body["trend_results"][0]["product_index"] == 0
     assert "charset=utf-8" in r.headers["content-type"]   # 한글 깨짐 방지
 
 
 def test_post_invalid_is_400(client):
-    r = client.post("/v1/inventory-products", json={"request_id": "x"})
-    assert r.status_code == 400 and r.json()["errors"][0]["code"] == "INVALID_REQUEST"
-    r = client.post("/v1/inventory-products", json={**REQ, "trends": []})
-    assert r.status_code == 400 and r.json()["errors"][0]["reason"] == "missing_fields"
-
-
-def test_bad_body_is_400_envelope(client):
-    r = client.post("/v1/inventory-products", json=["not", "an", "object"])
-    assert r.status_code == 400
-    body = r.json()
-    assert body["status"] == "error" and body["errors"][0]["code"] == "INVALID_REQUEST" and body["products"] == []
-    assert body["trend_results"] == []
+    r, body = _run(client, {"request_id": "x"})
+    assert r.status_code == 400 and body["errors"][0]["code"] == "INVALID_REQUEST"
+    r, body = _run(client, {**REQ, "trends": []})
+    assert r.status_code == 400 and body["errors"][0]["reason"] == "missing_fields"
 
 
 def test_season_origin_and_extra_fields_pass_through(client):
     req = build_trend_result("req_fw", [BALLET], year=2026, season="FW", origin="default_next", include=["상의"])
-    r = client.post("/v1/inventory-products", json={**req, "extra_field": 1})
-    assert r.status_code == 200 and r.json()["season_basis"]["source"] == "inferred"
+    r, body = _run(client, {**req, "extra_field": 1})
+    assert r.status_code == 200 and body["season_basis"]["source"] == "inferred"
     # 02 결과에 03이 안 쓰는 필드가 있어도 그대로 받음
     trend = {**BALLET, "style": {**BALLET["style"], "focus_core": ["color"]},
              "items": [{**BALLET["items"][0], "material": ["면"], "fit": "루즈"}]}
-    assert client.post("/v1/inventory-products", json={**REQ, "trends": [trend]}).status_code == 200
+    assert _run(client, {**REQ, "trends": [trend]})[0].status_code == 200
 
 
-def test_docs_show_request_fields_examples_and_400(client):
+def test_docs_show_envelope_examples_and_400(client):
     spec = client.get("/openapi.json").json()
-    op = spec["paths"]["/v1/inventory-products"]["post"]
+    assert set(spec["paths"]) == {"/health/live", "/health/ready", "/health", "/v1/agents/stock-agent/runs"}
+    op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
     assert set(op["responses"]) == {"200", "400", "401", "500", "503", "504"}     # 422 대신 400
-    body = op["requestBody"]["content"]["application/json"]
-    assert {"one_trend", "multi_trends", "no_user_category", "upstream_no_results", "missing_season"} == set(body["examples"])
-    req = spec["components"]["schemas"]["InventoryRequest"]["properties"]
-    assert {"request_id", "status", "applied_filters", "trends"} <= set(req)
-    assert not {"season", "target_category", "segment"} & set(req)        # 내부 형식 필드는 설명서에 없음
+    examples = op["requestBody"]["content"]["application/json"]["examples"]
+    assert {"one_trend", "multi_trends", "no_user_category", "upstream_no_results", "missing_season"} == set(examples)
+    for ex in examples.values():
+        value = ex["value"]
+        assert value["contract_version"] == "vogue-handoff/0.1" and value["request_id"] == value["input"]["request_id"]
     assert "InventoryResponse" in spec["components"]["schemas"]
 
 
 def test_post_trends_returns_one_per_trend(client):
     other = {"style": {"id": "style_007", "name": "색 없음"},
              "items": [{"category_major": "아우터", "category_minor": "재킷", "colors": []}]}
-    r = client.post("/v1/inventory-products", json={**REQ, "trends": [BALLET, other]})
+    r, body = _run(client, {**REQ, "trends": [BALLET, other]})
     assert r.status_code == 200
-    body = r.json()
     assert len(body["products"]) == len(body["trend_results"]) == 2
     assert [t["style"]["id"] for t in body["trend_results"]] == ["style_012", "style_007"]
 
 
 def test_post_trends_all_invalid_is_400(client):
     bad = {"style": {"id": "style_bad"}, "items": [{"category_major": "상의", "colors": ["무지개"]}]}
-    r = client.post("/v1/inventory-products", json={**REQ, "trends": [bad]})
-    assert r.status_code == 400 and r.json()["status"] == "error"
-    assert r.json()["trend_results"][0]["status"] == "error"
+    r, body = _run(client, {**REQ, "trends": [bad]})
+    assert r.status_code == 400 and body["status"] == "error"
+    assert body["trend_results"][0]["status"] == "error"
 
 
 def test_internal_format_is_400(client):
     """02 형식이 아니면(applied_filters 없음) 받지 않는다."""
     flat = {"request_id": "req_flat", "season": "2027-SS", "target_category": "상의", "trends": [BALLET]}
-    r = client.post("/v1/inventory-products", json=flat)
-    assert r.status_code == 400 and "applied_filters" in r.json()["errors"][0]["message"]
+    r, body = _run(client, flat)
+    assert r.status_code == 400 and "applied_filters" in body["errors"][0]["message"]
 
 
 def test_trend_result_request(client):
     """02 트렌드 결과 그대로 보내도 된다. 근거 ID가 evidence를 가리킨다."""
     from stock_agent.schemas import TREND_RESULT_EXAMPLE
-    r = client.post("/v1/inventory-products", json=TREND_RESULT_EXAMPLE)
-    body = r.json()
+    r, body = _run(client, TREND_RESULT_EXAMPLE)
     assert r.status_code == 200 and body["request_id"] == TREND_RESULT_EXAMPLE["request_id"]
     tr = body["trend_results"][0]
     assert tr["search"]["segments"] == ["Ladieswear", "Divided"]
     assert set(tr["evidence_ids"]) <= {e["evidence_id"] for e in body["evidence"]}
-
-
-def test_trend_result_no_results_is_200(client):
-    from stock_agent.schemas import TREND_RESULT_EXAMPLE
-    r = client.post("/v1/inventory-products", json={**TREND_RESULT_EXAMPLE, "status": "no_results", "trends": []})
-    assert r.status_code == 200 and r.json()["status"] == "no_results"
 
 
 def test_db_missing_is_503(tmp_path, monkeypatch):
@@ -201,9 +192,9 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "prepare_database", lambda: (str(tmp_path / "missing.duckdb"), "test-version", None))
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         assert c.get("/health").status_code == 503
-        r = c.post("/v1/inventory-products", json=REQ)
+        r, body = _run(c, REQ)
     assert r.status_code == 503
-    assert r.json()["errors"][0]["code"] == "SOURCE_UNAVAILABLE" and r.json()["errors"][0]["reason"] == "db_unavailable"
+    assert body["errors"][0]["code"] == "SOURCE_UNAVAILABLE" and body["errors"][0]["reason"] == "db_unavailable"
 
 
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
@@ -354,16 +345,14 @@ def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
     assert r.json()["result"]["errors"][0]["reason"] == "invalid_input"
 
 
-def test_handoff_openapi_and_legacy_shares_auth(handoff_client):
+def test_handoff_openapi_declares_bearer_auth(handoff_client):
     spec = handoff_client.get("/openapi.json").json()
     op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
     assert "422" not in op["responses"]
     assert {"200", "400", "500", "503", "504"} <= set(op["responses"])
     assert op["security"] == [{"BearerAuth": []}]
-    # Both producer routes share the same fail-closed policy.
-    r = handoff_client.post("/v1/inventory-products", json=REQ, headers={"Authorization": ""})
-    assert r.status_code == 401
-    assert spec["paths"]["/v1/inventory-products"]["post"]["security"] == [{"BearerAuth": []}]
+    assert "/v1/inventory-products" not in spec["paths"]
+    assert handoff_client.post("/v1/inventory-products", json=REQ).status_code == 404
 
 
 def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
@@ -401,7 +390,7 @@ def test_handoff_deadline_message_names_the_configured_seconds(handoff_client, m
     assert result["errors"][0]["message"] == "HTTP 요청 제한 시간(0.05초)을 초과했습니다."
 
 
-def test_concurrent_legacy_requests_keep_duckdb_cursor_isolation(client):
+def test_concurrent_requests_keep_duckdb_cursor_isolation(client):
     from concurrent.futures import ThreadPoolExecutor
     from fastapi.testclient import TestClient
 
@@ -409,13 +398,13 @@ def test_concurrent_legacy_requests_keep_duckdb_cursor_isolation(client):
     # connection. Every response must remain valid and retain its own request ID.
     clients = [TestClient(client.app, headers={"Authorization": "Bearer test-stock-token"}) for _ in range(6)]
     def send(i):
-        return clients[i].post("/v1/inventory-products", json={**REQ, "request_id": f"parallel-{i}"})
+        return _run(clients[i], {**REQ, "request_id": f"parallel-{i}"})[0]
     try:
         with ThreadPoolExecutor(max_workers=6) as pool:
             replies = list(pool.map(send, range(6)))
         assert all(r.status_code == 200 for r in replies)
-        assert {r.json()["request_id"] for r in replies} == {f"parallel-{i}" for i in range(6)}
-        assert all(r.json()["status"] == "ok" for r in replies)
+        assert {r.json()["result"]["request_id"] for r in replies} == {f"parallel-{i}" for i in range(6)}
+        assert all(r.json()["result"]["status"] == "ok" for r in replies)
     finally:
         for c in clients:
             c.close()
@@ -502,21 +491,20 @@ def test_project08_adapter_request_and_core_validation_in_process(handoff_client
     assert result["request_id"] == REQ["request_id"]
 
 
-@pytest.mark.parametrize("path", ["/v1/inventory-products", "/v1/agents/stock-agent/runs"])
 @pytest.mark.parametrize("authorization", ["", "Bearer wrong"])
-def test_auth_precedes_even_malformed_json(handoff_client, path, authorization, monkeypatch):
+def test_auth_precedes_even_malformed_json(handoff_client, authorization, monkeypatch):
     import stock_agent.api as api
     def forbidden(*args, **kwargs):
         pytest.fail("unauthorized request entered inventory")
     monkeypatch.setattr(api, "_run_inventory", forbidden)
-    result = handoff_client.post(path, content=b"{invalid", headers={"Authorization": authorization})
+    result = handoff_client.post("/v1/agents/stock-agent/runs", content=b"{invalid",
+                                 headers={"Authorization": authorization})
     assert result.status_code == 401
 
 
-@pytest.mark.parametrize("path", ["/v1/inventory-products", "/v1/agents/stock-agent/runs"])
 @pytest.mark.parametrize("raw", [b'{"request_id":"one","request_id":"two"}', b'{"x":NaN}', b'{"x":1e999}'])
-def test_ambiguous_json_rejected(handoff_client, path, raw):
-    assert handoff_client.post(path, content=raw).status_code == 400
+def test_ambiguous_json_rejected(handoff_client, raw):
+    assert handoff_client.post("/v1/agents/stock-agent/runs", content=raw).status_code == 400
 
 
 def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypatch):
@@ -565,6 +553,3 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
     del without["trends"][0]["style"]["example_images"]
     assert provenance["source_payload_sha256"] != hashlib.sha256(canonical_bytes(without)).hexdigest()
 
-    legacy = handoff_client.post("/v1/inventory-products", json=trend)
-    assert legacy.status_code == 200
-    assert legacy.json()["input_provenance"]["source_payload_sha256"] == provenance["source_payload_sha256"]
