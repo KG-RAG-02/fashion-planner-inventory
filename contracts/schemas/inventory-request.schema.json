@@ -327,7 +327,7 @@
           "items": {
             "type": "string"
           },
-          "description": "21색 (vocabulary_v1 Color)"
+          "description": "21색 (trend 표준 어휘의 Color)"
         },
         "materials": {
           "type": "array",
