@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:vogue:contracts:inventory:inventory-request:1.0",
-  "title": "inventory input = TrendAnalysisResult 1.1",
-  "description": "POST /v1/agents/inventory/runs accepts this object unchanged under input in a inventory-handoff envelope. This producer input schema is separate from the shared HTTP envelope version. Unlisted TrendAnalysisResult fields are preserved at the HTTP boundary even when Stock does not consume them.",
+  "$id": "https://contracts.fashion-planner.invalid/inventory/inventory-request.schema.json",
+  "title": "inventory 입력 = trend 결과(TrendAnalysisResult)",
+  "description": "POST /v1/agents/inventory/runs는 이 객체를 inventory-handoff envelope의 input에 바꾸지 않고 받습니다. 이 입력 스키마는 HTTP envelope과 따로 관리합니다. 여기 없는 TrendAnalysisResult 필드는 inventory가 쓰지 않더라도 HTTP 경계에서 그대로 보존합니다.",
   "x-http-envelope": {
     "route": "POST /v1/agents/inventory/runs",
     "contract_version": "inventory-handoff",
@@ -71,7 +71,7 @@
     },
     "schema_version": {
       "const": "1.0.0",
-      "description": "Trend producer schema, separate from Stock result1.0"
+      "description": "trend 결과의 schema_version. inventory 결과의 schema_version과 따로 관리합니다."
     }
   },
   "$defs": {

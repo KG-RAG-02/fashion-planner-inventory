@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:vogue:contracts:inventory:inventory-result:1.0",
-  "title": "inventory producer result payload schema 1.0",
-  "description": "Producer-owned Stock result payload version 1.0. It is distinct from the shared inventory-handoff HTTP envelope. The /runs route wraps this complete object in result without moving or reconstructing producer fields. products[i] ↔ trend_results[i]; evidence is collected once and referenced by trend_results[i].evidence_ids.",
+  "$id": "https://contracts.fashion-planner.invalid/inventory/inventory-result.schema.json",
+  "title": "inventory 결과 payload",
+  "description": "inventory가 소유하는 결과 payload입니다(버전은 schema_version 필드). inventory-handoff HTTP envelope과 따로 관리합니다. /runs 경로는 이 객체 전체를 envelope의 result에 옮기거나 다시 만들지 않고 담습니다. products[i] ↔ trend_results[i]이며, 근거는 evidence에 한 번만 모으고 trend_results[i].evidence_ids로 가리킵니다.",
   "type": "object",
   "additionalProperties": false,
   "required": [
