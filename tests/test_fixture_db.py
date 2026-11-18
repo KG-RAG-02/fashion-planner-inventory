@@ -1,4 +1,4 @@
-"""Synthetic fixture DB (stock_agent.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
+"""Synthetic fixture DB (fashion_planner_inventory.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
 
 examples/stub/stock-request.json carries the trend-analysis-agent stub result unchanged (vogue-handoff/0.1);
 with STOCK_DB_PATH=<fixture DB> it must give ok/partial with a product.
@@ -16,8 +16,8 @@ jsonschema = pytest.importorskip("jsonschema")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from stock_agent import fixture_db  # noqa: E402
-from stock_agent.trend_request import canonical_bytes  # noqa: E402
+from fashion_planner_inventory import fixture_db  # noqa: E402
+from fashion_planner_inventory.trend_request import canonical_bytes  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 STUB = ROOT / "examples" / "stub"
@@ -71,7 +71,7 @@ def test_stub_request_is_an_unchanged_trend_11_result():
 @pytest.fixture
 def stub_env(monkeypatch, tmp_path):
     """local-file: R2 설정·키 없이, R2 객체 저장소를 만들면 실패."""
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     for name in R2_VARS + ("STOCK_IMAGE_CACHE_DIR",):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(api, "R2ObjectStore", lambda *a, **k: pytest.fail("stub mode must not build an R2 store"))
@@ -84,8 +84,8 @@ def stub_env(monkeypatch, tmp_path):
 
 
 def test_trend_stub_result_runs_ok_in_local_file_mode(stub_env):
-    import stock_agent.api as api
-    from stock_agent.readiness import FIXTURE_LIMITATION
+    import fashion_planner_inventory.api as api
+    from fashion_planner_inventory.readiness import FIXTURE_LIMITATION
     req = _json(STUB / "stock-request.json")
     expected = _json(STUB / "stock-response-summary.json")
     with TestClient(api.app) as c:

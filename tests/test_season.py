@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from stock_agent.season import map_season, parse_season
+from fashion_planner_inventory.season import map_season, parse_season
 
 
 @pytest.mark.parametrize(

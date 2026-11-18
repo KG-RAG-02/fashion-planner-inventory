@@ -4,7 +4,7 @@ from io import BytesIO
 
 import pytest
 
-from stock_agent.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
+from fashion_planner_inventory.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
 
 
 class FakeR2:

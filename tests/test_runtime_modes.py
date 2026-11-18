@@ -12,7 +12,7 @@ duckdb = pytest.importorskip("duckdb")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from stock_agent.trend_request import build_trend_result  # noqa: E402
+from fashion_planner_inventory.trend_request import build_trend_result  # noqa: E402
 
 TOKEN = "test-stock-token"
 BALLET = {"style": {"id": "style_012", "name": "발레코어"},
@@ -44,7 +44,7 @@ def ready_db_file(con, path, numeric_ids=False):
 @pytest.fixture
 def local_env(monkeypatch):
     """R2 설정이 전혀 없고, R2 객체 저장소를 만들면 실패하는 환경."""
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     for name in R2_VARS + ("STOCK_DB_PATH",):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
@@ -58,7 +58,7 @@ def local_env(monkeypatch):
 
 
 def _client():
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     return TestClient(api.app, headers={"Authorization": f"Bearer {TOKEN}"})
 
 
@@ -67,7 +67,7 @@ def _handoff(body):
 
 
 def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(local_env, con, tmp_path):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     db = ready_db_file(con, tmp_path / "stock-local.duckdb")
     local_env.setenv("STOCK_DB_PATH", str(db))
     with _client() as c:
@@ -111,8 +111,8 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
 def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_path):
     """R2 이미지 캐시가 read-only여도 사진은 캐시 없이 응답에 넣고 limitations에 적는다."""
     import io
-    import stock_agent.api as api
-    from stock_agent.storage import R2ObjectStore, R2Settings
+    import fashion_planner_inventory.api as api
+    from fashion_planner_inventory.storage import R2ObjectStore, R2Settings
 
     class ImageObjects:                          # R2 image objects (fake client, no network)
         downloads = 0

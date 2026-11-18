@@ -5,8 +5,8 @@
 
 import pytest
 
-from stock_agent.multi import run_request, validate_response
-from stock_agent.trend_request import build_trend_result
+from fashion_planner_inventory.multi import run_request, validate_response
+from fashion_planner_inventory.trend_request import build_trend_result
 
 
 def req(*trends, **kw):

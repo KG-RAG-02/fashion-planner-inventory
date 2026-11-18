@@ -142,7 +142,7 @@ def open_local_database(path_value: str | os.PathLike) -> tuple[Path, str]:
     """Local-file mode (``STOCK_DB_PATH``): no R2 settings, HEAD or download.
 
     The file must exist. If a ``<name>.sha256`` sidecar sits next to it (as written by
-    ``python -m stock_agent.server --prepare-cache``), the file must match it. The version
+    ``python -m fashion_planner_inventory.server --prepare-cache``), the file must match it. The version
     identifier is the file's SHA-256. The caller opens the file read-only.
     """
     path = Path(path_value).expanduser()
@@ -263,7 +263,7 @@ class R2ObjectStore:
 
         prefix가 없거나 참조를 해석할 수 없거나 객체가 없으면(다른 버전 등) None. 캐시에 저장하지 않는다.
         """
-        from stock_agent.snap_image import snap_object_key
+        from fashion_planner_inventory.snap_image import snap_object_key
         if not self.settings.snap_image_prefix:
             return None
         key = snap_object_key(self.settings.snap_image_prefix, image_ref)

@@ -1,6 +1,6 @@
 import pytest
 
-from stock_agent.attributes import (
+from fashion_planner_inventory.attributes import (
     enrich_row,
     extract_fit,
     extract_materials,
@@ -143,6 +143,6 @@ def test_mohair_is_hair_knit_and_warm():
 
 
 def test_old_names_map_to_vocabulary():
-    from stock_agent.attributes import to_vocab
+    from fashion_planner_inventory.attributes import to_vocab
     assert to_vocab("티셔츠·캐주얼상의") == "티셔츠" and to_vocab("울·캐시미어") == "울/캐시미어"
     assert to_vocab("청바지") == "청바지" and to_vocab(None) is None

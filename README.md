@@ -69,7 +69,7 @@ python -m pytest
 
 - R2 SDK region 값은 `auto`입니다. 접속은 S3 호환 API와 계정 endpoint를 사용합니다. jurisdiction bucket은 `R2_ENDPOINT`에 해당 공식 endpoint를 지정해야 합니다.
 - R2 키는 해당 bucket의 `Object Read only` 권한만 부여하고, `R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`는 배포 secret store에 둡니다. `.env`는 로컬 개발 전용이며 커밋하지 않습니다.
-- API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m stock_agent.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `STOCK_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
+- API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m fashion_planner_inventory.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `STOCK_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
 - 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
 - `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
 - 두 inventory route의 HTTP deadline은 기본 60초이고(`STOCK_HANDOFF_TIMEOUT_SECONDS`), 통합 배포는 180초로 둡니다. Project_08은 Stock 응답을 210초까지 기다립니다. 트렌드는 순서대로 처리하고, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 읽기(상품 이미지 URL 5초, 착샷은 R2)·CLIP 임베딩 계산이 더해집니다. 초과 요청은 504로 응답하지만 이미 시작한 동기 DB 조회·이미지 내려받기의 강제 취소는 보장하지 않습니다.
@@ -80,23 +80,23 @@ python -m pytest
 ```powershell
 python scripts/run_agent.py --request examples/request-example.json   # 02 결과 1건
 python scripts/validate_requests.py                                   # 정확도 검증 10건 (성별 여·남·공용·없음, 무신사 착샷·상품 이미지 CLIP 8건)
-python -m stock_agent.server                                 # HTTP API
+python -m fashion_planner_inventory.server                                 # HTTP API
 ```
 
 ## 4. Docker 실행
 
 ```powershell
 docker build -t stock-agent:v1 .
-docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" stock-agent:v1 python -m stock_agent.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
+docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" stock-agent:v1 python -m fashion_planner_inventory.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
 docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images stock-agent:v1
 ```
 
 - CLIP 인덱스는 `R2_CLIP_INDEX_KEY`가 있으면 `--prepare-cache`가 `/cache`에 받아 두고 서버가 그 파일을 읽는다(로컬 파일은 `STOCK_CLIP_INDEX_PATH`로 붙임). 없으면 서버는 뜨고 CLIP 필터만 건너뛴다(`/health`의 `clip_index_loaded: false`). 인덱스가 있으면 시작할 때 CLIP 모델 가중치를 `HOME`(`/tmp`) 아래로 내려받아 불러오므로 시간이 걸린다(healthcheck start-period 60초).
 
 - 이미지는 uid/gid 10001, `HOME=/tmp`, `STOCK_CACHE_DIR=/cache`로 실행되고 `/app`에 쓰지 않는다. read-only root filesystem에서는 `/tmp` tmpfs와 `/cache`(volume 또는 tmpfs)만 쓰기 가능하게 둔다. `/cache`를 read-only로 붙이면 R2 이미지 캐시는 `STOCK_IMAGE_CACHE_DIR`(예: `/tmp/stock-images`)로 옮긴다. `--prepare-cache`로 host 폴더를 채울 때 Linux host에서는 그 폴더를 uid 10001이 쓸 수 있어야 한다.
-- `HEALTHCHECK`는 `python -m stock_agent.server --check-ready`(`GET /health/ready`, 외부 호출 없음)라서 DB가 준비되어야 healthy가 된다. liveness는 `GET /health/live`.
+- `HEALTHCHECK`는 `python -m fashion_planner_inventory.server --check-ready`(`GET /health/ready`, 외부 호출 없음)라서 DB가 준비되어야 healthy가 된다. liveness는 `GET /health/live`.
 
-- 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `STOCK_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m stock_agent.server --prepare-cache`를 실행해 준비합니다.
+- 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `STOCK_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m fashion_planner_inventory.server --prepare-cache`를 실행해 준비합니다.
 - `--env-file .env`로 런타임 설정을 전달합니다. 이미지 안에는 `.env`, DB, 이미지가 들어가지 않습니다.
 - 확인: 브라우저에서 http://localhost:8002/health 또는 http://localhost:8002/docs
   (`/docs`에서 POST → Try it out → Examples에서 예시 요청을 골라 Execute)
@@ -115,12 +115,12 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 통합 Docker 배포의 stub 프로필은 R2 없이 합성 fixture DB로 Stock을 실행한다.
 
 ```bash
-python scripts/build_fixture_db.py /tmp/stock-fixture.duckdb   # 이미지 안에서는 python -m stock_agent.fixture_db <out.duckdb>
+python scripts/build_fixture_db.py /tmp/stock-fixture.duckdb   # 이미지 안에서는 python -m fashion_planner_inventory.fixture_db <out.duckdb>
 STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token> \
-  python -m stock_agent.server
+  python -m fashion_planner_inventory.server
 ```
 
-- fixture DB(`stock_agent/fixture_db.py`): `tests/conftest.py`의 작은 표(a1~a6) + trend-analysis-agent stub 결과(발레코어·상의·핑크 → 짝 하의·아우터, 봄·여름)에 맞춘 합성 상품 3개 + 표지 표 `stock_fixture`. H&M 원본이 아니고 내용은 매번 같다(`content_sha256`). storage version v1.0.0으로 써서 DuckDB 1.x·2.x 모두 읽는다. 있는 파일은 `--force` 없이 덮어쓰지 않는다.
+- fixture DB(`fashion_planner_inventory/fixture_db.py`): `tests/conftest.py`의 작은 표(a1~a6) + trend-analysis-agent stub 결과(발레코어·상의·핑크 → 짝 하의·아우터, 봄·여름)에 맞춘 합성 상품 3개 + 표지 표 `stock_fixture`. H&M 원본이 아니고 내용은 매번 같다(`content_sha256`). storage version v1.0.0으로 써서 DuckDB 1.x·2.x 모두 읽는다. 있는 파일은 `--force` 없이 덮어쓰지 않는다.
 - `/health/ready`: `db: local-file`, `synthetic_fixture: true`. 트렌드 결과마다 limitations에 합성 DB라는 문장이 붙는다.
 - 요청: `examples/stub/stock-request.json` — `vogue-handoff/0.1`, `input`은 trend stub 결과 그대로(`trends[].style.example_images` 포함).
 - 기대 응답: `examples/stub/stock-response-summary.json` — HTTP 200 `ok`, 상품 1개(`0910001001` 스커트·화이트, 사진 없음), bearer가 없으면 401. `tests/test_fixture_db.py`가 대조한다.
@@ -143,7 +143,7 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 ### 요청
 
 **요청은 02 트렌드 결과(`TrendAnalysisResult`) 그대로만 받는다**(예시: `examples/request-example.json`, 트렌드 여러 개: `examples/request-trends-example.json`).
-`applied_filters`가 없으면 400 `INVALID_REQUEST`. 입구(`multi.run_request` → `stock_agent/trend_request.py`)에서 내부 형식으로 바꾼다.
+`applied_filters`가 없으면 400 `INVALID_REQUEST`. 입구(`multi.run_request` → `fashion_planner_inventory/trend_request.py`)에서 내부 형식으로 바꾼다.
 
 | 02 필드 | 03에서 |
 |---|---|
@@ -172,7 +172,7 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 | `segment` | 고객군을 직접 줄 때만(안쪽 테스트·검증용). 있으면 `gender`보다 먼저 |
 | `trends` / `trend` | 트렌드 목록(`run_internal`) / 트렌드 1개(`agent.run`) |
 
-트렌드 1개를 처리하는 규칙 (`stock_agent/trend_input.py`, `stock_agent/agent.py`):
+트렌드 1개를 처리하는 규칙 (`fashion_planner_inventory/trend_input.py`, `fashion_planner_inventory/agent.py`):
 
 - 트렌드 카테고리: 아이템의 `category_minor`, 없으면 `category_major`
 - 트렌드 아이템 자신의 소재·핏은 재고를 거르는 데 쓰지 않는다 (새 상품의 소재로 짝 재고를 거르면 코디 논리에 맞지 않음). 무드 기준은 아래 CLIP 유사도 필터
@@ -201,7 +201,7 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 - 조회한 단계는 `search.color_attempts`(`mode`, `colors`, `n_candidates`), 최종 단계는 `search.color_mode`, 완화한 조건은 `search.relaxed`와 limitations에 적는다. `any`면 `reason.color.rule`이 "하나라도 어울리는 색", `none`이면 "색 조건 없음"
 - 모든 단계 뒤에도 0개면 `no_results`
 
-**CLIP 유사도 필터** (`stock_agent/snap.py`, `stock_agent/clip_matcher.py`, `stock_agent/clip_vocab.py`): 새 상품(예: 시폰 블라우스)과
+**CLIP 유사도 필터** (`fashion_planner_inventory/snap.py`, `fashion_planner_inventory/clip_matcher.py`, `fashion_planner_inventory/clip_vocab.py`): 새 상품(예: 시폰 블라우스)과
 함께 팔 짝 재고를 트렌드 아이템의 무신사 이미지와 소재·질감·디테일 무드가 비슷한 것으로 좁힌다. 색은 조합 색상표가 정하므로 CLIP은 색을 보지 않는다.
 
 - 기준 이미지 고르기: 사용자 카테고리 아이템(없으면 아이템 전체)의 `similar_products`에서
@@ -221,7 +221,7 @@ HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개�
 
 ### 응답
 
-`stock_agent/multi.py`가 트렌드마다 `agent.run`을 돌려 순서대로 이어 붙인다.
+`fashion_planner_inventory/multi.py`가 트렌드마다 `agent.run`을 돌려 순서대로 이어 붙인다.
 Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 담는다. canonical HTTP route는 이 producer payload 전체를 v0.1 envelope의 `result`에 보존한다.
 
 | 필드 | 설명 |
@@ -233,7 +233,7 @@ Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상�
 
 ### 오류 코드
 
-`errors[].code`는 팀 공통 코드, 03 안의 자세한 원인은 `reason` (`stock_agent/errors.py`).
+`errors[].code`는 팀 공통 코드, 03 안의 자세한 원인은 `reason` (`fashion_planner_inventory/errors.py`).
 
 | reason | code | HTTP |
 |---|---|---|
@@ -253,7 +253,7 @@ HTTP route와 producer contract의 역할은 `contracts/README.md`를 따른다.
 ## 구조
 
 ```
-stock_agent/   season.py  attributes.py  synthetic.py  overstock.py  trend_input.py  trend_request.py  agent.py
+fashion_planner_inventory/   season.py  attributes.py  synthetic.py  overstock.py  trend_input.py  trend_request.py  agent.py
                snap.py  snap_image.py  clip_vocab.py  clip_matcher.py  images.py  storage.py  readiness.py
                multi.py  errors.py  api.py  schemas.py  env.py  server.py  fixture_db.py
 contracts/   producer payload JSON Schema, 예시 및 HTTP envelope 설명
@@ -266,7 +266,7 @@ docs/        이슈 초안(범위·계약·결정 사항), Cloudflare R2 설정(
 
 ### Runtime manifest와 데이터 경계
 
-Stock 포트·route·health 기본값의 단일 소스는 `stock_agent/service-manifest.json`입니다. 로컬/Docker 시작과 Docker healthcheck는 `python -m stock_agent.server`를 사용합니다. 포트는 8002입니다.
+Stock 포트·route·health 기본값의 단일 소스는 `fashion_planner_inventory/service-manifest.json`입니다. 로컬/Docker 시작과 Docker healthcheck는 `python -m fashion_planner_inventory.server`를 사용합니다. 포트는 8002입니다.
 
 입력은 명시적인 Trend `schema_version=1.1`을 요구합니다. unsupported/missing version, producer identity 불일치, request_id/status/nested shape 오류는 DB 조회 전에 거부합니다. JSON 중복 key·NaN/Infinity도 거부합니다. 원본 body는 내부 변환본과 분리하고 `input_provenance.source_payload_sha256`은 원본 **Trend result body**의 python-json-sort/1 hash입니다. envelope hash와 같다고 취급하지 않습니다. Stock이 사용하지 않는 전체 Evidence의 의미 검증과 wire bytes artifact 보존은 P08 retained consumer 책임입니다. 사용자 원문과 적용 필터를 연결하는 stock_call_context도 P08 소유입니다.
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from stock_agent.multi import run_request, validate_response
-from stock_agent.schemas import TREND_RESULT_EXAMPLE
+from fashion_planner_inventory.multi import run_request, validate_response
+from fashion_planner_inventory.schemas import TREND_RESULT_EXAMPLE
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -57,7 +57,7 @@ def test_real_ok_response_matches_schema(con, tmp_path):
 
 def test_snap_request_and_response_match_schema(con, tmp_path):
     """무신사 스냅 착샷이 있는 02 결과 → CLIP 필터를 쓴 응답도 계약에 맞음 (작은 DB, 가짜 CLIP)"""
-    from stock_agent.clip_matcher import ClipInfo
+    from fashion_planner_inventory.clip_matcher import ClipInfo
     trend = json.loads(json.dumps(TREND_RESULT_EXAMPLE["trends"][0]))
     trend["items"][0]["similar_products"] = [
         {"product_id": "musinsa_snap:1", "name": "스냅", "brand": "Musinsa", "image_url": "https://img.example/s.jpg",

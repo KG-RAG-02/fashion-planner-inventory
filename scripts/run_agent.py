@@ -21,7 +21,7 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent.multi import run_request  # noqa: E402
+from fashion_planner_inventory.multi import run_request  # noqa: E402
 
 EXAMPLE = json.loads((Path(__file__).resolve().parents[1] / "examples/request-example.json").read_text(encoding="utf-8"))
 

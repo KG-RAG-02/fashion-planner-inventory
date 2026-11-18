@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import stock_agent.clip_matcher as clip
-from stock_agent.attributes import extract_details
-from stock_agent.clip_vocab import DETAIL_EN, MATERIAL_EN, clip_text, detail_names
+import fashion_planner_inventory.clip_matcher as clip
+from fashion_planner_inventory.attributes import extract_details
+from fashion_planner_inventory.clip_vocab import DETAIL_EN, MATERIAL_EN, clip_text, detail_names
 
 
 def unit(*v):
@@ -150,7 +150,7 @@ def test_to_gray_removes_color():
 # ---- 텍스트 규칙 (clip_vocab)
 def test_vocab_covers_02_standard():
     assert len(MATERIAL_EN) == 26 and len(DETAIL_EN) == 40
-    from stock_agent import attributes
+    from fashion_planner_inventory import attributes
     assert {n for n, _ in attributes._DETAILS} == set(DETAIL_EN)          # 재고 디테일 = 02 DetailName
 
 

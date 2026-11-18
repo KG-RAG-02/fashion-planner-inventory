@@ -19,8 +19,8 @@ from datetime import timedelta
 
 import pandas as pd
 
-from stock_agent.attributes import map_color
-from stock_agent.season import DATA_END, SeasonPeriod
+from fashion_planner_inventory.attributes import map_color
+from fashion_planner_inventory.season import DATA_END, SeasonPeriod
 
 TOP_N = 50          # 속성 요약을 보는 상위 후보 수 (응답 상품은 사진 있는 최상위 1개)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent.synthetic import AS_OF, SEED, build_stock  # noqa: E402
+from fashion_planner_inventory.synthetic import AS_OF, SEED, build_stock  # noqa: E402
 
 DB_PATH = os.environ.get("STOCK_DB_PATH", "data/stock.duckdb")
 con = duckdb.connect(DB_PATH)

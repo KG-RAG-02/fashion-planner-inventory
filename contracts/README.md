@@ -21,7 +21,7 @@
                  ④ sales-market-agent (04)         ◀ PlanningDraft                                  ▶ MarketData
 ```
 
-에이전트끼리는 직접 부르지 않고 오케스트레이터(Project_08)가 순서대로 부릅니다. Project_08은 직전 Trend producer의 result 객체(전처리된 쿼리 조건 `applied_filters` 포함)를 `input`에 그대로 넣습니다. 03 입구에서만 내부 처리 모양으로 바꾸며(`stock_agent/trend_request.py`), 외부 input을 평탄화하거나 Trend 필드/버전을 다시 쓰지 않습니다. Project_08은 검증 뒤 변경하지 않은 Stock `result`를 다음 단계(new-product-agent)에 전달하고, 기획안 초안 조립에도 씁니다.
+에이전트끼리는 직접 부르지 않고 오케스트레이터(Project_08)가 순서대로 부릅니다. Project_08은 직전 Trend producer의 result 객체(전처리된 쿼리 조건 `applied_filters` 포함)를 `input`에 그대로 넣습니다. 03 입구에서만 내부 처리 모양으로 바꾸며(`fashion_planner_inventory/trend_request.py`), 외부 input을 평탄화하거나 Trend 필드/버전을 다시 쓰지 않습니다. Project_08은 검증 뒤 변경하지 않은 Stock `result`를 다음 단계(new-product-agent)에 전달하고, 기획안 초안 조립에도 씁니다.
 
 ## 요청
 
@@ -94,14 +94,14 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 ## Health, API docs 및 환경 변수
 
-- 포트 `8002`, `uvicorn stock_agent.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. `STOCK_DB_PATH`가 설정되면 API는 R2 설정·HEAD 없이 그 로컬 파일을 read-only로 엽니다(local-file 모드, readiness `db: local-file`).
+- 포트 `8002`, `uvicorn fashion_planner_inventory.api:app --port 8002`, Docker 명령은 README대로 유지합니다. API 시작은 R2 HEAD·기존 checksummed cache 확인만 수행하고 자동 DB 다운로드를 하지 않습니다. DuckDB는 read-only로 엽니다. 이미지 object는 R2 prefix가 설정된 경우 요청되는 이미지에 한해 지연 조회·캐시합니다. `STOCK_DB_PATH`가 설정되면 API는 R2 설정·HEAD 없이 그 로컬 파일을 read-only로 엽니다(local-file 모드, readiness `db: local-file`).
 - `/health/live`는 API 생존 200이며 `/health/ready`와 `/health`는 column/type, nonempty tables, sample snapshot 및 수치 검사를 통과해야 200입니다. 실패는 503입니다. `image_objects_verified=false`를 따로 표시합니다. `clip_index_loaded`·`clip_n_indexed`는 서버 시작 때 CLIP 인덱스를 불러왔는지와 상품 수이며, 200/503 판정에는 쓰지 않습니다(인덱스가 없으면 CLIP 필터만 건너뜀).
 - `/docs` 및 `/openapi.json`은 레거시와 v0.1 route를 모두 제공합니다. OpenAPI version은 producer schema `1.0`; 개별 응답 producer metadata도 `1.0`, HTTP envelope는 `vogue-handoff/0.1`입니다.
 - 주요 API 런타임 설정: `R2_ACCOUNT_ID`, `R2_ENDPOINT`(선택), `R2_BUCKET`, `R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `STOCK_CACHE_DIR`(선택), `STOCK_DB_PATH`(선택, local-file 모드), `VOGUE_AGENT_SERVICE_BEARER_TOKEN`(canonical run route 필수), `R2_CLIP_INDEX_KEY`(선택, R2 CLIP 인덱스 key, `--prepare-cache`가 캐시에 받음), `R2_SNAP_IMAGE_PREFIX`(선택, 무신사 착샷 JPEG prefix), `STOCK_CLIP_INDEX_PATH`(선택, 로컬 인덱스 파일), `STOCK_HANDOFF_TIMEOUT_SECONDS`(선택, 기본 60). 기본 S3 endpoint는 `https://<account-id>.r2.cloudflarestorage.com`, SDK region은 `auto`입니다. Jurisdiction bucket은 해당 공식 endpoint를 지정합니다. 토큰은 bucket 범위 `Object Read only` 권한을 사용합니다. 비밀은 `.env.example`에 빈 변수만 두며 실제 토큰/키는 배포 secret store를 사용합니다.
 
 ## 바꿀 때
 
-스키마를 바꾸면 `examples/`, `stock_agent/schemas.py`(설명서), `tests/test_contracts.py`를 같이 고치고 `pytest`를 돌립니다. 호환되지 않는 변경이면 `VERSION`을 올립니다.
+스키마를 바꾸면 `examples/`, `fashion_planner_inventory/schemas.py`(설명서), `tests/test_contracts.py`를 같이 고치고 `pytest`를 돌립니다. 호환되지 않는 변경이면 `VERSION`을 올립니다.
 
 ### 입력 경계와 readiness
 
@@ -109,4 +109,4 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 readiness는 column/type·nonempty·snapshot 및 수치 null/음수/금액 일관성을 검사합니다. snapshot은 2020-09-22/virtual_stock_v1/sample과 일치해야 합니다. no_results는 인증·입력검증 뒤 DB 없이 반환합니다. 양수재고 검색에서 no_results가 나와도 전체 재고 0이라는 뜻이 아닙니다. result 1.0 schema에 임의 top-level 관측 필드를 추가하지 않습니다.
 
-포트·route·health의 기준은 `stock_agent/service-manifest.json`(포트 8002)입니다.
+포트·route·health의 기준은 `fashion_planner_inventory/service-manifest.json`(포트 8002)입니다.

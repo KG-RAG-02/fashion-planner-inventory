@@ -177,7 +177,7 @@ def build_trend_result(request_id: str, trends: list[dict], *, year: int = 2027,
                        exclude: list[str] | None = None, colors: list[str] | None = None,
                        gender: str | None = None, status: str = "ok") -> dict:
     """02 결과 모양의 요청을 만든다 (스크립트·테스트용). 카테고리 이름은 영역이면 major, 세부면 minor로 넣는다."""
-    from stock_agent.overstock import CATEGORY_TO_AREA, MATCHING_AREAS
+    from fashion_planner_inventory.overstock import CATEGORY_TO_AREA, MATCHING_AREAS
 
     def ref(name):
         if name in MATCHING_AREAS:

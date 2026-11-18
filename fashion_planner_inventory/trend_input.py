@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from stock_agent.overstock import CATEGORY_TO_AREA, MATCHING_AREAS, normalize_color
+from fashion_planner_inventory.overstock import CATEGORY_TO_AREA, MATCHING_AREAS, normalize_color
 
 COLOR_BASES = ("user_colors_in_trend", "user_colors", "user_category_items", "all_items", "none")
 USER_COLOR_BASES = ("user_colors_in_trend", "user_colors")

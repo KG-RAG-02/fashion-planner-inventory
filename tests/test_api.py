@@ -8,7 +8,7 @@ duckdb = pytest.importorskip("duckdb")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from stock_agent.trend_request import build_trend_result  # noqa: E402
+from fashion_planner_inventory.trend_request import build_trend_result  # noqa: E402
 
 BALLET = {"style": {"id": "style_012", "name": "발레코어"},
           "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"]}]}
@@ -29,7 +29,7 @@ def make_client(con, tmp_path, monkeypatch):
     con.execute("ALTER TABLE f.stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
     con.execute("ALTER TABLE f.stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute("DETACH f")
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", None))
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
 
@@ -54,7 +54,7 @@ def test_health(client):
 
 
 def test_health_reports_clip_index(make_client, monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": True, "clip_n_indexed": 6})
     with make_client() as c:
         body = c.get("/health").json()
@@ -63,9 +63,9 @@ def test_health_reports_clip_index(make_client, monkeypatch):
 
 def test_clip_index_path_order(monkeypatch, tmp_path):
     """STOCK_CLIP_INDEX_PATH → R2 캐시(R2_CLIP_INDEX_KEY, 서버는 받지 않음) → 기본 data/clip_index.npz."""
-    import stock_agent.api as api
-    import stock_agent.clip_matcher as clip
-    from stock_agent.storage import StorageUnavailable
+    import fashion_planner_inventory.api as api
+    import fashion_planner_inventory.clip_matcher as clip
+    from fashion_planner_inventory.storage import StorageUnavailable
 
     class Store:
         def __init__(self, key, cached):
@@ -92,8 +92,8 @@ def test_clip_index_path_order(monkeypatch, tmp_path):
 @pytest.mark.parametrize("prefix, connected", [("musinsa-snap", True), ("", False)])
 def test_warm_up_clip_connects_snap_store(monkeypatch, prefix, connected):
     """R2_SNAP_IMAGE_PREFIX가 있으면 착샷 이미지를 R2 저장소에서 읽도록 연결한다."""
-    import stock_agent.api as api
-    import stock_agent.clip_matcher as clip
+    import fashion_planner_inventory.api as api
+    import fashion_planner_inventory.clip_matcher as clip
     store = type("Store", (), {"settings": type("S", (), {"snap_image_prefix": prefix, "clip_index_key": ""})()})()
     monkeypatch.setitem(api.state, "object_store", store)
     monkeypatch.setattr(clip, "warm_up", lambda path=None: {"clip_index_loaded": False, "clip_n_indexed": 0})
@@ -102,8 +102,8 @@ def test_warm_up_clip_connects_snap_store(monkeypatch, prefix, connected):
 
 
 def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
-    import stock_agent.clip_matcher as clip
-    import stock_agent.api as api
+    import fashion_planner_inventory.clip_matcher as clip
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(clip, "warm_up", lambda: (_ for _ in ()).throw(RuntimeError("no open_clip")))
     assert api.warm_up_clip() == {"clip_index_loaded": False, "clip_n_indexed": 0}
 
@@ -178,7 +178,7 @@ def test_internal_format_is_400(client):
 
 def test_trend_result_request(client):
     """02 트렌드 결과 그대로 보내도 된다. 근거 ID가 evidence를 가리킨다."""
-    from stock_agent.schemas import TREND_RESULT_EXAMPLE
+    from fashion_planner_inventory.schemas import TREND_RESULT_EXAMPLE
     r, body = _run(client, TREND_RESULT_EXAMPLE)
     assert r.status_code == 200 and body["request_id"] == TREND_RESULT_EXAMPLE["request_id"]
     tr = body["trend_results"][0]
@@ -188,7 +188,7 @@ def test_trend_result_request(client):
 
 def test_db_missing_is_503(tmp_path, monkeypatch):
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "prepare_database", lambda: (str(tmp_path / "missing.duckdb"), "test-version", None))
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         assert c.get("/health").status_code == 503
@@ -198,7 +198,7 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 
 
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "STOCK_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
@@ -309,7 +309,7 @@ def test_handoff_no_results_and_domain_error_status_are_wrapped(handoff_client):
 
 
 def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     for code, expected in (("db_unavailable", 503), ("timeout", 504), ("internal", 500)):
         monkeypatch.setattr(api, "_run_inventory", lambda payload, code=code: api.error_response(
             payload, code, "controlled"))
@@ -321,7 +321,7 @@ def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatc
 
 
 def test_handoff_partial_status_is_copied(handoff_client, monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     partial = {"schema_version": "1.0", "request_id": REQ["request_id"], "agent_id": "stock-agent",
                "status": "partial", "summary": "partial", "products": [], "trend_results": [],
                "season_basis": None, "evidence": [], "errors": []}
@@ -357,7 +357,7 @@ def test_handoff_openapi_declares_bearer_auth(handoff_client):
 
 def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
     import time
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.error_response(payload, "internal", "late"))[1])
     r = _post_handoff(handoff_client)
@@ -368,7 +368,7 @@ def test_handoff_deadline_returns_504_envelope(handoff_client, monkeypatch):
 
 
 def test_handoff_deadline_is_configurable(monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     cases = {None: 60.0, "": 60.0, "  ": 60.0, "90": 90.0, " 120.5 ": 120.5, "600": 600.0,
              "0": 60.0, "-5": 60.0, "601": 60.0, "abc": 60.0}
     for raw, expected in cases.items():
@@ -381,7 +381,7 @@ def test_handoff_deadline_is_configurable(monkeypatch):
 
 def test_handoff_deadline_message_names_the_configured_seconds(handoff_client, monkeypatch):
     import time
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "HANDOFF_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(api, "_run_inventory", lambda payload: (time.sleep(0.2), api.error_response(payload, "internal", "late"))[1])
     r = _post_handoff(handoff_client)
@@ -412,7 +412,7 @@ def test_concurrent_requests_keep_duckdb_cursor_isolation(client):
 
 @pytest.mark.parametrize("authorization", ["", "Bearer wrong"])
 def test_auth_precedes_even_malformed_json(handoff_client, authorization, monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     def forbidden(*args, **kwargs):
         pytest.fail("unauthorized request entered inventory")
     monkeypatch.setattr(api, "_run_inventory", forbidden)
@@ -427,7 +427,7 @@ def test_ambiguous_json_rejected(handoff_client, raw):
 
 
 def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypatch):
-    import stock_agent.api as api
+    import fashion_planner_inventory.api as api
     monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
     def unavailable():
         raise RuntimeError("fixture DB unavailable")
@@ -452,7 +452,7 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
     from pathlib import Path
 
     import jsonschema
-    from stock_agent.trend_request import canonical_bytes
+    from fashion_planner_inventory.trend_request import canonical_bytes
 
     trend = copy.deepcopy(REQ)
     images = [{"url": "https://img.example.invalid/0.jpg", "basis": "item_link"},

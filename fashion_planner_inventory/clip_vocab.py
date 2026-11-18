@@ -12,7 +12,7 @@ CLIP(open_clip ViT-B-32-quickgelu, OpenAI 가중치)은 영어로 학습되어 �
 
 from __future__ import annotations
 
-from stock_agent.attributes import to_vocab
+from fashion_planner_inventory.attributes import to_vocab
 
 MATERIAL_EN: dict[str, str] = {
     "퍼": "fur",

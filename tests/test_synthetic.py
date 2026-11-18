@@ -2,7 +2,7 @@ from datetime import date
 
 import pandas as pd
 
-from stock_agent.synthetic import STR_MAX, STR_MIN, UNSOLD_MAX, UNSOLD_MIN, build_stock
+from fashion_planner_inventory.synthetic import STR_MAX, STR_MIN, UNSOLD_MAX, UNSOLD_MIN, build_stock
 
 
 def _sales():

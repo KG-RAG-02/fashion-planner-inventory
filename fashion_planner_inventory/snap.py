@@ -19,8 +19,8 @@
 
 from __future__ import annotations
 
-from stock_agent.snap_image import parse_image_ref
-from stock_agent.trend_input import item_area
+from fashion_planner_inventory.snap_image import parse_image_ref
+from fashion_planner_inventory.trend_input import item_area
 
 SNAP_KIND = "snap_garment"
 CATALOG_KIND = "catalog_item"

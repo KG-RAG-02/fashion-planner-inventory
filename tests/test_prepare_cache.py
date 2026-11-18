@@ -1,4 +1,4 @@
-"""python -m stock_agent.server --prepare-cache — 가짜 R2 client로만 (네트워크·실제 R2 없음)."""
+"""python -m fashion_planner_inventory.server --prepare-cache — 가짜 R2 client로만 (네트워크·실제 R2 없음)."""
 import hashlib
 import json
 from io import BytesIO
@@ -7,7 +7,7 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
-from stock_agent import server, storage  # noqa: E402
+from fashion_planner_inventory import server, storage  # noqa: E402
 from test_runtime_modes import ready_db_file  # noqa: E402
 
 SECRETS = ("synthetic-access-key-id", "synthetic-secret-access-key", "synthetic-bucket", "synthetic-account",
@@ -28,7 +28,7 @@ class FakeR2:
 
 @pytest.fixture
 def r2_env(monkeypatch, tmp_path):
-    monkeypatch.setattr("stock_agent.env.read_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr("fashion_planner_inventory.env.read_dotenv", lambda *args, **kwargs: None)
     for name, value in {"R2_ACCOUNT_ID": "synthetic-account", "R2_BUCKET": "synthetic-bucket",
                         "R2_DB_KEY": "db/stock.duckdb", "R2_ACCESS_KEY_ID": "synthetic-access-key-id",
                         "R2_SECRET_ACCESS_KEY": "synthetic-secret-access-key",
@@ -87,7 +87,7 @@ def test_prepare_cache_exits_non_zero_unless_the_db_is_ready(r2_env, tmp_path, c
 
 
 def test_prepare_cache_without_r2_settings_fails_before_any_client(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr("stock_agent.env.read_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr("fashion_planner_inventory.env.read_dotenv", lambda *args, **kwargs: None)
     for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
                  "Access Key ID", "Secret Access Key"):
         monkeypatch.delenv(name, raising=False)
@@ -114,7 +114,7 @@ class FakeR2Objects:
 
 def _index_bytes(tmp_path, rule):
     import numpy as np
-    from stock_agent.clip_matcher import INDEX_RULE
+    from fashion_planner_inventory.clip_matcher import INDEX_RULE
     path = tmp_path / "idx.npz"
     np.savez(path, article_ids=np.array(["a1", "a2"]), embeddings=np.zeros((2, 4), dtype=np.float16),
              rule=np.array(rule or INDEX_RULE))

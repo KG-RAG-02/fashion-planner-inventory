@@ -7,12 +7,12 @@ import copy
 
 import pytest
 
-from stock_agent.agent import Common, check_common, read_segments, segment_note, trend_common
-from stock_agent.errors import http_status, pick, to_team
-from stock_agent.multi import run_internal, run_request
-from stock_agent.schemas import TREND_RESULT_EXAMPLE
-from stock_agent.trend_input import read_trend
-from stock_agent.trend_request import from_trend_result, is_trend_result
+from fashion_planner_inventory.agent import Common, check_common, read_segments, segment_note, trend_common
+from fashion_planner_inventory.errors import http_status, pick, to_team
+from fashion_planner_inventory.multi import run_internal, run_request
+from fashion_planner_inventory.schemas import TREND_RESULT_EXAMPLE
+from fashion_planner_inventory.trend_input import read_trend
+from fashion_planner_inventory.trend_request import from_trend_result, is_trend_result
 
 RES = TREND_RESULT_EXAMPLE
 
@@ -194,7 +194,7 @@ def test_segment_list_filters(con, tmp_path):
 # ---------------------------------------------------------------- 사용자 색 안내 문장
 
 def test_user_color_note_unknown_vs_mismatch():
-    from stock_agent.agent import user_color_notes
+    from fashion_planner_inventory.agent import user_color_notes
     unknown = read_trend({"style": {"id": "s"}, "items": [{"category_major": "상의", "colors": []}]}, ["상의"], ["핑크"])
     assert unknown.color_basis == "user_colors"
     assert user_color_notes(unknown) == ["트렌드 아이템 색이 확인되지 않아(미확인) 사용자 색(핑크)과 어울리는 색으로 찾았습니다."]

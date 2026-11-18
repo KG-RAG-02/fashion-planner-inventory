@@ -21,8 +21,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent.env import read_dotenv  # noqa: E402
-from stock_agent.storage import R2Settings  # noqa: E402
+from fashion_planner_inventory.env import read_dotenv  # noqa: E402
+from fashion_planner_inventory.storage import R2Settings  # noqa: E402
 
 read_dotenv()
 ap = argparse.ArgumentParser()

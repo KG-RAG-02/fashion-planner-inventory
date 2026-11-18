@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main():
-    from stock_agent.storage import R2Settings, file_sha256
+    from fashion_planner_inventory.storage import R2Settings, file_sha256
     names = ("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "R2_ACCOUNT_ID",
              "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT",
              "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_CACHE_DIR", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH",
@@ -39,7 +39,7 @@ def main():
         if not result["dependencies"]["boto3"]:
             result["r2"]["reason"] = "boto3_not_installed"
         else:
-            from stock_agent.storage import _client
+            from fashion_planner_inventory.storage import _client
             head = _client(settings).head_object(Bucket=settings.bucket, Key=settings.db_key)
             version = str(head.get("VersionId") or str(head.get("ETag", "")).strip('"'))
             result["r2"].update(reachable=True, authenticated=True, version=version,
@@ -56,7 +56,7 @@ def main():
                                           local_checksum_matches=sidecar.is_file() and sidecar.read_text().strip() == checksum)
                 if result["dependencies"]["duckdb"]:
                     import duckdb
-                    from stock_agent.readiness import inspect_database
+                    from fashion_planner_inventory.readiness import inspect_database
                     con = duckdb.connect(str(path), read_only=True)
                     try:
                         inspection = inspect_database(con)

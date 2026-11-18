@@ -22,7 +22,7 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent.snap_image import SNAP_REVISION  # noqa: E402
+from fashion_planner_inventory.snap_image import SNAP_REVISION  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--parquet", default="data/raw/musinsa-snap-new/train-00000-of-00001.parquet")

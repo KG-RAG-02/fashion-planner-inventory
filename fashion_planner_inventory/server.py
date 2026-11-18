@@ -1,8 +1,8 @@
 """Start/check Stock using the packaged service manifest.
 
-  python -m stock_agent.server [--host 0.0.0.0]   run the API (port from service-manifest.json)
-  python -m stock_agent.server --check-ready      exit 0 when GET /health/ready answers 200
-  python -m stock_agent.server --prepare-cache    data job: download the configured R2 DB (and the CLIP
+  python -m fashion_planner_inventory.server [--host 0.0.0.0]   run the API (port from service-manifest.json)
+  python -m fashion_planner_inventory.server --check-ready      exit 0 when GET /health/ready answers 200
+  python -m fashion_planner_inventory.server --prepare-cache    data job: download the configured R2 DB (and the CLIP
                                                   index when R2_CLIP_INDEX_KEY is set) into
                                                   STOCK_CACHE_DIR (checksummed), inspect it, report
 """
@@ -36,9 +36,9 @@ def prepare_cache() -> int:
     """
     import duckdb
 
-    from stock_agent.env import read_dotenv
-    from stock_agent.readiness import database_storage_info, inspect_database
-    from stock_agent.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
+    from fashion_planner_inventory.env import read_dotenv
+    from fashion_planner_inventory.readiness import database_storage_info, inspect_database
+    from fashion_planner_inventory.storage import R2ObjectStore, R2Settings, StorageConfigurationError, StorageUnavailable
 
     read_dotenv()      # same configuration source as the API; process env wins
     report: dict = {"command": "prepare-cache", "status": "error", "duckdb_version": duckdb.__version__}
@@ -73,7 +73,7 @@ def prepare_cache() -> int:
 
 def _prepare_clip_index(store) -> tuple[dict, bool]:
     """R2 CLIP 인덱스를 캐시에 받고 규칙이 맞는지 열어 본다."""
-    from stock_agent.storage import StorageUnavailable
+    from fashion_planner_inventory.storage import StorageUnavailable
     try:
         path, version = store.prepare_clip_index(allow_download=True)
     except (StorageUnavailable, OSError) as exc:
@@ -81,7 +81,7 @@ def _prepare_clip_index(store) -> tuple[dict, bool]:
     info = {"version": version, "size_bytes": path.stat().st_size, "sha256": store.clip_index_metadata.get("sha256")}
     try:
         import numpy as np
-        from stock_agent.clip_matcher import INDEX_RULE
+        from fashion_planner_inventory.clip_matcher import INDEX_RULE
         with np.load(path, allow_pickle=False) as data:
             rule = str(data["rule"]) if "rule" in data.files else None
             n = int(len(data["article_ids"]))
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             return 1
     import uvicorn
-    uvicorn.run("stock_agent.api:app", host=args.host, port=config["port"])
+    uvicorn.run("fashion_planner_inventory.api:app", host=args.host, port=config["port"])
     return 0
 
 

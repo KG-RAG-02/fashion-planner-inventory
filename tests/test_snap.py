@@ -2,7 +2,7 @@
 
 import pytest
 
-from stock_agent.snap import REFERENCE_KEYS, pick_reference, reference
+from fashion_planner_inventory.snap import REFERENCE_KEYS, pick_reference, reference
 
 
 def prod(pid, score, kind="snap_garment", url="https://img.example/x.jpg", **attrs):
@@ -91,7 +91,7 @@ def test_catalog_http_image_ref_used_as_url():
 
 
 def test_snap_object_key():
-    from stock_agent.snap_image import parse_image_ref, snap_object_key
+    from fashion_planner_inventory.snap_image import parse_image_ref, snap_object_key
     assert parse_image_ref(REF0) == ("4335d233ef3b54bc5132a4d572d589042a41219d", 12)
     assert snap_object_key("musinsa-snap/", REF0) == "musinsa-snap/4335d233ef3b54bc5132a4d572d589042a41219d/12.jpg"
     assert snap_object_key("musinsa-snap", "https://x/y.jpg") is None and parse_image_ref(None) is None

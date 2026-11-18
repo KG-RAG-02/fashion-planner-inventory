@@ -1,5 +1,5 @@
 {
-  "note": "Expected response to examples/stub/stock-request.json (input = the trend-analysis-agent stub result, unchanged) with STOCK_DB_PATH=<scripts/build_fixture_db.py output>. `result` is stock_agent.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
+  "note": "Expected response to examples/stub/stock-request.json (input = the trend-analysis-agent stub result, unchanged) with STOCK_DB_PATH=<scripts/build_fixture_db.py output>. `result` is fashion_planner_inventory.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
   "http_status": 200,
   "contract_version": "vogue-handoff/0.1",
   "request_id": "stub-trend-001",

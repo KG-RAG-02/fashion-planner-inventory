@@ -1,13 +1,13 @@
 """stock-agent HTTP API
 
   POST /v1/agents/stock-agent/runs  vogue-handoff/0.1 envelope + Bearer auth, input = TrendAnalysisResult 그대로
-                                products[i] ↔ trend_results[i] (stock_agent/multi.py)
-                                오류 code는 팀 공통 코드, HTTP 번호는 stock_agent/errors.py
+                                products[i] ↔ trend_results[i] (fashion_planner_inventory/multi.py)
+                                오류 code는 팀 공통 코드, HTTP 번호는 fashion_planner_inventory/errors.py
   GET  /health/live             API 생존
   GET  /health/ready, /health    DB schema·sample snapshot readiness, CLIP 인덱스 상태
   GET  /docs                    설명서 (요청 예시 5개, 응답 200·400·500·503·504 형식)
 
-실행 (로컬):   uvicorn stock_agent.api:app --port 8002
+실행 (로컬):   uvicorn fashion_planner_inventory.api:app --port 8002
 실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
               없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
 """
@@ -28,20 +28,20 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
-from stock_agent.env import read_dotenv
+from fashion_planner_inventory.env import read_dotenv
 
 # Load .env before any module snapshots path or storage defaults.
 read_dotenv()
 
-from stock_agent.agent import AGENT_ID, SCHEMA_VERSION
-from stock_agent.errors import http_status
-from stock_agent.multi import error_response, run_request
-from stock_agent.images import DEFAULT_IMAGE_DIR
-from stock_agent.schemas import HANDOFF_EXAMPLES, ErrorResponse, HandoffRequest, HandoffResponse
-from stock_agent.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
-from stock_agent.readiness import FIXTURE_LIMITATION, inspect_database
-from stock_agent.trend_request import from_trend_result
-from stock_agent.multi import _record_input_provenance
+from fashion_planner_inventory.agent import AGENT_ID, SCHEMA_VERSION
+from fashion_planner_inventory.errors import http_status
+from fashion_planner_inventory.multi import error_response, run_request
+from fashion_planner_inventory.images import DEFAULT_IMAGE_DIR
+from fashion_planner_inventory.schemas import HANDOFF_EXAMPLES, ErrorResponse, HandoffRequest, HandoffResponse
+from fashion_planner_inventory.storage import R2ObjectStore, R2Settings, StorageUnavailable, open_local_database
+from fashion_planner_inventory.readiness import FIXTURE_LIMITATION, inspect_database
+from fashion_planner_inventory.trend_request import from_trend_result
+from fashion_planner_inventory.multi import _record_input_provenance
 
 IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
@@ -140,7 +140,7 @@ def clip_index_path():
     서버는 시작할 때 인덱스를 내려받지 않는다. 캐시는 --prepare-cache가 DB와 함께 채운다.
     R2_CLIP_INDEX_KEY가 있는데 캐시가 없으면 None (인덱스 없음 → 요청마다 no_index).
     """
-    from stock_agent import clip_matcher
+    from fashion_planner_inventory import clip_matcher
     local = os.environ.get("STOCK_CLIP_INDEX_PATH", "").strip()
     if local:
         return local
@@ -156,7 +156,7 @@ def clip_index_path():
 def warm_up_clip() -> dict:
     """CLIP 인덱스·모델 미리 불러오기. open_clip이 없는 등 실패해도 서버는 뜬다."""
     try:
-        from stock_agent import clip_matcher
+        from fashion_planner_inventory import clip_matcher
         clip_matcher.configure(clip_index_path())
         store = state.get("object_store")
         clip_matcher.configure_snap_images(store if store is not None and store.settings.snap_image_prefix else None)

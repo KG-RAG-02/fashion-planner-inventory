@@ -51,7 +51,7 @@ TREND_RESULT_EXAMPLE = {
 
 
 def _example(request_id, trends, **kw):
-    from stock_agent.trend_request import build_trend_result
+    from fashion_planner_inventory.trend_request import build_trend_result
     return build_trend_result(request_id, trends, **kw)
 
 
@@ -135,7 +135,7 @@ class Reason(BaseModel):
 
 class Error(BaseModel):
     code: Literal["INVALID_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "SOURCE_UNAVAILABLE", "TIMEOUT", "INTERNAL_ERROR"] = Field(
-        description="팀 공통 오류 코드 (stock_agent/errors.py)")
+        description="팀 공통 오류 코드 (fashion_planner_inventory/errors.py)")
     message: str
     reason: Optional[str] = Field(None, description="03 안쪽 원인: missing_fields, invalid_input, schema_version_mismatch, "
                                                     "upstream_error, db_unavailable, image_source_unavailable, timeout, "

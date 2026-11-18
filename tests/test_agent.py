@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from stock_agent.agent import (
+from fashion_planner_inventory.agent import (
     build_product,
     build_reason,
     read_season,
@@ -12,9 +12,9 @@ from stock_agent.agent import (
     template_summary,
     validate_output,
 )
-from stock_agent.overstock import resolve_pair_areas
-from stock_agent.season import map_season
-from stock_agent.trend_input import TrendInput
+from fashion_planner_inventory.overstock import resolve_pair_areas
+from fashion_planner_inventory.season import map_season
+from fashion_planner_inventory.trend_input import TrendInput
 
 FACTS = {
     "season_label": "2027 SS(봄·여름)", "target": "상의", "area_basis": "user", "given_areas": ["상의"],
@@ -191,7 +191,7 @@ def test_run_no_results(con):
 
 
 def test_run_partial_when_trend_fails(con, monkeypatch):
-    import stock_agent.agent as agent
+    import fashion_planner_inventory.agent as agent
 
     def boom(*a, **k):
         raise RuntimeError("timeout")
@@ -275,7 +275,7 @@ def test_all_four_areas_still_picks_one(con):
 
 # ---- 사용자 색(02 target_colors)
 def test_read_user_colors():
-    from stock_agent.agent import read_user_colors
+    from fashion_planner_inventory.agent import read_user_colors
     assert read_user_colors(None) == ([], [])
     assert read_user_colors("화이트") == (["화이트"], [])
     assert read_user_colors(["화이트", " 화이트", "", None]) == (["화이트"], [])
@@ -399,7 +399,7 @@ class FakeClip:
         self.calls = []
 
     def __call__(self, cand, ref):
-        from stock_agent.clip_matcher import ClipInfo
+        from fashion_planner_inventory.clip_matcher import ClipInfo
         self.calls.append((list(cand["article_id"]), ref))
         n = len(cand)
         if self.skip_reason:
@@ -491,7 +491,7 @@ def test_snap_without_user_category_uses_all_items(con):
 
 
 def test_clip_notes_reasons():
-    from stock_agent.agent import clip_notes
+    from fashion_planner_inventory.agent import clip_notes
     snap = {"kind": "snap_garment", "product_id": "musinsa_snap:22:아우터", "item_category": "재킷"}
     base = {"applied": True, "skip_reason": None, "image_used": False, "text_used": True, "n_before": 10, "n_after": 1,
             "n_indexed": 10, "keep_ratio": 0.1}

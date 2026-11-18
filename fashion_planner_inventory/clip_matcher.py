@@ -44,7 +44,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from stock_agent.clip_vocab import clip_text
+from fashion_planner_inventory.clip_vocab import clip_text
 
 logger = logging.getLogger(__name__)
 

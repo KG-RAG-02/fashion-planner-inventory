@@ -3,9 +3,9 @@ import copy
 
 import pytest
 
-from stock_agent.multi import run_request
-from stock_agent.schemas import TREND_RESULT_EXAMPLE
-from stock_agent.trend_request import canonical_bytes, from_trend_result
+from fashion_planner_inventory.multi import run_request
+from fashion_planner_inventory.schemas import TREND_RESULT_EXAMPLE
+from fashion_planner_inventory.trend_request import canonical_bytes, from_trend_result
 
 
 @pytest.mark.parametrize("change", [
@@ -45,7 +45,7 @@ def test_ambiguous_canonical_hash_is_rejected(source):
 
 def test_readonly_schema_and_sample_snapshot(tmp_path, con):
     duckdb = pytest.importorskip("duckdb")
-    from stock_agent.readiness import inspect_database
+    from fashion_planner_inventory.readiness import inspect_database
     # In-memory synthetic fixture first fails without producer provenance.
     con.execute("CREATE TABLE articles AS SELECT article_id FROM article_attrs")
     assert inspect_database(con)["reason"] == "schema_incompatible"

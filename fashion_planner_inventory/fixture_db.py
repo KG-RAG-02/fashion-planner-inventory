@@ -6,7 +6,7 @@
 - finalize(con): articles 표, stock_v1 snapshot 열(2020-09-22 · virtual_stock_v1 · sample), 표지 표 `stock_fixture`.
   readiness는 `stock_fixture`가 있으면 synthetic_fixture=true를 내고, API는 trend 결과마다 합성 DB임을 limitations에 적는다.
 - build_fixture_db(path): 위 순서로 새 파일을 만든다. 기본 storage version v1.0.0 (DuckDB 1.x·2.x 모두 읽는다).
-실행 진입점: scripts/build_fixture_db.py, 또는 `python -m stock_agent.fixture_db <out.duckdb>` (이미지 안에서도 된다).
+실행 진입점: scripts/build_fixture_db.py, 또는 `python -m fashion_planner_inventory.fixture_db <out.duckdb>` (이미지 안에서도 된다).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-from stock_agent.readiness import FIXTURE_TABLE  # marker table readiness looks for
+from fashion_planner_inventory.readiness import FIXTURE_TABLE  # marker table readiness looks for
 
 DEFAULT_STORAGE_VERSION = "v1.0.0"
 
@@ -75,7 +75,7 @@ def finalize(con) -> None:
     con.execute("ALTER TABLE stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute(f"CREATE TABLE {FIXTURE_TABLE} (key VARCHAR, value VARCHAR)")
     con.execute(f"INSERT INTO {FIXTURE_TABLE} VALUES ('data_nature', 'synthetic_fixture'), "
-                "('builder', 'stock_agent.fixture_db'), "
+                "('builder', 'fashion_planner_inventory.fixture_db'), "
                 "('aligned_with', 'trend-analysis-agent examples/stub (request_id stub-trend-001)')")
 
 
@@ -95,7 +95,7 @@ def describe(path: str | Path) -> dict:
     """만든 파일을 read-only로 열어: 표별 행 수, 내용 해시, readiness, storage version."""
     import duckdb
 
-    from stock_agent.readiness import database_storage_info, inspect_database
+    from fashion_planner_inventory.readiness import database_storage_info, inspect_database
 
     con = duckdb.connect(str(path), read_only=True)
     try:

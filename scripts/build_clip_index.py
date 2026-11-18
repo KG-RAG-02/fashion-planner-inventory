@@ -29,11 +29,11 @@ import duckdb
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stock_agent import clip_matcher  # noqa: E402
-from stock_agent.attributes import extract_details  # noqa: E402
-from stock_agent.clip_vocab import clip_text  # noqa: E402
-from stock_agent.env import read_dotenv  # noqa: E402
-from stock_agent.images import image_path  # noqa: E402
+from fashion_planner_inventory import clip_matcher  # noqa: E402
+from fashion_planner_inventory.attributes import extract_details  # noqa: E402
+from fashion_planner_inventory.clip_vocab import clip_text  # noqa: E402
+from fashion_planner_inventory.env import read_dotenv  # noqa: E402
+from fashion_planner_inventory.images import image_path  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("build_clip_index")
@@ -97,7 +97,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     read_dotenv()
-    from stock_agent.storage import R2ObjectStore, R2Settings, StorageConfigurationError
+    from fashion_planner_inventory.storage import R2ObjectStore, R2Settings, StorageConfigurationError
     try:
         store = R2ObjectStore(R2Settings.from_env())
     except StorageConfigurationError:

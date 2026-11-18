@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from stock_agent.overstock import (
+from fashion_planner_inventory.overstock import (
     COLOR_PAIRS,
     KF_COLORS,
     get_inventory_status,
@@ -14,7 +14,7 @@ from stock_agent.overstock import (
     rank_overstock,
     trend_ratio,
 )
-from stock_agent.season import map_season
+from fashion_planner_inventory.season import map_season
 
 
 # ---- 1. 짝 카테고리
@@ -39,7 +39,7 @@ def test_matching_categories():
     (None, [], ["상의", "하의", "아우터", "원피스"], "all", False),
 ])
 def test_resolve_pair_areas(target, trend, areas, basis, fallback):
-    from stock_agent.overstock import resolve_pair_areas
+    from fashion_planner_inventory.overstock import resolve_pair_areas
     am = resolve_pair_areas(target, trend)
     assert (am.areas, am.basis, am.fallback) == (areas, basis, fallback)
 
@@ -91,7 +91,7 @@ def test_matching_colors_ties_all_kept():
 def test_matching_colors_two_without_common_is_union(monkeypatch):
     # 둘 다와 어울리는 색이 없으면 최대가 1 → 각각과 어울리는 색 전부
     # (지금 조합표는 어떤 두 색이든 화이트 등 공통 색이 있어서 가짜 표로 확인)
-    import stock_agent.overstock as ov
+    import fashion_planner_inventory.overstock as ov
     fake = {k: [] for k in ov.KF_COLORS}
     fake.update({"레드": ["블랙", "베이지"], "그린": ["카키"]})
     monkeypatch.setattr(ov, "COLOR_PAIRS", fake)
@@ -176,7 +176,7 @@ def test_get_sales_trend(con):
 # ---- 또래 대비 추세 + 판매 적으면 중립
 def test_peer_relative_trend():
     import pandas as pd
-    from stock_agent.overstock import peer_relative_trend
+    from fashion_planner_inventory.overstock import peer_relative_trend
     df = pd.DataFrame({
         "article_id": ["x1", "x2", "x3", "x4", "y1"],
         "kf_area":    ["하의", "하의", "하의", "하의", "아우터"],
@@ -200,7 +200,7 @@ def test_peer_relative_trend():
 
 # ---- 사용자 카테고리 여러 개·제외
 def test_multi_target_pairs_and_exclude():
-    from stock_agent.overstock import resolve_pair_areas, split_exclude
+    from fashion_planner_inventory.overstock import resolve_pair_areas, split_exclude
     am = resolve_pair_areas(["상의", "아우터"], None)
     assert am.areas == ["하의"] and am.basis == "user" and am.given == ["상의", "아우터"] and not am.fallback
     am = resolve_pair_areas(["원피스", "아우터"], None)          # 공통 짝 없음 → 합집합(사용자 영역 뺌)

@@ -1,6 +1,6 @@
 """02 트렌드 1개 → 트렌드 색·카테고리 (2026-11-08 결정)"""
 
-from stock_agent.trend_input import item_area, read_trend
+from fashion_planner_inventory.trend_input import item_area, read_trend
 
 
 def trend(*items, sid="style_007", name="정제된 맥시멀리스트"):

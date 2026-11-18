@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
  && useradd --system --uid 10001 --gid 10001 --home-dir /tmp --no-create-home --shell /usr/sbin/nologin app \
  && install -d -o 10001 -g 10001 -m 0700 /cache /models
 
-COPY stock_agent ./stock_agent
+COPY fashion_planner_inventory ./fashion_planner_inventory
 
 ENV HOME=/tmp \
     STOCK_CACHE_DIR=/cache
@@ -30,6 +30,6 @@ USER 10001:10001
 EXPOSE 8002
 # Readiness (GET /health/ready, no external calls): healthy only when the DB is open and passes the checks.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD ["python", "-m", "stock_agent.server", "--check-ready"]
+  CMD ["python", "-m", "fashion_planner_inventory.server", "--check-ready"]
 
-CMD ["python", "-m", "stock_agent.server", "--host", "0.0.0.0"]
+CMD ["python", "-m", "fashion_planner_inventory.server", "--host", "0.0.0.0"]

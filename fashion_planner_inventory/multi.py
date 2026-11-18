@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from stock_agent.agent import (
+from fashion_planner_inventory.agent import (
     AGENT_ID,
     NS,
     SCHEMA_VERSION,
@@ -45,8 +45,8 @@ from stock_agent.agent import (
     check_trend_result,
     run,
 )
-from stock_agent.errors import pick, to_team
-from stock_agent.trend_request import from_trend_result, input_provenance, is_trend_result
+from fashion_planner_inventory.errors import pick, to_team
+from fashion_planner_inventory.trend_request import from_trend_result, input_provenance, is_trend_result
 
 
 def error_response(req: dict, code: str, message: str, **extra) -> dict:

@@ -2,8 +2,8 @@
 
 import base64
 
-from stock_agent.agent import run, validate_output
-from stock_agent.images import image_path, load_image
+from fashion_planner_inventory.agent import run, validate_output
+from fashion_planner_inventory.images import image_path, load_image
 
 JPG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"
 TREND = {"style": {"id": "style_x", "name": "색 없음"},

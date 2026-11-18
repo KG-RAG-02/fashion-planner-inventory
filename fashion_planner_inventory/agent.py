@@ -42,9 +42,9 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from stock_agent.attributes import to_vocab
-from stock_agent.images import DEFAULT_IMAGE_DIR, has_image, load_image, take_notes
-from stock_agent.overstock import (
+from fashion_planner_inventory.attributes import to_vocab
+from fashion_planner_inventory.images import DEFAULT_IMAGE_DIR, has_image, load_image, take_notes
+from fashion_planner_inventory.overstock import (
     AREA_PRIORITY,
     COLOR_PAIRS,
     KF_COLORS,
@@ -62,11 +62,11 @@ from stock_agent.overstock import (
     split_exclude,
     summarize_attributes,
 )
-from stock_agent.season import DATA_END, SEASON_LABELS_KO, map_season
-from stock_agent.snap import pick_reference
-from stock_agent.snap import reference as snap_reference
-from stock_agent.synthetic import VERSION as STOCK_VERSION
-from stock_agent.trend_input import USER_COLOR_BASES, TrendInput, read_trend
+from fashion_planner_inventory.season import DATA_END, SEASON_LABELS_KO, map_season
+from fashion_planner_inventory.snap import pick_reference
+from fashion_planner_inventory.snap import reference as snap_reference
+from fashion_planner_inventory.synthetic import VERSION as STOCK_VERSION
+from fashion_planner_inventory.trend_input import USER_COLOR_BASES, TrendInput, read_trend
 
 SCHEMA_VERSION = "1.0"
 AGENT_ID = "stock-agent"
@@ -399,7 +399,7 @@ def _evidence(now: str, period, areas, colors, trend_period, with_images: bool =
                     f"최근+직전 {MIN_TREND_SOLD}개 미만은 중립", **common},
         {"evidence_id": f"{NS}:E-004", "source_id": "hm_articles", "source_type": "internal_product_db",
          "source_name": "H&M articles + K-Fashion 속성 보강", "data_nature": "fact",
-         "locator": "article_attrs (stock_agent/attributes.py 규칙)", **common},
+         "locator": "article_attrs (fashion_planner_inventory/attributes.py 규칙)", **common},
     ] + image_ev
 
 
@@ -818,7 +818,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
     clip = None
     if ref is not None:
         if clip_filter is None:
-            from stock_agent.clip_matcher import clip_filter
+            from fashion_planner_inventory.clip_matcher import clip_filter
         cand, info = clip_filter(cand, ref)
         clip = info.to_dict()
     search.update({"outfit_reference": snap_reference(ref, clip), "clip": clip})
