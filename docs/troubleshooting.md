@@ -64,7 +64,7 @@ inventory 서비스를 만들며 겪은 문제, 원인을 찾은 방법, 바꾼 
 
 - **증상.** DB 캐시를 읽기 전용으로 붙이자 요청이 `500 INTERNAL_ERROR`로 실패했다.
 - **원인.** 받은 상품 사진을 항상 `INVENTORY_CACHE_DIR/images`에 썼고, `mkdir`·`mkstemp`가 낸 `OSError`를 처리하지 않았다.
-- **해결.** 이미지 캐시 위치를 `INVENTORY_IMAGE_CACHE_DIR`(기본 `$INVENTORY_CACHE_DIR/images`)로 분리하고 필요할 때 만든다. 사진을 먼저 받고 캐시는 가능할 때만 원자적으로 쓴다. 캐시에 쓰지 못해도 사진은 응답에 넣고 트렌드 결과의 `limitations`에 적는다.
+- **해결.** 이미지 캐시 위치를 `INVENTORY_IMAGE_CACHE_DIR`(기본 `$INVENTORY_CACHE_DIR/images`)로 분리하고 필요할 때 만든다. 사진을 먼저 받고 캐시는 가능할 때만 원자적으로 쓴다. 캐시에 쓰지 못해도 사진은 응답에 넣고 `trend_results[].limitations`에 적는다.
 - **검증.** `tests/test_storage.py::test_unwritable_image_cache_serves_uncached_bytes_with_a_note`, `tests/test_runtime_modes.py::test_unwritable_image_cache_is_a_limitation_not_a_500`.
 - **교훈.** 캐시는 최적화다. 캐시에 쓰지 못하면 속도를 잃어야지 정확성을 잃어서는 안 된다.
 - **커밋.** {{commit:97c9277}}

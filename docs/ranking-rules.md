@@ -7,12 +7,12 @@ inventory 서비스가 트렌드 하나를 과잉재고 상품 하나로 바꾸�
 
 | trend 결과 필드 | 쓰는 곳 |
 |---|---|
-| `applied_filters.season` | 요청 시즌(필수). 시즌을 말하지 않은 요청은 trend 쪽이 정해 주고, 이 서비스는 값과 출처를 `season_basis`에 그대로 옮깁니다. |
+| `applied_filters.season` | 요청 시즌(필수). 사용자가 시즌을 말하지 않았으면 orchestrator의 질의 구조화 단계가 다음 시즌으로 정하고(`origin: default_next`), trend는 그 값을 그대로 담아 넘깁니다. 이 서비스는 값과 출처를 `season_basis`에 그대로 옮깁니다. |
 | `applied_filters.categories.include` / `exclude` | 사용자 카테고리 / 제외 카테고리(`minor`, 없으면 `major`) |
 | `applied_filters.attributes` 중 색 | 사용자 색(21색 이름). 소재·핏 같은 다른 사용자 속성은 쓰지 않습니다. |
 | `applied_filters.gender` | 고객군(아래) |
 | `trends[].items[]` | 트렌드 카테고리와 색, `similar_products`의 CLIP 기준 이미지 |
-| `status` | `no_results` → DB를 조회하지 않고 `no_results`, `error` → `INVALID_REQUEST`(`reason: upstream_error`) |
+| `status` | `no_results` → DB를 조회하지 않고 `no_results`. `error`는 trend 결과 스키마가 허용하는 값이라 받으면 `INVALID_REQUEST`(`reason: upstream_error`)로 답합니다. trend는 검색 실패를 이 값 대신 HTTP 503으로 알리므로 정상 흐름에서는 오지 않습니다. |
 
 트렌드 아이템 자신의 소재·핏으로는 재고를 거르지 않습니다. 기획할 상품은 새 상품이고, 그 소재에 맞춰 함께 입을 옷을 거르는 것은 코디 논리에 맞지 않기 때문입니다. 소재·질감은 CLIP 필터로만 반영합니다.
 

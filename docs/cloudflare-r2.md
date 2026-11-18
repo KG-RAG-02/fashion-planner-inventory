@@ -20,7 +20,7 @@ DuckDB `httpfs` 확장은 S3에 있는 DB를 범위 읽기로 직접 열 수 있
 
 - key 모양은 `<prefix>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`(합성 ID).
 - 존재 확인 결과는 프로세스 안에서 30초 동안 캐시합니다.
-- 받은 사진은 `INVENTORY_IMAGE_CACHE_DIR`(기본 `$INVENTORY_CACHE_DIR/images`)에 캐시합니다. DB 캐시를 읽기 전용으로 붙였을 때처럼 쓸 수 없으면, 요청을 실패시키지 않고 사진을 캐시 없이 돌려주며 트렌드 결과의 `limitations`에 적습니다.
+- 받은 사진은 `INVENTORY_IMAGE_CACHE_DIR`(기본 `$INVENTORY_CACHE_DIR/images`)에 캐시합니다. DB 캐시를 읽기 전용으로 붙였을 때처럼 쓸 수 없으면, 요청을 실패시키지 않고 사진을 캐시 없이 돌려주며 응답의 `trend_results[].limitations`에 적습니다.
 - 사진이 없거나 받을 수 없어도 상품 결과는 나옵니다. prefix가 없으면 `INVENTORY_IMAGE_DIR`을 로컬 폴백으로 씁니다.
 
 응답에는 고른 상품 사진이 base64로 들어갑니다. 원본 DB와 사진 모음은 Git이나 도커 이미지에 넣지 않습니다.
