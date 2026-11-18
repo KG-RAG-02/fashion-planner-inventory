@@ -60,7 +60,7 @@ def validate_source(res: dict) -> None:
     """
     canonical_bytes(res)
     if res.get("schema_version") != UPSTREAM_SCHEMA_VERSION:
-        raise ValueError("지원하는 Trend schema_version은 1.1입니다.")
+        raise ValueError(f"지원하는 trend schema_version은 {UPSTREAM_SCHEMA_VERSION}입니다.")
     if "agent_id" in res and res["agent_id"] != "trend":
         raise ValueError("Trend agent_id가 일치하지 않습니다.")
     if not isinstance(res.get("request_id"), str) or not res["request_id"].strip():

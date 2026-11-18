@@ -4,6 +4,7 @@ DB가 필요 없는 테스트는 위쪽, DuckDB가 필요한 테스트(con fixtu
 """
 
 import copy
+import re
 
 import pytest
 
@@ -40,6 +41,14 @@ def test_converts_applied_filters():
     assert req["target_colors"] == ["화이트"]
     assert req["gender"] == "여"
     assert req["trends"] == RES["trends"] and req["trends"] is not RES["trends"]
+
+
+@pytest.mark.parametrize("version", ["1.1", "", None])
+def test_unsupported_trend_version_names_the_supported_one(version):
+    """지원하지 않는 trend schema_version이면 지원하는 값(상수)을 알려 준다."""
+    from fashion_planner_inventory.trend_request import UPSTREAM_SCHEMA_VERSION, validate_source
+    with pytest.raises(ValueError, match=re.escape(UPSTREAM_SCHEMA_VERSION)):
+        validate_source(res(schema_version=version))
 
 
 def test_trend_producer_version_is_not_misread_as_stock_internal_version():
