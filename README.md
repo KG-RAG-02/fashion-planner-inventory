@@ -61,11 +61,11 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 
 python -m fashion_planner_inventory.fixture_db /tmp/inventory-fixture.duckdb   # 합성 데이터, H&M 데이터 없음
-INVENTORY_DB_PATH=/tmp/inventory-fixture.duckdb FASHION_PLANNER_SERVICE_TOKEN=dev-token \
-  python -m fashion_planner_inventory.server                                    # http://127.0.0.1:8002
+export FASHION_PLANNER_SERVICE_TOKEN=dev-token                                  # 로컬 확인용 아무 값
+INVENTORY_DB_PATH=/tmp/inventory-fixture.duckdb python -m fashion_planner_inventory.server   # http://127.0.0.1:8002
 ```
 
-다른 터미널에서:
+다른 터미널에서(같은 `FASHION_PLANNER_SERVICE_TOKEN` 값을 export한 뒤):
 
 ```bash
 curl -s http://127.0.0.1:8002/health/ready
