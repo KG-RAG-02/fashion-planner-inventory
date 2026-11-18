@@ -22,5 +22,6 @@
 - 이름: 패키지 `fashion_planner_inventory`, agent_id `inventory`, 환경변수 `INVENTORY_*`와 공용 `FASHION_PLANNER_SERVICE_TOKEN`, 가상 재고 테이블 `virtual_stock`. 식별자 이름에서 순번을 빼고 버전은 `schema_version`(`1.0.0`) 한 곳에만 둡니다.
 - 삭제: 레거시 경로 `/v1/inventory-products`, 토큰 별칭, 일회성 검증 스크립트, 내부 문서, 실제 데이터에서 만든 예시.
 - 비공개 개발본의 DB·캐시·CLIP 인덱스와는 테이블·규칙 이름이 달라 호환되지 않습니다. 공개본은 데이터 카드의 절차로 새로 만듭니다.
+- 공개 전 히스토리 정리 때 커밋 메시지의 옛 이름(VOGUE, P06~P08, 옛 레포·패키지 이름)을 현재 이름이나 중립 표현으로 바꿨습니다. 과거 커밋의 코드와 메시지 속 이름이 다를 수 있습니다.
 
 [1.0.0]: https://github.com/KG-RAG-02/fashion-planner-inventory/releases/tag/v1.0.0
