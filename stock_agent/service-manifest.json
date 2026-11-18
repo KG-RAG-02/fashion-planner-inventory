@@ -12,6 +12,5 @@
   "source_schema_version": "1.1",
   "result_schema_version": "1.0",
   "auth_env": "VOGUE_AGENT_SERVICE_BEARER_TOKEN",
-  "auth_fallback_env": "STOCK_AGENT_SERVICE_TOKEN",
   "startup_db_policy": "head-and-existing-checksummed-cache-only"
 }

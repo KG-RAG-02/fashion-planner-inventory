@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def main():
     from stock_agent.storage import R2Settings, file_sha256
-    names = ("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "STOCK_AGENT_SERVICE_TOKEN", "R2_ACCOUNT_ID",
+    names = ("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "R2_ACCOUNT_ID",
              "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT",
              "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_CACHE_DIR", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH",
              "Access Key ID", "Secret Access Key")

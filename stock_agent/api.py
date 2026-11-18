@@ -272,7 +272,7 @@ def _handoff_error(request_id: str | None, code: str, message: str, *, wrap: boo
 async def _handoff_deadline(request: Request, call_next):
     if request.url.path != HANDOFF_PATH:
         return await call_next(request)
-    token = os.environ.get("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "") or os.environ.get("STOCK_AGENT_SERVICE_TOKEN", "")
+    token = os.environ.get("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "")
     authorization = request.headers.get("authorization", "")
     scheme, _, supplied = authorization.partition(" ")
     if not token or scheme.lower() != "bearer" or not supplied.strip() or not hmac.compare_digest(
