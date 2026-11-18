@@ -1,12 +1,12 @@
 """트렌드 n개 → agent.run()을 트렌드마다 돌려 결과 n개를 이어 붙인다 (2026-11-08 결정)
 
-02 트렌드 분석은 트렌드를 목록(trends)으로 넘긴다. 1개여도 목록이다.
+trend 서비스는 트렌드를 목록(trends)으로 넘긴다. 1개여도 목록이다.
 트렌드 1개를 처리하는 규칙은 모두 agent.py에 있고, 여기서는 돌리고 이어 붙이기만 한다.
 
-입구 (2026-11-08 결정: 바깥에서는 02 형식만 받는다)
-    run_request(02 결과)   API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다.
+입구 (2026-11-08 결정: 바깥에서는 trend 형식만 받는다)
+    run_request(trend 결과)   API·스크립트의 입구. trend 결과(TrendAnalysisResult) 그대로만 받는다.
                           trend_request.py가 내부 형식으로 바꾼 뒤 run_internal을 부른다.
-    run_internal(내부 형식) 안쪽 함수. 02 결과를 바꾼 모양:
+    run_internal(내부 형식) 안쪽 함수. trend 결과를 바꾼 모양:
         {"request_id": "req_123",
          "season": {"year": 2027, "season": "SS", "origin": "user_requested"},
          "target_category": ["상의"], "exclude_categories": [...], "target_colors": [...], "gender": "여",
@@ -22,7 +22,7 @@
     status          모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 그 밖(상품 0개) → no_results
     summary         전체 한 줄 (트렌드별 문장은 trend_results[].summary)
     errors          공통 입력 오류, 또는 모든 트렌드가 오류일 때 한 줄 (트렌드별 오류는 trend_results[].errors)
-                    code는 팀 공통 코드, 03 안쪽 코드는 reason (errors.py)
+                    code는 팀 공통 코드, inventory 안쪽 코드는 reason (errors.py)
 
 공통 envelope의 findings·최상위 limitations는 쓰지 않는다 (2026-11-08 결정). 상품은 products, 트렌드별 결과는 trend_results.
 
@@ -70,15 +70,15 @@ def _record_input_provenance(result: dict, source: dict) -> dict:
 
 def run_request(request: dict, con, image_dir: str | None = None, now: datetime | None = None,
                 clip_filter=None, manifest_id: str | None = None) -> dict:
-    """API·스크립트의 입구. 02 트렌드 결과(TrendAnalysisResult) 그대로만 받는다.
+    """API·스크립트의 입구. trend 결과(TrendAnalysisResult) 그대로만 받는다.
 
     manifest_id: 근거 E-001~E-005의 manifest_id에 넣을 DB 버전(API는 R2 객체 버전 또는 로컬 파일 sha256). 없으면 null.
     """
     res = request if isinstance(request, dict) else {}
     if not is_trend_result(res):
         return error_response(res, "invalid_input",
-                              "02 트렌드 결과(TrendAnalysisResult) 형식이 아닙니다: applied_filters가 없습니다. "
-                              f"02 결과(request_id, status, applied_filters, trends)를 그대로 보내 주세요. "
+                              "trend 결과(TrendAnalysisResult) 형식이 아닙니다: applied_filters가 없습니다. "
+                              f"trend 결과(request_id, status, applied_filters, trends)를 그대로 보내 주세요. "
                               f"(받은 필드: {', '.join(sorted(res)) or '(없음)'})")
     try:
         req, upstream, note = from_trend_result(res)
@@ -91,7 +91,7 @@ def run_request(request: dict, con, image_dir: str | None = None, now: datetime 
     input_notes = req.pop("_input_notes", [])
     if not req.get("season"):
         result = error_response(req, "missing_fields",
-                                "필수 입력이 없습니다: applied_filters.season. 02 결과의 applied_filters.season에 시즌이 있어야 합니다 "
+                                "필수 입력이 없습니다: applied_filters.season. trend 결과의 applied_filters.season에 시즌이 있어야 합니다 "
                                 "(쿼리 전처리에서 사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). "
                                 f"받은 applied_filters: {res.get('applied_filters')!r}")
         return _record_input_provenance(result, res)
@@ -107,7 +107,7 @@ def run_internal(req: dict, con, image_dir: str | None = None, now: datetime | N
     input_notes = input_notes or []
     trends = req.get("trends")
     if not isinstance(trends, list) or not trends:
-        msg = ("필수 입력이 없습니다: trends가 비어 있습니다. 트렌드 분석(02) 결과의 trends 목록을 그대로 담아 주세요 "
+        msg = ("필수 입력이 없습니다: trends가 비어 있습니다. trend 결과의 trends 목록을 그대로 담아 주세요 "
                "(각 항목: {style: {id, name}, items: [{category_major, category_minor, colors}]}).")
         return error_response(req, "missing_fields", msg)
     if not all(isinstance(t, dict) for t in trends):

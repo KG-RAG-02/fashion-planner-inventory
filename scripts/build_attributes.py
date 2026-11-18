@@ -1,4 +1,4 @@
-"""articles에 K-Fashion 속성을 붙여 article_attrs 테이블로 저장한다 (#C).
+"""articles에 K-Fashion 속성을 붙여 article_attrs 테이블로 저장한다.
 
 실행: 레포 맨 위 폴더에서  python scripts/build_attributes.py
 DB를 쓰기 모드로 여는 건 이 스크립트뿐이다. 에이전트는 read_only로 연다.

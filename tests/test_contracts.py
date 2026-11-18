@@ -40,10 +40,10 @@ def test_request_example_in_docs_is_contract_example():
 
 
 @pytest.mark.parametrize("req", [
-    {**TREND_RESULT_EXAMPLE, "status": "no_results", "trends": []},     # 02 no_results
-    {**TREND_RESULT_EXAMPLE, "status": "error", "trends": []},          # 02 error
+    {**TREND_RESULT_EXAMPLE, "status": "no_results", "trends": []},     # trend no_results
+    {**TREND_RESULT_EXAMPLE, "status": "error", "trends": []},          # trend error
     {**TREND_RESULT_EXAMPLE, "applied_filters": {**TREND_RESULT_EXAMPLE["applied_filters"], "season": None}},  # 시즌 없음
-    {"request_id": "r", "season": "2027-SS", "trends": TREND_RESULT_EXAMPLE["trends"]},  # 02 형식 아님
+    {"request_id": "r", "season": "2027-SS", "trends": TREND_RESULT_EXAMPLE["trends"]},  # trend 형식 아님
     {**TREND_RESULT_EXAMPLE, "applied_filters": {**TREND_RESULT_EXAMPLE["applied_filters"], "gender": "x"}},
 ])
 def test_real_responses_match_schema(req):
@@ -56,7 +56,7 @@ def test_real_ok_response_matches_schema(con, tmp_path):
 
 
 def test_snap_request_and_response_match_schema(con, tmp_path):
-    """무신사 스냅 착샷이 있는 02 결과 → CLIP 필터를 쓴 응답도 계약에 맞음 (작은 DB, 가짜 CLIP)"""
+    """무신사 스냅 착샷이 있는 trend 결과 → CLIP 필터를 쓴 응답도 계약에 맞음 (작은 DB, 가짜 CLIP)"""
     from fashion_planner_inventory.clip_matcher import ClipInfo
     trend = json.loads(json.dumps(TREND_RESULT_EXAMPLE["trends"][0]))
     trend["items"][0]["similar_products"] = [

@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="stock-agent",
     version=SCHEMA_VERSION,
-    description="VOGUE 03 상품 재고 단계. 02 트렌드마다 짝 카테고리에서 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색의 과잉재고를 "
+    description="Fashion Planner의 inventory(상품 재고) 단계. 트렌드마다 짝 카테고리에서 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색의 과잉재고를 "
                 "순위로 매겨, 사진이 있는 최상위 1개와 추천 이유를 돌려준다. 재고·판매가는 가상 데이터(sample).",
     lifespan=lifespan,
 )
@@ -351,7 +351,7 @@ HANDOFF_RESPONSES = {
 
 
 @app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="vogue-handoff/0.1 Stock producer 실행",
-          description=("인증된 Project_08 agent route. input은 TrendAnalysisResult 원본 객체이며 "
+          description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 stock-agent payload schema 1.0 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
 def stock_agent_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):

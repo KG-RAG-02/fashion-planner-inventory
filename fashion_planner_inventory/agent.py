@@ -1,6 +1,6 @@
-"""stock-agent (#F) — 트렌드 1개 → 과잉재고 상품 1개 (규칙 기반)
+"""inventory — 트렌드 1개 → 과잉재고 상품 1개 (규칙 기반)
 
-트렌드 1개(02 결과의 trends[] 한 항목)와 02의 사용자 조건(시즌·카테고리·색·성별)을 받아
+트렌드 1개(trend 결과의 trends[] 한 항목)와 trend의 사용자 조건(시즌·카테고리·색·성별)을 받아
 분석 함수를 정해진 순서로 실행하고, 상품 1개(product)와 그 트렌드의 결과(trend_result)를 돌려준다.
 트렌드가 여러 개면 multi.py가 이 run()을 트렌드 수만큼 돌려 이어 붙인다.
 
@@ -71,11 +71,11 @@ from fashion_planner_inventory.trend_input import USER_COLOR_BASES, TrendInput, 
 SCHEMA_VERSION = "1.0"
 AGENT_ID = "stock-agent"
 NS = "stock-agent"            # evidence_id 앞부분: stock-agent:E-001
-# 시즌은 02 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).
-# 03은 계산하지 않고 받은 값과 출처를 그대로 쓴다.
+# 시즌은 trend 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).
+# inventory는 계산하지 않고 받은 값과 출처를 그대로 쓴다.
 REQUIRED = ("request_id", "season")
 SEASON_SOURCES = ("user", "inferred", "unknown")   # 응답 season_basis.source 값
-SEASON_ORIGINS = {"user_requested": "user", "default_next": "inferred"}   # 02 SeasonRequest.origin → source
+SEASON_ORIGINS = {"user_requested": "user", "default_next": "inferred"}   # trend SeasonRequest.origin → source
 SAMPLE_WARNING = "재고·판매가는 가상 데이터(sample)입니다. 상대 비교로만 해석하세요."
 LICENSE = "Kaggle H&M 대회 규정(비상업적 용도)"
 COLOR_RULE = "조합표 v1, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
@@ -108,12 +108,12 @@ def template_summary(f: dict) -> str:
     return text + (f" {f['reason_detail']}" if f.get("reason_detail") else "")
 
 
-# ---------------------------------------------------------------- 공통 입력 (02)
+# ---------------------------------------------------------------- 공통 입력 (trend)
 
 def read_season(value) -> tuple[str | None, str]:
     """요청의 season → (시즌 문자열, 출처 user/inferred/unknown).
 
-    - 02 SeasonRequest: {"year": 2027, "season": "SS", "origin": "user_requested"|"default_next"}
+    - trend SeasonRequest: {"year": 2027, "season": "SS", "origin": "user_requested"|"default_next"}
       → ("2027-SS", user|inferred)
     - {"value": "2026 겨울", "source": "inferred"} → 그 출처 그대로
     - "2027-SS" 같은 문자열 → 출처 unknown
@@ -128,13 +128,13 @@ def read_season(value) -> tuple[str | None, str]:
 
 
 # 시즌이 없을 때 원인을 단정하지 않고 확인할 곳을 알려 준다
-# (02가 안 만듦 / 필드 이름·위치가 달라 03이 못 알아봄)
-SEASON_HINT = ("시즌은 02 결과의 applied_filters.season으로 받고, 입구가 내부 형식의 season으로 옮깁니다. "
-               "02 결과에 시즌이 있는지, 내부 형식이면 필드 이름이 season인지 확인하세요.")
+# (trend가 안 만듦 / 필드 이름·위치가 달라 inventory가 못 알아봄)
+SEASON_HINT = ("시즌은 trend 결과의 applied_filters.season으로 받고, 입구가 내부 형식의 season으로 옮깁니다. "
+               "trend 결과에 시즌이 있는지, 내부 형식이면 필드 이름이 season인지 확인하세요.")
 
 
 def _missing_detail(req: dict, fields: list[str]) -> str:
-    """빠진 필드가 아예 없는지, 값만 비었는지, 그리고 03이 실제로 받은 필드 이름."""
+    """빠진 필드가 아예 없는지, 값만 비었는지, 그리고 inventory가 실제로 받은 필드 이름."""
     absent = [k for k in fields if k not in req]
     empty = [k for k in fields if k in req and not req.get(k)]
     parts = []
@@ -157,12 +157,12 @@ class Common:
     """모든 트렌드에 같은 값 (요청). 고객군은 trend_common()이 트렌드마다 정한다."""
     period: object
     season_source: str
-    targets: tuple[str, ...]              # 02 target_category (1개 또는 여러 개, 받은 순서)
+    targets: tuple[str, ...]              # trend target_category (1개 또는 여러 개, 받은 순서)
     target_areas: tuple[str, ...]         # 그 영역 (상의·하의·아우터·원피스)
     segments: tuple[str, ...] = ()        # 찾을 고객군. () = 전체
-    user_colors: tuple[str, ...] = ()     # 02 target_colors (21색 이름)
-    exclude_areas: tuple[str, ...] = ()        # 02 exclude_categories 중 영역
-    exclude_categories: tuple[str, ...] = ()   # 02 exclude_categories 중 세부 카테고리
+    user_colors: tuple[str, ...] = ()     # trend target_colors (21색 이름)
+    exclude_areas: tuple[str, ...] = ()        # trend exclude_categories 중 영역
+    exclude_categories: tuple[str, ...] = ()   # trend exclude_categories 중 세부 카테고리
     gender: str | None = None             # 요청 성별 (남/여/공용)
     segment_basis: str = "all"            # SEGMENT_BASES: 고객군을 무엇으로 정했나
     item_genders: tuple[str, ...] = ()    # segment_basis=item_gender일 때 쓴 Item 성별
@@ -178,7 +178,7 @@ class Common:
 
 
 def read_categories(value) -> list[str]:
-    """02 target_category / exclude_categories → 목록. 문자열 하나도 받는다. 빈 값·중복은 뺀다."""
+    """trend target_category / exclude_categories → 목록. 문자열 하나도 받는다. 빈 값·중복은 뺀다."""
     if value is None:
         return []
     vals = [value] if isinstance(value, str) else list(value) if isinstance(value, (list, tuple)) else [value]
@@ -191,7 +191,7 @@ def read_categories(value) -> list[str]:
 
 
 def read_user_colors(value) -> tuple[list[str], list[str]]:
-    """02 target_colors → (사용자 색, 21색이 아닌 값). 문자열 하나도 받는다."""
+    """trend target_colors → (사용자 색, 21색이 아닌 값). 문자열 하나도 받는다."""
     if value is None:
         return [], []
     vals = [value] if isinstance(value, str) else list(value) if isinstance(value, (list, tuple)) else [value]
@@ -227,7 +227,7 @@ def check_common(req: dict) -> tuple[dict | None, Common | None]:
     if bad:
         return error_output(req, "invalid_input",
                             f"target_colors에 21색이 아닌 값이 있습니다: {', '.join(map(repr, bad))}. "
-                            f"02에서 21색 이름으로 맞춰 보내 주세요 ({', '.join(KF_COLORS)})."), None
+                            f"trend에서 21색 이름으로 맞춰 보내 주세요 ({', '.join(KF_COLORS)})."), None
     if any(not isinstance(v, str) for v in targets + exclude):
         return error_output(req, "invalid_input", "target_category·exclude_categories는 카테고리 이름(문자열)이어야 합니다."), None
     both = [v for v in targets if v in exclude]
@@ -288,7 +288,7 @@ def trend_common(c: Common, trend: dict) -> Common:
 def user_color_notes(ti) -> list[str]:
     """사용자 색을 어떻게 썼는지 (limitations).
 
-    트렌드 아이템 색이 비어 있는 것(02가 색을 확인하지 못함)과 색은 있는데 안 겹치는 것을 나눠 적는다.
+    트렌드 아이템 색이 비어 있는 것(trend가 색을 확인하지 못함)과 색은 있는데 안 겹치는 것을 나눠 적는다.
     """
     if ti.color_basis == "user_colors_in_trend" and ti.user_colors_excluded:
         return [f"사용자 색 중 {', '.join(ti.user_colors_excluded)}은(는) 이 트렌드 아이템 색에 없어 빼고, "
@@ -347,7 +347,7 @@ def _season_code(period) -> str:
 
 def _season_basis(c: Common) -> dict:
     p = c.period
-    return {"season": _season_label(p), "source": c.season_source,   # 02가 준 출처: user / inferred / unknown
+    return {"season": _season_label(p), "source": c.season_source,   # trend가 준 출처: user / inferred / unknown
             **p.to_period(), "n_periods": p.n_periods, "basis": p.basis}
 
 
@@ -380,10 +380,10 @@ def _evidence(now: str, period, areas, colors, trend_period, with_images: bool =
             "source_id": outfit_ref.get("source") or ("musinsa_catalog" if catalog else "musinsa_snap"),
             "source_type": "external_product_image" if catalog else "external_outfit_image",
             "source_name": ("무신사 상품 이미지" if catalog else "무신사 스냅 착샷")
-                           + " (02 similar_products, CLIP 유사도 필터의 기준 이미지)",
+                           + " (trend similar_products, CLIP 유사도 필터의 기준 이미지)",
             "data_nature": "fact", "locator": outfit_ref.get("image_url") or outfit_ref.get("image_ref"),
             **{**common, "observed_at": None, "manifest_id": None,
-               "permission_status": "02 트렌드 결과로 받은 이미지, 비상업적 연구용"}})
+               "permission_status": "trend 결과로 받은 이미지, 비상업적 연구용"}})
     return [
         {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",
          "source_name": f"가상 재고 ({STOCK_VERSION})", "data_nature": "sample",
@@ -542,7 +542,7 @@ def _pick_with_images(ranked: pd.DataFrame, image_dir, limitations: list[str]):
 
 
 def _to_vocab_frame(cand: pd.DataFrame) -> pd.DataFrame:
-    """DB 값을 vocabulary_v1 이름으로 (티셔츠, 울/캐시미어 등)."""
+    """DB 값을 trend 표준 어휘 이름으로 (티셔츠, 울/캐시미어 등)."""
     if cand.empty:
         return cand
     cand = cand.copy()
@@ -588,10 +588,10 @@ def run(request: dict, con, now: datetime | None = None, image_dir: str | None =
         manifest_id: str | None = None) -> dict:
     """요청 1건(트렌드 1개) → 응답 dict. con은 read_only DuckDB 연결.
 
-    - season 필수(02가 정해서 줌). 03은 시즌을 계산하지 않는다
-    - trend 필수: 02 결과의 트렌드 1개 {style, items}. 트렌드 색·카테고리는 trend_input.read_trend 규칙
-    - 짝 카테고리: target_category(02) → 없으면 트렌드 카테고리 짝 교집합 → 둘 다 없으면 전체 영역
-    - 사용자 색(target_colors, 02)이 있으면: 트렌드 아이템 색과 겹치는 사용자 색만, 하나도 안 겹치면 사용자 색 전부를 기준 색으로
+    - season 필수(trend가 정해서 줌). inventory는 시즌을 계산하지 않는다
+    - trend 필수: trend 결과의 트렌드 1개 {style, items}. 트렌드 색·카테고리는 trend_input.read_trend 규칙
+    - 짝 카테고리: target_category(trend) → 없으면 트렌드 카테고리 짝 교집합 → 둘 다 없으면 전체 영역
+    - 사용자 색(target_colors, trend)이 있으면: 트렌드 아이템 색과 겹치는 사용자 색만, 하나도 안 겹치면 사용자 색 전부를 기준 색으로
       (안 겹치는 색은 limitations에 적음). 없으면 트렌드 색이 기준 색
     - 기준 색이 있으면 짝 카테고리 안에서 "기준 색과 어울리는 색 중 가장 많이 겹치는 색"으로 매치. 없으면 색 조건 없이
     - 카테고리·색 모두 없음 → 그 트렌드는 error
@@ -604,7 +604,7 @@ def run(request: dict, con, now: datetime | None = None, image_dir: str | None =
     trend = req.get("trend")
     if not isinstance(trend, dict):
         return error_output(req, "missing_fields",
-                            "필수 입력이 없습니다: trend. 02 트렌드 분석 결과의 트렌드 1개({style, items})를 "
+                            "필수 입력이 없습니다: trend. trend 분석 결과의 트렌드 1개({style, items})를 "
                             f"trend 필드에 담아 주세요. {_missing_detail(req, ['trend'])}")
     c = trend_common(c, trend)
     ti = read_trend(trend, list(c.target_areas), list(c.user_colors))
@@ -726,7 +726,7 @@ def run_trend(req: dict, c: Common, ti: TrendInput, con, now: datetime | None = 
         return trend_error("missing_fields",
                            "카테고리와 트렌드 색이 모두 없습니다 (사용자 카테고리, 트렌드 아이템의 "
                            "category_major·category_minor·colors 중 하나는 있어야 합니다). "
-                           "02 결과의 items가 담겼는지 확인하세요.")
+                           "trend 결과의 items가 담겼는지 확인하세요.")
     try:
         am = resolve_pair_areas(list(c.targets), ti.categories)
     except ValueError as e:

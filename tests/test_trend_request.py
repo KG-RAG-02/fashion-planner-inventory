@@ -1,4 +1,4 @@
-"""02 트렌드 결과 입력, 성별 → 고객군, 팀 오류 코드 (2026-11-08 결정)
+"""trend 결과 입력, 성별 → 고객군, 팀 오류 코드 (2026-11-08 결정)
 
 DB가 필요 없는 테스트는 위쪽, DuckDB가 필요한 테스트(con fixture)는 아래쪽.
 """
@@ -23,7 +23,7 @@ def res(**kw):
     return r
 
 
-# ---------------------------------------------------------------- 02 결과 → 내부 요청
+# ---------------------------------------------------------------- trend 결과 → 내부 요청
 
 def test_detects_trend_result():
     assert is_trend_result(RES)
@@ -171,7 +171,7 @@ def test_pick_and_http():
 # ---------------------------------------------------------------- DB 필요 (로컬에서 실행)
 
 def test_trend_result_end_to_end(con, tmp_path):
-    """02 결과 그대로 → 트렌드마다 결과, evidence_ids가 evidence를 가리킴, 고객군은 여 → Ladieswear+Divided."""
+    """trend 결과 그대로 → 트렌드마다 결과, evidence_ids가 evidence를 가리킴, 고객군은 여 → Ladieswear+Divided."""
     r = run_request(res(), con, image_dir=str(tmp_path))
     assert r["request_id"] == "req_example_010" and len(r["trend_results"]) == 1
     tr = r["trend_results"][0]

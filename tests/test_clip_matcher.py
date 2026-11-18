@@ -148,10 +148,10 @@ def test_to_gray_removes_color():
 
 
 # ---- 텍스트 규칙 (clip_vocab)
-def test_vocab_covers_02_standard():
+def test_vocab_covers_trend_standard():
     assert len(MATERIAL_EN) == 26 and len(DETAIL_EN) == 40
     from fashion_planner_inventory import attributes
-    assert {n for n, _ in attributes._DETAILS} == set(DETAIL_EN)          # 재고 디테일 = 02 DetailName
+    assert {n for n, _ in attributes._DETAILS} == set(DETAIL_EN)          # 재고 디테일 = trend DetailName
 
 
 def test_clip_text():

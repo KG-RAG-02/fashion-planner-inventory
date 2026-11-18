@@ -1,12 +1,12 @@
 """CLIP 기준 이미지 고르기 — 무신사 스냅 착샷, 없으면 무신사 상품 이미지
 
-02 트렌드 아이템의 similar_products 중 1장을 골라, clip_matcher.clip_filter가 재고 후보와
+trend 결과에서 트렌드 아이템의 similar_products 중 1장을 골라, clip_matcher.clip_filter가 재고 후보와
 소재·질감·디테일 유사도를 비교하는 기준(쿼리)으로 쓴다. 기준 이미지가 있으면 CLIP 필터를 항상 건다.
 
 기준 이미지 고르기 (pick_reference)
     찾는 범위: 사용자 카테고리 아이템. 사용자 카테고리가 없으면 트렌드 아이템 전체.
     1. kind=snap_garment(스냅 착샷) → score가 가장 높은 1장
-       02 착샷은 image_url이 없고 image_ref(hf://datasets/disl/musinsa-snap-new@<rev>#row=<n>)만 있다.
+       trend 착샷은 image_url이 없고 image_ref(hf://datasets/disl/musinsa-snap-new@<rev>#row=<n>)만 있다.
        이 참조를 R2에 미리 올린 착샷 JPEG로 읽는다(snap_image, R2_SNAP_IMAGE_PREFIX).
        multi_wearer_suspected=true(여러 명이 찍혔을 수 있는 착장 사진)는 다른 사람 옷이 섞이므로 뺀다.
     2. 착샷이 없으면 kind=catalog_item(판매 상품 이미지) → score 최고 1장
@@ -14,7 +14,7 @@
        상품 이미지는 트렌드 아이템 카테고리(예: 블라우스)라 재고의 짝 카테고리(하의)와 다르지만,
        CLIP은 흑백 이미지와 소재·디테일 텍스트만 비교하므로 카테고리와 무관하게 무드를 본다.
     착샷과 상품 이미지는 score 범위가 달라 서로 섞어 비교하지 않는다.
-    CLIP 텍스트에 쓰도록 02 속성 materials·details를 함께 담는다.
+    CLIP 텍스트에 쓰도록 trend 속성 materials·details를 함께 담는다.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _text(v) -> str | None:
 
 
 def image_source(p: dict) -> tuple[str | None, str | None]:
-    """상품 → (열 URL, 착샷 image_ref). URL은 image_url, 없으면 http(s) image_ref(02 상품 이미지는 둘이 같다)."""
+    """상품 → (열 URL, 착샷 image_ref). URL은 image_url, 없으면 http(s) image_ref(trend 상품 이미지는 둘이 같다)."""
     url, ref = _text(p.get("image_url")), _text(p.get("image_ref"))
     if url is None and ref and ref.startswith(("http://", "https://")):
         url = ref

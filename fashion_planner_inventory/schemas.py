@@ -1,7 +1,7 @@
 """/docs 설명서용 요청·응답 형식 (pydantic)
 
-동작 규칙은 multi.run_request(02 결과 → 내부 형식)·agent.run이 정한다. 요청 본문은 envelope만 검사하고
-input(02 결과)은 그대로 넘긴다(빠진 값·잘못된 값은 run이 400으로 알려 줌). 응답 모델은 설명서에만 쓴다.
+동작 규칙은 multi.run_request(trend 결과 → 내부 형식)·agent.run이 정한다. 요청 본문은 envelope만 검사하고
+input(trend 결과)은 그대로 넘긴다(빠진 값·잘못된 값은 run이 400으로 알려 줌). 응답 모델은 설명서에만 쓴다.
 input의 필드 설명은 contracts/schemas/stock-agent-request.schema.json에 있다.
 """
 
@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ---------------------------------------------------------------- 요청 예시 (02 트렌드 결과 그대로)
+# ---------------------------------------------------------------- 요청 예시 (trend 결과 그대로)
 
 _BALLET = {"style": {"id": "style_012", "name": "발레코어", "definition": "발레복에서 온 가볍고 여린 실루엣"},
            "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"], "gender": "여"},
@@ -21,7 +21,7 @@ _MAXI = {"style": {"id": "style_007", "name": "정제된 맥시멀리스트"},
          "items": [{"category_major": "아우터", "category_minor": "재킷", "colors": []},
                    {"category_major": "상의", "category_minor": "셔츠", "colors": []}]}
 
-# 02 트렌드 결과(TrendAnalysisResult) 그대로 (similar_products 등은 줄임). contracts/examples/request-trend-result.json과 같다
+# trend 결과(TrendAnalysisResult) 그대로 (similar_products 등은 줄임). contracts/examples/request-trend-result.json과 같다
 TREND_RESULT_EXAMPLE = {
     "schema_version": "1.1",
     "request_id": "req_example_010",
@@ -65,11 +65,11 @@ REQUEST_EXAMPLES = {
         "value": _example("req_example_002", [_MAXI, _BALLET], include=["상의"], gender="여"),
     },
     "no_user_category": {
-        "summary": "사용자 카테고리·성별 없음: 트렌드 카테고리의 짝, 고객군은 Item 성별, 시즌은 02가 정함",
+        "summary": "사용자 카테고리·성별 없음: 트렌드 카테고리의 짝, 고객군은 Item 성별, 시즌은 trend가 정함",
         "value": _example("req_example_003", [_BALLET], year=2026, season="FW", origin="default_next"),
     },
     "upstream_no_results": {
-        "summary": "02 결과 없음: 조회하지 않고 no_results (200)",
+        "summary": "trend 결과 없음: 조회하지 않고 no_results (200)",
         "value": {**_example("req_example_004", []), "status": "no_results",
                   "limitations": ["2027SS에 해당하는 트렌드가 없습니다."]},
     },
@@ -103,9 +103,9 @@ class Product(BaseModel):
     """상품 정보만. 순위·이유는 같은 위치의 trend_results에"""
     style_id: str = Field(description="article_id 앞 7자리 (디자인)")
     sku_ids: list[str] = Field(description="[article_id] (디자인 + 색)")
-    category: str = Field(description="세부 카테고리 (트렌드 팀 vocabulary_v1)")
+    category: str = Field(description="세부 카테고리 (trend 표준 어휘)")
     season: str
-    attributes: dict[str, Any] = Field(description="color, material(vocabulary_v1, 예: 울/캐시미어), fit")
+    attributes: dict[str, Any] = Field(description="color, material(trend 표준 어휘, 예: 울/캐시미어), fit")
     inventory: Inventory
     image: Optional[Image] = Field(None, description="상품 사진. 후보 전체에 사진이 없으면 null")
 
@@ -137,13 +137,13 @@ class Error(BaseModel):
     code: Literal["INVALID_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "SOURCE_UNAVAILABLE", "TIMEOUT", "INTERNAL_ERROR"] = Field(
         description="팀 공통 오류 코드 (fashion_planner_inventory/errors.py)")
     message: str
-    reason: Optional[str] = Field(None, description="03 안쪽 원인: missing_fields, invalid_input, schema_version_mismatch, "
+    reason: Optional[str] = Field(None, description="inventory 안쪽 원인: missing_fields, invalid_input, schema_version_mismatch, "
                                                     "upstream_error, db_unavailable, image_source_unavailable, timeout, "
                                                     "invalid_response, trend_failed, internal. 전체 오류에서 원인이 여러 개면 mixed")
 
 
 class TrendResult(BaseModel):
-    style: dict[str, Optional[str]] = Field(description="02 style의 id, name")
+    style: dict[str, Optional[str]] = Field(description="trend style의 id, name")
     status: Literal["ok", "partial", "no_results", "error"]
     product_index: int = Field(description="products 안의 위치 (= 이 항목의 위치)")
     rank: Optional[int] = Field(None, description="실제 순위. 1위에 사진이 없으면 2 이상일 수 있음")
@@ -164,7 +164,7 @@ class TrendResult(BaseModel):
 
 
 class InventoryResponse(BaseModel):
-    """03 응답. products[i] ↔ trend_results[i]. 공통 envelope의 findings·최상위 limitations는 쓰지 않음"""
+    """inventory 응답. products[i] ↔ trend_results[i]. 공통 envelope의 findings·최상위 limitations는 쓰지 않음"""
     schema_version: str
     request_id: Optional[str]
     agent_id: str = "stock-agent"
@@ -215,7 +215,7 @@ class HandoffResponse(BaseModel):
 
 
 
-# canonical 경로 /docs 예시: 위 02 결과 예시를 envelope의 input에 그대로 넣는다
+# canonical 경로 /docs 예시: 위 trend 결과 예시를 envelope의 input에 그대로 넣는다
 HANDOFF_EXAMPLES = {
     name: {"summary": ex["summary"],
            "value": {"contract_version": "vogue-handoff/0.1", "request_id": ex["value"]["request_id"], "input": ex["value"]}}

@@ -73,12 +73,12 @@ def test_trend_errors(items, target, code):
     assert validate_output(resp) == []
 
 
-# ---- 시즌 입력 (02)
+# ---- 시즌 입력 (trend)
 def test_read_season():
     assert read_season("2027-SS") == ("2027-SS", "unknown")
     assert read_season({"value": "2026 겨울", "source": "inferred"}) == ("2026 겨울", "inferred")
     assert read_season({"value": "2027 봄", "source": "이상한값"}) == ("2027 봄", "unknown")
-    # 02 SeasonRequest 모양
+    # trend SeasonRequest 모양
     assert read_season({"year": 2027, "season": "SS", "raw": "내년 봄여름", "origin": "user_requested"}) \
         == ("2027-SS", "user")
     assert read_season({"year": 2026, "season": "FW", "origin": "default_next"}) == ("2026-FW", "inferred")
@@ -250,7 +250,7 @@ def test_missing_category_searches_all_areas(con):
     assert any("카테고리 입력이 없어" in x for x in tr["limitations"]) and "카테고리 미지정" in tr["summary"]
 
 
-def test_season_from_02_shape(con):
+def test_season_from_trend_shape(con):
     resp = run({**REQ, "season": {"year": 2026, "season": "SS", "origin": "default_next"}}, con)
     sb = resp["season_basis"]
     assert resp["status"] == "ok" and sb["season"] == "2026 SS(봄·여름)" and sb["source"] == "inferred"
@@ -273,7 +273,7 @@ def test_all_four_areas_still_picks_one(con):
     assert any("공통 짝이 없어" in x for x in tr["limitations"])
 
 
-# ---- 사용자 색(02 target_colors)
+# ---- 사용자 색(trend target_colors)
 def test_read_user_colors():
     from fashion_planner_inventory.agent import read_user_colors
     assert read_user_colors(None) == ([], [])

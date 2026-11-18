@@ -1,4 +1,4 @@
-"""H&M 이미지 중 03이 쓰는 의류 상품 이미지만 data/images 로 꺼낸다.
+"""H&M 이미지 중 inventory가 쓰는 의류 상품 이미지만 data/images 로 꺼낸다.
 
 Kaggle H&M 데이터는 이미지가 대부분이라 전체를 풀면 수십 GB다.
 압축 파일 안에서 article_attrs(의류 79,178개)에 있는 상품 이미지만 골라 푼다.

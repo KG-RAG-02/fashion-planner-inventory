@@ -1,6 +1,6 @@
-"""multi.run_request: 02 트렌드 결과 → 트렌드마다 agent.run → products n개 + trend_results n개
+"""multi.run_request: trend 결과 → 트렌드마다 agent.run → products n개 + trend_results n개
 
-입구 테스트라 요청은 모두 02 형식(build_trend_result)이다. 사용자 카테고리 상의, 성별 여(→ Ladieswear+Divided).
+입구 테스트라 요청은 모두 trend 형식(build_trend_result)이다. 사용자 카테고리 상의, 성별 여(→ Ladieswear+Divided).
 """
 
 import pytest
@@ -10,7 +10,7 @@ from fashion_planner_inventory.trend_request import build_trend_result
 
 
 def req(*trends, **kw):
-    """02 결과. 기본: 2027 SS, 사용자 카테고리 상의, 성별 여."""
+    """trend 결과. 기본: 2027 SS, 사용자 카테고리 상의, 성별 여."""
     kw = {"include": ["상의"], "gender": "여", **kw}
     return build_trend_result(kw.pop("request_id", "req_multi"), list(trends), **kw)
 
@@ -34,7 +34,7 @@ def test_empty_trends_is_error():
 
 
 def test_not_trend_result_is_rejected():
-    """02 형식(applied_filters)이 아니면 받지 않는다."""
+    """trend 형식(applied_filters)이 아니면 받지 않는다."""
     flat = {"request_id": "req_flat", "season": "2027-SS", "target_category": "상의", "trends": [BALLET]}
     r = run_request(flat, con=None)
     assert r["status"] == "error" and r["errors"][0]["code"] == "INVALID_REQUEST"

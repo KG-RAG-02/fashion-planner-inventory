@@ -57,7 +57,7 @@ def test_reference():
     assert reference(ref, {"applied": False, "skip_reason": "no_index"})["skip_reason"] == "no_index"
 
 
-# ---- 02 착샷: image_url 없이 image_ref만 (graph_schema §2.3)
+# ---- trend 착샷: image_url 없이 image_ref만 (trend 그래프 스키마)
 REF0 = "hf://datasets/disl/musinsa-snap-new@4335d233ef3b54bc5132a4d572d589042a41219d#row=12"
 
 

@@ -1,6 +1,6 @@
-"""02 트렌드 1개 → 03이 찾을 트렌드 색·카테고리 (2026-11-08 결정)
+"""trend 결과의 트렌드 1개 → inventory가 찾을 트렌드 색·카테고리 (2026-11-08 결정)
 
-02 트렌드 분석 결과(trend_analysis_result_v1)의 트렌드 하나를 그대로 받는다.
+trend 결과(TrendAnalysisResult)의 트렌드 하나를 그대로 받는다.
     {"style": {"id": "style_007", "name": "정제된 맥시멀리스트", ...},
      "items": [{"category_major": "상의", "category_minor": "셔츠", "colors": ["화이트"], ...}, ...]}
 
@@ -13,7 +13,7 @@
     3. 색이 하나도 없으면 → []  (색 조건 없이 찾음)                                (none)
     개수 제한은 없다. 아이템 안의 색 순서는 의미가 없어 쓰지 않는다.
 
-사용자 색(02 target_colors)이 있으면 위 규칙 대신 이것을 쓴다 (사용자 쿼리가 가장 중요, 2026-11-08 결정)
+사용자 색(trend target_colors)이 있으면 위 규칙 대신 이것을 쓴다 (사용자 쿼리가 가장 중요, 2026-11-08 결정)
     트렌드 아이템 전체의 색과 비교해서
     a. 겹치는 사용자 색이 있으면 → 겹치는 색만                                      (user_colors_in_trend)
        트렌드 아이템에 없는 사용자 색은 빼고, agent가 limitations에 적는다 (user_colors_excluded)
@@ -41,7 +41,7 @@ class TrendInput:
     color_basis: str                  # COLOR_BASES 중 하나
     categories: list[str]             # 트렌드 카테고리
     color_items: list[str] = field(default_factory=list)   # 색을 가져온 아이템의 카테고리 (설명용)
-    user_colors: list[str] = field(default_factory=list)   # 02 사용자 색 (받은 그대로)
+    user_colors: list[str] = field(default_factory=list)   # trend 사용자 색 (받은 그대로)
     user_colors_excluded: list[str] = field(default_factory=list)   # 트렌드 아이템에 없어 뺀 사용자 색 (a일 때)
     item_colors: list[str] = field(default_factory=list)   # 트렌드 아이템 전체의 색 (사용자 색 비교용)
 
@@ -70,8 +70,8 @@ def _unique(xs) -> list:
 
 
 def read_trend(trend: dict, target_area, user_colors: list[str] | None = None) -> TrendInput:
-    """02 트렌드 1개 → TrendInput. target_area는 사용자 카테고리의 영역 1개 또는 목록(없으면 None),
-    user_colors는 02 사용자 색(21색 이름, agent.check_common이 검사함)."""
+    """trend 결과의 트렌드 1개 → TrendInput. target_area는 사용자 카테고리의 영역 1개 또는 목록(없으면 None),
+    user_colors는 trend 사용자 색(21색 이름, agent.check_common이 검사함)."""
     style = trend.get("style") or {}
     items = [it for it in _as_list(trend.get("items")) if isinstance(it, dict)]
     targets = set(_as_list(target_area))

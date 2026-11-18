@@ -1,10 +1,10 @@
-"""02 트렌드 결과(TrendAnalysisResult) → 03 내부 요청 (2026-11-08 결정)
+"""trend 결과(TrendAnalysisResult) → inventory 내부 요청 (2026-11-08 결정)
 
-오케스트레이터(Project_08)가 02 trend-analysis-agent 결과(trend_analysis_result_v1)를 그대로 03에 보낸다.
-03 바깥 입구(API·multi.run_request)는 이 형식만 받는다. 입구에서 이 함수로 내부 형식으로 바꾸고,
+orchestrator가 trend 결과(TrendAnalysisResult)를 그대로 inventory에 보낸다.
+inventory 바깥 입구(API·multi.run_request)는 이 형식만 받는다. 입구에서 이 함수로 내부 형식으로 바꾸고,
 안쪽 코드(변수 이름·타입)는 그대로 쓴다.
 
-알아보는 방법: 요청에 applied_filters가 있으면 02 결과로 본다. 없으면 INVALID_REQUEST.
+알아보는 방법: 요청에 applied_filters가 있으면 trend 결과로 본다. 없으면 INVALID_REQUEST.
 
 바꾸는 값
     request_id                          → request_id (그대로 돌려줌)
@@ -17,7 +17,7 @@
                                           남 → Menswear+Divided, 공용 → 전체. 없으면 트렌드마다 Item gender)
     trends                              → trends (그대로)
 
-02 status
+trend status
     ok          위대로 바꿔서 처리
     no_results  DB를 조회하지 않고 no_results로 응답
     error       INVALID_REQUEST (reason=upstream_error)
@@ -125,10 +125,10 @@ def _unmapped(refs) -> list[str]:
 
 
 def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
-    """02 결과 → (내부 요청, 02 status, 메모).
+    """trend 결과 → (내부 요청, trend status, 메모).
 
-    메모: 02 status가 ok가 아닐 때 응답 summary에 쓸 문장, 또는 None.
-    02 status 값이 이상하면 ValueError.
+    메모: trend status가 ok가 아닐 때 응답 summary에 쓸 문장, 또는 None.
+    trend status 값이 이상하면 ValueError.
     """
     validate_source(res)
     status = res.get("status")
@@ -145,7 +145,7 @@ def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
             colors.append(a["value"])
 
     # schema_version belongs to TrendAnalysisResult, not Stock's internal request.
-    # The complete source object remains in Project_08's preceding Trend stage trace.
+    # The complete source object remains in the orchestrator's preceding trend stage trace.
     req = {"request_id": res.get("request_id"), "trends": res.get("trends") or []}
     if af.get("season") is not None:
         req["season"] = af["season"]
@@ -176,7 +176,7 @@ def build_trend_result(request_id: str, trends: list[dict], *, year: int = 2027,
                        origin: str = "user_requested", include: list[str] | None = None,
                        exclude: list[str] | None = None, colors: list[str] | None = None,
                        gender: str | None = None, status: str = "ok") -> dict:
-    """02 결과 모양의 요청을 만든다 (스크립트·테스트용). 카테고리 이름은 영역이면 major, 세부면 minor로 넣는다."""
+    """trend 결과 모양의 요청을 만든다 (스크립트·테스트용). 카테고리 이름은 영역이면 major, 세부면 minor로 넣는다."""
     from fashion_planner_inventory.overstock import CATEGORY_TO_AREA, MATCHING_AREAS
 
     def ref(name):

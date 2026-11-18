@@ -1,4 +1,4 @@
-"""02 트렌드 1개 → 트렌드 색·카테고리 (2026-11-08 결정)"""
+"""trend 결과의 트렌드 1개 → 트렌드 색·카테고리 (2026-11-08 결정)"""
 
 from fashion_planner_inventory.trend_input import item_area, read_trend
 
@@ -55,7 +55,7 @@ def test_missing_style_and_items():
     assert ti.style_id is None and ti.colors == [] and ti.categories == [] and ti.color_basis == "none"
 
 
-# ---- 사용자 색(02 target_colors)이 있으면 사용자 색이 먼저 (2026-11-08 결정)
+# ---- 사용자 색(trend target_colors)이 있으면 사용자 색이 먼저 (2026-11-08 결정)
 def test_user_colors_all_in_trend():
     ti = read_trend(trend(SHIRT, JACKET, SKIRT), "상의", ["화이트", "블랙"])
     assert ti.colors == ["화이트", "블랙"] and ti.color_basis == "user_colors_in_trend"

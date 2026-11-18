@@ -1,12 +1,12 @@
 """CLIP 텍스트 규칙 — 소재(Material 26) + 디테일(DetailName 40)을 영어로
 
 CLIP(open_clip ViT-B-32-quickgelu, OpenAI 가중치)은 영어로 학습되어 한글 단어의 뜻을 구분하지 못한다(시폰 러플 ↔ 데님 디스트로이드 cosine 0.96).
-그래서 CLIP에 넣는 텍스트만 02 표준 어휘(vocabulary_v1)의 영어 대응어로 바꾼다. 응답·데이터는 한글 그대로다.
+그래서 CLIP에 넣는 텍스트만 trend 표준 어휘의 영어 대응어로 바꾼다. 응답·데이터는 한글 그대로다.
 
 색은 넣지 않는다 (색은 조합 색상표가 정하고, CLIP은 소재·질감·디테일만 본다).
 카테고리·핏·기장도 넣지 않는다 (기준 이미지는 트렌드 아이템 카테고리이고, 재고는 짝 카테고리라 서로 다르다).
 
-기준 쪽(02 착샷·상품 이미지의 materials·details)과 재고 쪽(인덱스: article_attrs.materials + 상품 설명에서 뽑은 디테일)이
+기준 쪽(trend 착샷·상품 이미지의 materials·details)과 재고 쪽(인덱스: article_attrs.materials + 상품 설명에서 뽑은 디테일)이
 이 모듈의 clip_text 하나를 같이 쓴다. 텍스트가 비면 ""를 돌려주고, 그때는 이미지 임베딩만 쓴다.
 """
 
@@ -88,7 +88,7 @@ DETAIL_EN: dict[str, str] = {
 
 
 def _values(items) -> list[str]:
-    """02 목록 값 → 문자열. 문자열 또는 {"value"|"name": ...} dict를 받는다."""
+    """trend 목록 값 → 문자열. 문자열 또는 {"value"|"name": ...} dict를 받는다."""
     out = []
     for x in items or []:
         if isinstance(x, str):
@@ -101,7 +101,7 @@ def _values(items) -> list[str]:
 
 
 def detail_names(details) -> list[str]:
-    """02 details 중 DetailName(type=detail 또는 type 없음)만. 넥라인·칼라는 뺀다."""
+    """trend details 중 DetailName(type=detail 또는 type 없음)만. 넥라인·칼라는 뺀다."""
     keep = []
     for x in details or []:
         if isinstance(x, dict) and x.get("type") not in (None, "detail"):

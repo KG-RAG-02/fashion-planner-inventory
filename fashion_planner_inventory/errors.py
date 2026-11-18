@@ -1,11 +1,11 @@
 """팀 공통 오류 코드 (2026-11-08 결정)
 
-API 응답의 errors[].code는 팀 공통 코드만 쓴다. 03 안에서 쓰는 자세한 코드는 reason에 남긴다.
+API 응답의 errors[].code는 팀 공통 코드만 쓴다. inventory 안에서 쓰는 자세한 코드는 reason에 남긴다.
 agent.run(트렌드 1개)은 안쪽 코드를 그대로 쓰고, API 입구(multi.run_request)가 응답을 내보낼 때 to_team()으로 바꾼다.
 
     안쪽 코드 (reason)                                    팀 코드              HTTP
     missing_fields, invalid_input,
-    schema_version_mismatch, upstream_error(02 status=error)  INVALID_REQUEST     400
+    schema_version_mismatch, upstream_error(trend status=error)  INVALID_REQUEST     400
     db_unavailable                                           SOURCE_UNAVAILABLE  503
     timeout (HTTP 처리 제한 시간 초과)                        TIMEOUT             504
     invalid_response, trend_failed(추세만 실패, 결과는 정상 → 200), 그 밖

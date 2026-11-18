@@ -2,7 +2,7 @@
 
 색은 조합 색상표가 정하므로 CLIP은 색을 보지 않는다.
     이미지: 기준 이미지와 재고 사진 모두 흑백으로 바꿔 임베딩 (to_gray)
-    텍스트: 소재 + 디테일의 영어 대응어 (clip_vocab.clip_text). 기준은 02 materials·details,
+    텍스트: 소재 + 디테일의 영어 대응어 (clip_vocab.clip_text). 기준은 trend materials·details,
             재고는 article_attrs.materials + 상품 설명에서 뽑은 디테일(attributes.extract_details)
     합치기(fuse): image 0.6 + text 0.4. 텍스트가 비면 이미지만, 이미지가 없으면 텍스트만
 기준 이미지 열기(load_reference_image): image_url을 먼저, 없거나 실패하면 착샷 image_ref를 R2에서

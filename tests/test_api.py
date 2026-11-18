@@ -12,7 +12,7 @@ from fashion_planner_inventory.trend_request import build_trend_result  # noqa: 
 
 BALLET = {"style": {"id": "style_012", "name": "발레코어"},
           "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": ["핑크", "화이트"]}]}
-REQ = build_trend_result("req_api", [BALLET], include=["상의"], gender="여")      # 02 결과 그대로
+REQ = build_trend_result("req_api", [BALLET], include=["상의"], gender="여")      # trend 결과 그대로
 
 
 @pytest.fixture
@@ -109,7 +109,7 @@ def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
 
 
 def _run(client, body):
-    """canonical 경로로 02 결과를 보내고 (HTTP 상태, producer 결과)를 돌려준다."""
+    """canonical 경로로 trend 결과를 보내고 (HTTP 상태, producer 결과)를 돌려준다."""
     r = client.post("/v1/agents/stock-agent/runs", json={
         "contract_version": "vogue-handoff/0.1", "request_id": body["request_id"], "input": body})
     return r, (r.json()["result"] if "result" in r.json() else r.json())
@@ -134,7 +134,7 @@ def test_season_origin_and_extra_fields_pass_through(client):
     req = build_trend_result("req_fw", [BALLET], year=2026, season="FW", origin="default_next", include=["상의"])
     r, body = _run(client, {**req, "extra_field": 1})
     assert r.status_code == 200 and body["season_basis"]["source"] == "inferred"
-    # 02 결과에 03이 안 쓰는 필드가 있어도 그대로 받음
+    # trend 결과에 inventory가 안 쓰는 필드가 있어도 그대로 받음
     trend = {**BALLET, "style": {**BALLET["style"], "focus_core": ["color"]},
              "items": [{**BALLET["items"][0], "material": ["면"], "fit": "루즈"}]}
     assert _run(client, {**REQ, "trends": [trend]})[0].status_code == 200
@@ -170,14 +170,14 @@ def test_post_trends_all_invalid_is_400(client):
 
 
 def test_internal_format_is_400(client):
-    """02 형식이 아니면(applied_filters 없음) 받지 않는다."""
+    """trend 형식이 아니면(applied_filters 없음) 받지 않는다."""
     flat = {"request_id": "req_flat", "season": "2027-SS", "target_category": "상의", "trends": [BALLET]}
     r, body = _run(client, flat)
     assert r.status_code == 400 and "applied_filters" in body["errors"][0]["message"]
 
 
 def test_trend_result_request(client):
-    """02 트렌드 결과 그대로 보내도 된다. 근거 ID가 evidence를 가리킨다."""
+    """trend 결과 그대로 보내도 된다. 근거 ID가 evidence를 가리킨다."""
     from fashion_planner_inventory.schemas import TREND_RESULT_EXAMPLE
     r, body = _run(client, TREND_RESULT_EXAMPLE)
     assert r.status_code == 200 and body["request_id"] == TREND_RESULT_EXAMPLE["request_id"]

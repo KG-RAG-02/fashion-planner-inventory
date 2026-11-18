@@ -1,9 +1,9 @@
-"""상품 속성 보강 (#C)
+"""상품 속성 보강
 
 H&M articles의 값을 K-Fashion 어휘로 바꾼다.
-- 카테고리: product_type_name (+ 상품명·설명 키워드) → (영역, 세부 카테고리). 이름은 vocabulary_v1 (예: 티셔츠)
+- 카테고리: product_type_name (+ 상품명·설명 키워드) → (영역, 세부 카테고리). 이름은 trend 표준 어휘 (예: 티셔츠)
 - 색: colour_group_name → K-Fashion 21색
-- 소재: detail_desc 키워드 → K-Fashion 소재 26종 (트렌드 팀 vocabulary_v1 표기, 여러 이름은 '/')
+- 소재: detail_desc 키워드 → K-Fashion 소재 26종 (trend 표준 어휘 표기, 여러 이름은 '/')
 - 핏: detail_desc 키워드 → K-Fashion 핏
 - 시즌 적합성: 카테고리·소재 규칙 → 입을 수 있는 계절 목록
 
@@ -239,7 +239,7 @@ def extract_fit(desc: str | None, area: str | None) -> str | None:
 
 # ---------------------------------------------------------------- 디테일 (CLIP 인덱스용)
 
-# detail_desc 키워드 → 02 표준 DetailName(vocabulary_v1 40개). article_attrs에는 넣지 않고 CLIP 인덱스를 만들 때만 쓴다.
+# detail_desc 키워드 → trend 표준 DetailName(40개). article_attrs에는 넣지 않고 CLIP 인덱스를 만들 때만 쓴다.
 _DETAILS = [
     ("비즈", re.compile(r"\b(beads?|beaded|beading)\b")),
     ("단추", re.compile(r"\bbuttons?\b")),
@@ -285,14 +285,14 @@ _DETAILS = [
 
 
 def extract_details(desc: str | None) -> list[str]:
-    """detail_desc에서 02 표준 DetailName 목록 (표준 순서). 없으면 빈 목록."""
+    """detail_desc에서 trend 표준 DetailName 목록 (표준 순서). 없으면 빈 목록."""
     text = _s(desc).lower()
     return [name for name, pat in _DETAILS if pat.search(text)]
 
 
-# ---------------------------------------------------------------- 비표준 표기 → vocabulary_v1
+# ---------------------------------------------------------------- 비표준 표기 → trend 표준 어휘
 
-# DB 값이 다른 표기(·)여도 응답은 트렌드 팀 vocabulary_v1 표기(/)로 낸다
+# DB 값이 다른 표기(·)여도 응답은 trend 표준 어휘 표기(/)로 낸다
 VOCAB_ALIASES = {
     "티셔츠·캐주얼상의": "티셔츠",
     "울·캐시미어": "울/캐시미어",
@@ -302,7 +302,7 @@ VOCAB_ALIASES = {
 
 
 def to_vocab(name):
-    """비표준 카테고리·소재 표기 → vocabulary_v1 이름. 그 밖은 그대로."""
+    """비표준 카테고리·소재 표기 → trend 표준 어휘 이름. 그 밖은 그대로."""
     return VOCAB_ALIASES.get(name, name) if isinstance(name, str) else name
 
 

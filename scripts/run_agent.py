@@ -1,10 +1,10 @@
 """stock-agent 요청 1건 실행 → 응답 JSON 출력
 
-요청은 02 트렌드 결과(TrendAnalysisResult) 형식이다 (examples/).
+요청은 trend 결과(TrendAnalysisResult) 형식이다 (examples/).
 
 실행 예 (레포 맨 위 폴더에서)
   python scripts/run_agent.py                          # 기본 예시 요청 (트렌드 1개)
-  python scripts/run_agent.py --request req.json       # 요청 파일 (02 트렌드 결과 형식)
+  python scripts/run_agent.py --request req.json       # 요청 파일 (trend 결과 형식)
   python scripts/run_agent.py --request examples/request-trends-example.json   # 트렌드 여러 개
   python scripts/run_agent.py --out data/resp.json     # 응답을 파일로도 저장
 
