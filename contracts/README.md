@@ -107,6 +107,6 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 입력 producer version은 필수 `schema_version=1.1`이며 Stock 결과 1.0 및 handoff 0.1과 별개입니다. 원본 입력을 deepcopy한 내부 검색 입력을 사용하고 원본 body hash를 유지합니다. canonical 요청의 outer/inner ID와 version·status를 검증하며 producer agent_id가 명시되면 Trend identity와 같아야 합니다. 전체 Trend Evidence 의미 검증은 이 adapter의 범위가 아닙니다.
 
-readiness는 column/type·nonempty·snapshot 및 수치 null/음수/금액 일관성을 검사합니다. snapshot은 2020-09-22/virtual_stock_v1/sample과 일치해야 합니다. no_results는 인증·입력검증 뒤 DB 없이 반환합니다. 양수재고 검색에서 no_results가 나와도 전체 재고 0이라는 뜻이 아닙니다. result 1.0 schema에 임의 top-level 관측 필드를 추가하지 않습니다.
+readiness는 column/type·nonempty·snapshot 및 수치 null/음수/금액 일관성을 검사합니다. snapshot은 2020-09-22/virtual_stock_from_hm_sales/sample과 일치해야 합니다. no_results는 인증·입력검증 뒤 DB 없이 반환합니다. 양수재고 검색에서 no_results가 나와도 전체 재고 0이라는 뜻이 아닙니다. result 1.0 schema에 임의 top-level 관측 필드를 추가하지 않습니다.
 
 포트·route·health의 기준은 `fashion_planner_inventory/service-manifest.json`(포트 8002)입니다.

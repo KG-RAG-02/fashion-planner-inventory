@@ -25,7 +25,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-VERSION = "virtual_stock_v1"
+VERSION = "virtual_stock_from_hm_sales"
 SEED = 20261105
 AS_OF = date(2020, 9, 22)
 

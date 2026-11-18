@@ -22,12 +22,12 @@ def make_client(con, tmp_path, monkeypatch):
     # conftest의 작은 DB를 파일로 저장해 API가 read_only로 열게 한다
     db = tmp_path / "t.duckdb"
     con.execute(f"ATTACH '{db.as_posix()}' AS f")
-    for t in ("article_attrs", "stock_v1", "transactions"):
+    for t in ("article_attrs", "virtual_stock", "transactions"):
         con.execute(f"CREATE TABLE f.{t} AS SELECT * FROM {t}")
     con.execute("CREATE TABLE f.articles AS SELECT article_id FROM article_attrs")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_from_hm_sales'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute("DETACH f")
     import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", None))

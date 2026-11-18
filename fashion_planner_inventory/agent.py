@@ -385,9 +385,9 @@ def _evidence(now: str, period, areas, colors, trend_period, with_images: bool =
             **{**common, "observed_at": None, "manifest_id": None,
                "permission_status": "trend 결과로 받은 이미지, 비상업적 연구용"}})
     return [
-        {"evidence_id": f"{NS}:E-001", "source_id": "stock_v1", "source_type": "synthetic_inventory",
+        {"evidence_id": f"{NS}:E-001", "source_id": "virtual_stock", "source_type": "synthetic_inventory",
          "source_name": f"가상 재고 ({STOCK_VERSION})", "data_nature": "sample",
-         "locator": f"stock_v1 JOIN article_attrs WHERE kf_area IN {areas} AND kf_color IN {colors}",
+         "locator": f"virtual_stock JOIN article_attrs WHERE kf_area IN {areas} AND kf_color IN {colors}",
          **common},
         {"evidence_id": f"{NS}:E-002", "source_id": "hm_transactions_train", "source_type": "internal_sales_db",
          "source_name": "H&M transactions (시즌 판매 비중)", "data_nature": "fact",

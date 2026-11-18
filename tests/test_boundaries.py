@@ -49,14 +49,14 @@ def test_readonly_schema_and_sample_snapshot(tmp_path, con):
     # In-memory synthetic fixture first fails without producer provenance.
     con.execute("CREATE TABLE articles AS SELECT article_id FROM article_attrs")
     assert inspect_database(con)["reason"] == "schema_incompatible"
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_from_hm_sales'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     assert inspect_database(con)["db_ready"] is True
-    con.execute("UPDATE stock_v1 SET as_of = DATE '2026-11-12' WHERE article_id='a1'")
+    con.execute("UPDATE virtual_stock SET as_of = DATE '2026-11-12' WHERE article_id='a1'")
     assert inspect_database(con)["reason"] == "snapshot_incompatible"
-    con.execute("UPDATE stock_v1 SET as_of = DATE '2020-09-22'")
-    con.execute("UPDATE stock_v1 SET stock_qty = NULL WHERE article_id='a1'")
+    con.execute("UPDATE virtual_stock SET as_of = DATE '2020-09-22'")
+    con.execute("UPDATE virtual_stock SET stock_qty = NULL WHERE article_id='a1'")
     assert inspect_database(con)["reason"] == "invalid_inventory_values"
     # Actual read_only file connection; no production DB is modified.
     path = tmp_path / "empty.duckdb"

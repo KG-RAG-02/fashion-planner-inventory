@@ -1,4 +1,4 @@
-"""가상 재고 생성 → stock_v1 테이블
+"""가상 재고 생성 → virtual_stock 테이블
 
 먼저 scripts/build_attributes.py로 article_attrs를 만든 뒤 실행한다.
 실행: 레포 맨 위 폴더에서  python scripts/build_virtual_stock.py
@@ -32,9 +32,9 @@ sales = con.execute("""
 stock = build_stock(sales, seed=SEED)
 
 con.register("stock_df", stock)
-con.execute("CREATE OR REPLACE TABLE stock_v1 AS SELECT * FROM stock_df")
+con.execute("CREATE OR REPLACE TABLE virtual_stock AS SELECT * FROM stock_df")
 con.unregister("stock_df")
-print(f"stock_v1 저장: {len(stock):,}행 (seed={SEED}, 기준일 {AS_OF})")
+print(f"virtual_stock 저장: {len(stock):,}행 (seed={SEED}, 기준일 {AS_OF})")
 
 # ---- 검사 ----
 neg = int((stock.stock_qty < 0).sum())
@@ -53,7 +53,7 @@ summary = con.execute("""
            SUM(s.stock_qty)                AS 재고합,
            ROUND(AVG(s.sell_through), 3)   AS 평균판매율,
            ROUND(SUM(s.stock_value_krw) / 1e8, 1) AS 재고금액_억원
-    FROM stock_v1 s JOIN article_attrs a USING (article_id)
+    FROM virtual_stock s JOIN article_attrs a USING (article_id)
     GROUP BY ALL ORDER BY a.segment, a.kf_area
 """).df()
 print(summary.to_string(index=False))

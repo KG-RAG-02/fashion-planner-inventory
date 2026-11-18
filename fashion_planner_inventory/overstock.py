@@ -260,7 +260,7 @@ def inventory_sql(period: SeasonPeriod) -> str:
         SELECT a.article_id, a.segment, a.kf_area, a.kf_category, a.kf_color,
                a.materials, a.fit, a.season_fit,
                s.stock_qty, s.price_krw, s.stock_value_krw, s.sell_through, s.n_sold
-        FROM article_attrs a JOIN stock_v1 s USING (article_id)
+        FROM article_attrs a JOIN virtual_stock s USING (article_id)
         WHERE list_contains(?::VARCHAR[], a.kf_area)
           AND list_contains(?::VARCHAR[], a.kf_color)
           AND list_has_any(a.season_fit, ?::VARCHAR[])

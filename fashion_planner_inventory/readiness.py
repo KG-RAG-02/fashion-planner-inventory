@@ -1,7 +1,7 @@
 """Read-only schema and snapshot checks for the historical sample adapter.
 
 This adapter cannot serve arbitrary/current company inventory: its ranking and
-serializer are explicitly based on the virtual_stock_v1 snapshot.
+serializer are explicitly based on the virtual_stock_from_hm_sales snapshot.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ REQUIRED_COLUMNS = {
     "article_attrs": {"article_id": "text", "segment": "text", "kf_area": "text",
                       "kf_category": "text", "kf_color": "text", "materials": "list",
                       "fit": "text", "season_fit": "list"},
-    "stock_v1": {"article_id": "text", "stock_qty": "integer", "price_krw": "integer",
+    "virtual_stock": {"article_id": "text", "stock_qty": "integer", "price_krw": "integer",
                  "stock_value_krw": "integer", "sell_through": "number", "n_sold": "integer",
                  "as_of": "date", "version": "text", "data_nature": "text"},
 }
@@ -104,10 +104,10 @@ def inspect_database(con) -> dict:
              if con.execute(f'SELECT 1 FROM "{t}" LIMIT 1').fetchone() is None]
     if empty:
         return {**result, "reason": "empty_tables", "empty_tables": empty}
-    profiles = con.execute("SELECT DISTINCT as_of, version, data_nature FROM stock_v1 LIMIT 2").fetchall()
+    profiles = con.execute("SELECT DISTINCT as_of, version, data_nature FROM virtual_stock LIMIT 2").fetchall()
     if profiles != [(AS_OF, VERSION, "sample")]:
         return {**result, "reason": "snapshot_incompatible"}
-    invalid = con.execute("""SELECT 1 FROM stock_v1 WHERE stock_qty IS NULL OR price_krw IS NULL
+    invalid = con.execute("""SELECT 1 FROM virtual_stock WHERE stock_qty IS NULL OR price_krw IS NULL
         OR stock_value_krw IS NULL OR sell_through IS NULL OR n_sold IS NULL
         OR stock_qty < 0 OR price_krw < 0 OR n_sold < 0 OR sell_through < 0 OR sell_through > 1
         OR NOT isfinite(sell_through) OR stock_value_krw != stock_qty::HUGEINT * price_krw
@@ -118,5 +118,5 @@ def inspect_database(con) -> dict:
             "snapshot": {"as_of": AS_OF.isoformat(), "version": VERSION, "data_nature": "sample",
                          "synthetic": True,
                          "source": ("synthetic fixture (fashion_planner_inventory.fixture_db)" if fixture
-                                    else "H&M historical data + virtual_stock_v1"),
+                                    else "H&M historical data + virtual_stock_from_hm_sales"),
                          "current_company_inventory_verified": False}}

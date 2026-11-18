@@ -40,7 +40,7 @@ def test_fixture_db_is_deterministic_ready_and_marked_synthetic(tmp_path):
     second = fixture_db.build_fixture_db(tmp_path / "b.duckdb")
     assert first["content_sha256"] == second["content_sha256"]
     assert first["db_ready"] is True and first["reason"] is None and first["synthetic_fixture"] is True
-    assert first["tables"] == {"article_attrs": 9, "articles": 9, "stock_fixture": 3, "stock_v1": 9, "transactions": 15}
+    assert first["tables"] == {"article_attrs": 9, "articles": 9, "stock_fixture": 3, "virtual_stock": 9, "transactions": 15}
     assert first["storage_version"] in (None, "v1.0.0+")          # v1.0.0 format: readable by DuckDB 1.x and 2.x
     with pytest.raises(FileExistsError):
         fixture_db.build_fixture_db(tmp_path / "a.duckdb")

@@ -29,14 +29,14 @@ def ready_db_file(con, path, numeric_ids=False):
     numeric_ids: a1 → 0000000001처럼 H&M 형식 id로 바꾼다 (R2 이미지 key는 숫자 id만 받는다).
     """
     con.execute(f"ATTACH '{path.as_posix()}' AS f")
-    for t in ("article_attrs", "stock_v1", "transactions"):
+    for t in ("article_attrs", "virtual_stock", "transactions"):
         con.execute(f"CREATE TABLE f.{t} AS SELECT * FROM {t}")
         if numeric_ids:
             con.execute(f"UPDATE f.{t} SET article_id = lpad(substr(article_id, 2), 10, '0')")
     con.execute("CREATE TABLE f.articles AS SELECT article_id FROM article_attrs")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
-    con.execute("ALTER TABLE f.stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_from_hm_sales'")
+    con.execute("ALTER TABLE f.virtual_stock ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute("DETACH f")
     return path
 
@@ -76,7 +76,7 @@ def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(loca
         assert ready.status_code == 200 and body["status"] == "ok"
         assert body["db"] == "local-file" and body["db_ready"] is True
         assert body["db_version"] == "sha256:" + hashlib.sha256(db.read_bytes()).hexdigest()
-        assert body["snapshot"]["version"] == "virtual_stock_v1"          # inspect_database still ran
+        assert body["snapshot"]["version"] == "virtual_stock_from_hm_sales"          # inspect_database still ran
         assert str(tmp_path) not in ready.text and "stock-local" not in ready.text
         with pytest.raises(duckdb.Error):
             api.state["con"].execute("CREATE TABLE forbidden(i INTEGER)")  # opened read-only

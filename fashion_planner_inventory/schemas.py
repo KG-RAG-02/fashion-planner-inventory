@@ -86,7 +86,7 @@ class Inventory(BaseModel):
     quantity: int = Field(description="재고량 (가상)")
     unit: str = "pieces"
     as_of: str = Field(description="데이터 기준일 2020-09-22")
-    definition: str = "virtual_stock_v1"
+    definition: str = "virtual_stock_from_hm_sales"
     data_nature: str = "sample"
 
 

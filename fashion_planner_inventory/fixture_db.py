@@ -3,7 +3,7 @@
 - create_base_tables(con): tests/conftest.py가 써 온 작은 표(a1~a6) 그대로.
 - add_stub_rows(con): trend stub 결과(examples/stub/inventory-request.json의 input: 발레코어, 2027 SS,
   사용자 카테고리 상의, 사용자 색 핑크)와 맞춘 상품 3개 — 짝 영역 하의·아우터, 핑크와 어울리는 색, 봄·여름.
-- finalize(con): articles 표, stock_v1 snapshot 열(2020-09-22 · virtual_stock_v1 · sample), 표지 표 `stock_fixture`.
+- finalize(con): articles 표, virtual_stock snapshot 열(2020-09-22 · virtual_stock_from_hm_sales · sample), 표지 표 `stock_fixture`.
   readiness는 `stock_fixture`가 있으면 synthetic_fixture=true를 내고, API는 trend 결과마다 합성 DB임을 limitations에 적는다.
 - build_fixture_db(path): 위 순서로 새 파일을 만든다. 기본 storage version v1.0.0 (DuckDB 1.x·2.x 모두 읽는다).
 실행 진입점: scripts/build_fixture_db.py, 또는 `python -m fashion_planner_inventory.fixture_db <out.duckdb>` (이미지 안에서도 된다).
@@ -29,7 +29,7 @@ BASE_TABLES = (
         ('a5','Ladieswear','상의','탑','그레이',[]::VARCHAR[],NULL,['봄','여름','가을','겨울']),
         ('a6','Ladieswear','하의','팬츠','베이지',[]::VARCHAR[],NULL,['봄','여름','가을','겨울'])
       ) v(article_id,segment,kf_area,kf_category,kf_color,materials,fit,season_fit)""",
-    """CREATE TABLE stock_v1 AS SELECT * FROM (VALUES
+    """CREATE TABLE virtual_stock AS SELECT * FROM (VALUES
         ('a1',100,30000,3000000,0.4,200),('a2',100,30000,3000000,0.4,200),
         ('a3',100,30000,3000000,0.4,200),('a4',100,30000,3000000,0.4,200),
         ('a5',100,30000,3000000,0.4,200),('a6',0,30000,0,0.9,200)
@@ -46,7 +46,7 @@ STUB_ROWS = (
         ('0910001001','Ladieswear','하의','스커트','화이트',['면'],NULL,['봄','여름']),
         ('0910002001','Divided','아우터','재킷','베이지',['면'],'오버사이즈',['봄','가을']),
         ('0910003001','Ladieswear','하의','팬츠','네이비',['린넨'],'와이드',['봄','여름'])""",
-    """INSERT INTO stock_v1 VALUES
+    """INSERT INTO virtual_stock VALUES
         ('0910001001',120,39000,4680000,0.35,65),
         ('0910002001',80,59000,4720000,0.45,65),
         ('0910003001',60,45000,2700000,0.62,98)""",
@@ -70,9 +70,9 @@ def add_stub_rows(con) -> None:
 def finalize(con) -> None:
     """readiness가 요구하는 articles·snapshot 열과 합성 표지 표 (tests/test_api.py make_client와 같은 열)."""
     con.execute("CREATE TABLE articles AS SELECT article_id FROM article_attrs ORDER BY article_id")
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_v1'")
-    con.execute("ALTER TABLE stock_v1 ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN as_of DATE DEFAULT DATE '2020-09-22'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN version VARCHAR DEFAULT 'virtual_stock_from_hm_sales'")
+    con.execute("ALTER TABLE virtual_stock ADD COLUMN data_nature VARCHAR DEFAULT 'sample'")
     con.execute(f"CREATE TABLE {FIXTURE_TABLE} (key VARCHAR, value VARCHAR)")
     con.execute(f"INSERT INTO {FIXTURE_TABLE} VALUES ('data_nature', 'synthetic_fixture'), "
                 "('builder', 'fashion_planner_inventory.fixture_db'), "

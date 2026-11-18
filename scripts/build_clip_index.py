@@ -7,7 +7,7 @@
             영어 대응어 (clip_vocab.clip_text). 색·카테고리·핏은 넣지 않는다
     합치기: image 0.6 + text 0.4. 텍스트가 비면 이미지만, 사진이 없으면 텍스트만, 둘 다 없으면 인덱스에서 뺀다
 
-대상: stock_v1에 있는 의류(article_attrs.kf_area 있음) 전체.
+대상: virtual_stock에 있는 의류(article_attrs.kf_area 있음) 전체.
 DB: STOCK_DB_PATH, 없으면 R2 DB 캐시(없으면 받음). 사진: R2(R2_IMAGE_PREFIX), --image-dir를 주면 그 폴더.
 
 파일: article_ids(str), embeddings(float16, N×512, 정규화), rule, model, n_with_image, n_with_text
@@ -108,7 +108,7 @@ def main(argv=None) -> int:
         SELECT t.article_id, t.materials, a.detail_desc
         FROM article_attrs t
         JOIN articles a USING (article_id)
-        JOIN stock_v1 s USING (article_id)
+        JOIN virtual_stock s USING (article_id)
         WHERE t.kf_area IS NOT NULL
         ORDER BY t.article_id
     """).fetchall()

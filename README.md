@@ -31,7 +31,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 pip install -r requirements-dev.txt
 python scripts/build_db.py          # H&M CSV → data/stock.duckdb
 python scripts/build_attributes.py  # K-Fashion 속성 → article_attrs
-python scripts/build_virtual_stock.py    # 가상 재고 → stock_v1
+python scripts/build_virtual_stock.py    # 가상 재고 → virtual_stock
 python scripts/extract_images.py --zip data/raw/h-and-m-personalized-fashion-recommendations.zip
                                     # 의류 상품 이미지만 → data/images/<앞 3자리>/<article_id>.jpg
 python scripts/build_clip_index.py  # 재고 상품 CLIP 인덱스 → data/clip_index.npz (DB·사진은 R2에서 읽음)
@@ -270,6 +270,6 @@ Stock 포트·route·health 기본값의 단일 소스는 `fashion_planner_inven
 
 입력은 명시적인 Trend `schema_version=1.1`을 요구합니다. unsupported/missing version, producer identity 불일치, request_id/status/nested shape 오류는 DB 조회 전에 거부합니다. JSON 중복 key·NaN/Infinity도 거부합니다. 원본 body는 내부 변환본과 분리하고 `input_provenance.source_payload_sha256`은 원본 **Trend result body**의 python-json-sort/1 hash입니다. envelope hash와 같다고 취급하지 않습니다. Stock이 사용하지 않는 전체 Evidence의 의미 검증과 wire bytes artifact 보존은 P08 retained consumer 책임입니다. 사용자 원문과 적용 필터를 연결하는 stock_call_context도 P08 소유입니다.
 
-인증된 upstream no_results는 DB가 없어도 200/no_results·빈 products로 반환합니다. 실제 0, null product slot, 조회 실패503은 각각 다른 상태입니다. 이 adapter는 `as_of=2020-09-22`, `definition=virtual_stock_v1`, `data_nature=sample` snapshot만 받으며 현재 자사 재고를 검증하지 않습니다. 가격/재고는 합성이고 과거 거래 기반 지표와 구분합니다. 다른 snapshot은 상수를 현재값으로 바꿔 붙이지 않고 readiness에서 거부합니다.
+인증된 upstream no_results는 DB가 없어도 200/no_results·빈 products로 반환합니다. 실제 0, null product slot, 조회 실패503은 각각 다른 상태입니다. 이 adapter는 `as_of=2020-09-22`, `definition=virtual_stock_from_hm_sales`, `data_nature=sample` snapshot만 받으며 현재 자사 재고를 검증하지 않습니다. 가격/재고는 합성이고 과거 거래 기반 지표와 구분합니다. 다른 snapshot은 상수를 현재값으로 바꿔 붙이지 않고 readiness에서 거부합니다.
 
 `python scripts/diagnose_readiness.py`는 `.env` 파일 존재와 **현재 process env 주입 여부**를 분리하고, provision된 설정이 있으면 R2 HEAD·기존 cache·read-only schema를 진단합니다. DB 다운로드·재생성·업로드는 하지 않습니다. 로컬 SHA sidecar는 cache 손상 검사이며 upstream checksum/원천 진위의 증명이 아닙니다.
