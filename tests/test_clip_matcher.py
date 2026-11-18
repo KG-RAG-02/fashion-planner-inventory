@@ -99,7 +99,7 @@ def test_no_index_returns_candidates_unchanged(tmp_path, fake):
 
 
 def test_index_with_other_rule_is_not_used(tmp_path, fake):
-    old = save_index(tmp_path / "old.npz", ["a1"], [unit(1, 0, 0, 0)], rule="color-image/v0")
+    old = save_index(tmp_path / "old.npz", ["a1"], [unit(1, 0, 0, 0)], rule="color-image")
     out, info = clip.clip_filter(cand("a1"), REF, old)
     assert (info.applied, info.skip_reason) == (False, "no_index")
     assert clip.index_status(old) == {"clip_index_loaded": False, "clip_n_indexed": 0}

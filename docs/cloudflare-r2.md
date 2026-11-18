@@ -14,7 +14,7 @@ When `R2_IMAGE_PREFIX` is set, the API checks product image objects on demand an
 
 ## CLIP index
 
-`R2_CLIP_INDEX_KEY` names the CLIP index object (npz built by `scripts/build_clip_index.py`, rule `gray-image+material-detail-en/v2`). `--prepare-cache` downloads it once per object version into `STOCK_CACHE_DIR/clip-index-<sha256>.npz` next to the database; the API reads that cache at startup and never downloads it. A missing index or a different rule leaves the server up and skips the CLIP filter (`search.clip.skip_reason: no_index`). `STOCK_CLIP_INDEX_PATH` selects a local index file instead.
+`R2_CLIP_INDEX_KEY` names the CLIP index object (npz built by `scripts/build_clip_index.py`, rule `vit-b-32-quickgelu-openai/gray-image+material-detail-en`). `--prepare-cache` downloads it once per object version into `STOCK_CACHE_DIR/clip-index-<sha256>.npz` next to the database; the API reads that cache at startup and never downloads it. A missing index or a different rule leaves the server up and skips the CLIP filter (`search.clip.skip_reason: no_index`). `STOCK_CLIP_INDEX_PATH` selects a local index file instead.
 
 ## Musinsa snap images
 

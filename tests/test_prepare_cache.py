@@ -121,7 +121,7 @@ def _index_bytes(tmp_path, rule):
     return path.read_bytes()
 
 
-@pytest.mark.parametrize("rule, ok", [(None, True), ("color-image/v0", False)])
+@pytest.mark.parametrize("rule, ok", [(None, True), ("color-image", False)])
 def test_prepare_cache_also_fetches_clip_index(r2_env, con, tmp_path, capsys, rule, ok):
     db = ready_db_file(con, tmp_path / "source.duckdb").read_bytes()
     client = FakeR2Objects({"db/stock.duckdb": db, "clip/clip_index.npz": _index_bytes(tmp_path, rule)})
@@ -135,7 +135,7 @@ def test_prepare_cache_also_fetches_clip_index(r2_env, con, tmp_path, capsys, ru
         assert idx["status"] == "ready" and idx["n_indexed"] == 2 and idx["sha256"]
         assert any(p.name.startswith("clip-index-") and p.suffix == ".npz" for p in (tmp_path / "cache").iterdir())
     else:
-        assert idx["reason"] == "clip_index_rule_mismatch" and idx["rule"] == "color-image/v0"
+        assert idx["reason"] == "clip_index_rule_mismatch" and idx["rule"] == "color-image"
     assert "clip/clip_index.npz" not in out
 
 
