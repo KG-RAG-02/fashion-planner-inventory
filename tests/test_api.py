@@ -227,7 +227,7 @@ def _post_handoff(client, body=None, token="test-stock-token"):
     return client.post("/v1/agents/inventory/runs", json=body or _handoff(), headers=headers)
 
 
-def test_handoff_accepts_trend_11_and_records_adapter_provenance(handoff_client):
+def test_handoff_accepts_trend_result_and_records_adapter_provenance(handoff_client):
     trend = {**REQ, "schema_version": "1.0.0"}
     body = _handoff({**trend, "status": "no_results", "trends": []})
     response = _post_handoff(handoff_client, body=body)
@@ -443,7 +443,7 @@ def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypa
         assert _post_handoff(client).status_code == 503
 
 
-def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
+def test_trend_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
     """A trend result may carry trends[].style.example_images (same schema_version). Inventory accepts it,
     and hashes the unchanged object into input_provenance."""
     import copy

@@ -59,7 +59,7 @@ def test_conftest_tables_are_the_fixture_base_tables(con):
         "a1", "a2", "a3", "a4", "a5", "a6"]
 
 
-def test_stub_request_is_an_unchanged_trend_11_result():
+def test_stub_request_is_an_unchanged_trend_result():
     req = _json(STUB / "inventory-request.json")
     assert req["contract_version"] == "inventory-handoff" and req["request_id"] == req["input"]["request_id"]
     source = req["input"]
