@@ -8,7 +8,7 @@
     합치기: image 0.6 + text 0.4. 텍스트가 비면 이미지만, 사진이 없으면 텍스트만, 둘 다 없으면 인덱스에서 뺀다
 
 대상: virtual_stock에 있는 의류(article_attrs.kf_area 있음) 전체.
-DB: STOCK_DB_PATH, 없으면 R2 DB 캐시(없으면 받음). 사진: R2(R2_IMAGE_PREFIX), --image-dir를 주면 그 폴더.
+DB: INVENTORY_DB_PATH, 없으면 R2 DB 캐시(없으면 받음). 사진: R2(R2_IMAGE_PREFIX), --image-dir를 주면 그 폴더.
 
 파일: article_ids(str), embeddings(float16, N×512, 정규화), rule, model, n_with_image, n_with_text
 
@@ -44,10 +44,10 @@ CHUNK = 1024          # 사진을 이만큼씩 받아서 임베딩
 
 
 def open_db(store):
-    path = os.environ.get("STOCK_DB_PATH", "").strip()
+    path = os.environ.get("INVENTORY_DB_PATH", "").strip()
     if not path:
         if store is None:
-            raise SystemExit("STOCK_DB_PATH도 R2 설정도 없습니다")
+            raise SystemExit("INVENTORY_DB_PATH도 R2 설정도 없습니다")
         logger.info("R2 DB 확인 (캐시에 없으면 받음)")
         path, version = store.prepare_database(allow_download=True)
         logger.info("DB 버전 %s", version)

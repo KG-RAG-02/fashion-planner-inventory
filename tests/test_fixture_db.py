@@ -1,7 +1,7 @@
 """Synthetic fixture DB (fashion_planner_inventory.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
 
 examples/stub/inventory-request.json carries the trend stub result unchanged (inventory-handoff);
-with STOCK_DB_PATH=<fixture DB> it must give ok/partial with a product.
+with INVENTORY_DB_PATH=<fixture DB> it must give ok/partial with a product.
 """
 import hashlib
 import json
@@ -72,14 +72,14 @@ def test_stub_request_is_an_unchanged_trend_11_result():
 def stub_env(monkeypatch, tmp_path):
     """local-file: R2 설정·키 없이, R2 객체 저장소를 만들면 실패."""
     import fashion_planner_inventory.api as api
-    for name in R2_VARS + ("STOCK_IMAGE_CACHE_DIR",):
+    for name in R2_VARS + ("INVENTORY_IMAGE_CACHE_DIR",):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(api, "R2ObjectStore", lambda *a, **k: pytest.fail("stub mode must not build an R2 store"))
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     db = tmp_path / "stock-fixture.duckdb"
     fixture_db.build_fixture_db(db)
-    monkeypatch.setenv("STOCK_DB_PATH", str(db))
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
+    monkeypatch.setenv("INVENTORY_DB_PATH", str(db))
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", TOKEN)
     return db
 
 

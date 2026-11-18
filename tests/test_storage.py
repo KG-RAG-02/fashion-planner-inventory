@@ -129,9 +129,9 @@ def test_image_denied_is_not_missing(tmp_path, settings):
 
 
 def test_image_cache_dir_defaults_under_cache_dir_and_follows_env(tmp_path, settings, monkeypatch):
-    monkeypatch.delenv("STOCK_IMAGE_CACHE_DIR", raising=False)
+    monkeypatch.delenv("INVENTORY_IMAGE_CACHE_DIR", raising=False)
     assert R2ObjectStore(settings, client=FakeR2(), cache_dir=tmp_path / "cache").image_cache_dir == tmp_path / "cache" / "images"
-    monkeypatch.setenv("STOCK_IMAGE_CACHE_DIR", str(tmp_path / "image-cache"))
+    monkeypatch.setenv("INVENTORY_IMAGE_CACHE_DIR", str(tmp_path / "image-cache"))
     client = FakeR2(payload=b"jpeg")
     store = R2ObjectStore(settings, client=client, cache_dir=tmp_path / "cache")
     assert store.load_image("0999990001") == b"jpeg" and store.load_image("0999990001") == b"jpeg"

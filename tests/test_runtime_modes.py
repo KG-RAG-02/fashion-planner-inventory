@@ -1,6 +1,6 @@
 """Runtime modes for the containerized stub profile (fastapi·httpx·duckdb가 있을 때만 실행).
 
-local-file: STOCK_DB_PATH가 있으면 R2 설정·HEAD 없이 그 파일을 read-only로 연다.
+local-file: INVENTORY_DB_PATH가 있으면 R2 설정·HEAD 없이 그 파일을 read-only로 연다.
 """
 import hashlib
 
@@ -45,9 +45,9 @@ def ready_db_file(con, path, numeric_ids=False):
 def local_env(monkeypatch):
     """R2 설정이 전혀 없고, R2 객체 저장소를 만들면 실패하는 환경."""
     import fashion_planner_inventory.api as api
-    for name in R2_VARS + ("STOCK_DB_PATH",):
+    for name in R2_VARS + ("INVENTORY_DB_PATH",):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", TOKEN)
 
     def no_r2(*args, **kwargs):
         raise AssertionError("local-file mode must not build an R2 object store")
@@ -69,7 +69,7 @@ def _handoff(body):
 def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(local_env, con, tmp_path):
     import fashion_planner_inventory.api as api
     db = ready_db_file(con, tmp_path / "stock-local.duckdb")
-    local_env.setenv("STOCK_DB_PATH", str(db))
+    local_env.setenv("INVENTORY_DB_PATH", str(db))
     with _client() as c:
         ready = c.get("/health/ready")
         body = ready.json()
@@ -89,7 +89,7 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
     db = ready_db_file(con, tmp_path / "stock-local.duckdb")
     sidecar = db.with_suffix(".sha256")
     sidecar.write_text("0" * 64)
-    local_env.setenv("STOCK_DB_PATH", str(db))
+    local_env.setenv("INVENTORY_DB_PATH", str(db))
     with _client() as c:
         assert c.get("/health/live").status_code == 200
         ready = c.get("/health/ready")
@@ -99,7 +99,7 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
     sidecar.write_text(hashlib.sha256(db.read_bytes()).hexdigest() + "\n")
     with _client() as c:
         assert c.get("/health/ready").status_code == 200                   # a matching sidecar is accepted
-    local_env.setenv("STOCK_DB_PATH", str(tmp_path / "missing.duckdb"))
+    local_env.setenv("INVENTORY_DB_PATH", str(tmp_path / "missing.duckdb"))
     with _client() as c:
         ready = c.get("/health/ready")
         assert ready.status_code == 503 and ready.json()["reason"] == "StorageUnavailable"
@@ -124,8 +124,8 @@ def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_
             ImageObjects.downloads += 1
             return {"Body": io.BytesIO(b"jpeg"), "ContentLength": 4}
 
-    monkeypatch.delenv("STOCK_DB_PATH", raising=False)
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", TOKEN)
+    monkeypatch.delenv("INVENTORY_DB_PATH", raising=False)
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", TOKEN)
     db = ready_db_file(con, tmp_path / "stock.duckdb", numeric_ids=True)   # R2 image keys need digit ids
     blocker = tmp_path / "read-only-cache"
     blocker.write_text("x")

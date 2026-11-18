@@ -96,7 +96,7 @@ def _client(settings: R2Settings):
 
 
 def _safe_cache_dir() -> Path:
-    root = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "fashion-planner-inventory"))
+    root = Path(os.environ.get("INVENTORY_CACHE_DIR", Path(tempfile.gettempdir()) / "fashion-planner-inventory"))
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         root.chmod(0o700)
@@ -106,8 +106,8 @@ def _safe_cache_dir() -> Path:
 
 
 def _image_cache_dir(cache_dir: Path) -> Path:
-    """Where fetched R2 images are cached: ``STOCK_IMAGE_CACHE_DIR``, default ``<STOCK_CACHE_DIR>/images``."""
-    configured = os.environ.get("STOCK_IMAGE_CACHE_DIR", "").strip()
+    """Where fetched R2 images are cached: ``INVENTORY_IMAGE_CACHE_DIR``, default ``<INVENTORY_CACHE_DIR>/images``."""
+    configured = os.environ.get("INVENTORY_IMAGE_CACHE_DIR", "").strip()
     return Path(configured) if configured else Path(cache_dir) / "images"
 
 
@@ -139,7 +139,7 @@ def file_sha256(path: Path) -> str:
 
 
 def open_local_database(path_value: str | os.PathLike) -> tuple[Path, str]:
-    """Local-file mode (``STOCK_DB_PATH``): no R2 settings, HEAD or download.
+    """Local-file mode (``INVENTORY_DB_PATH``): no R2 settings, HEAD or download.
 
     The file must exist. If a ``<name>.sha256`` sidecar sits next to it (as written by
     ``python -m fashion_planner_inventory.server --prepare-cache``), the file must match it. The version
@@ -147,11 +147,11 @@ def open_local_database(path_value: str | os.PathLike) -> tuple[Path, str]:
     """
     path = Path(path_value).expanduser()
     if not path.is_file():
-        raise StorageUnavailable("STOCK_DB_PATH가 가리키는 DB 파일이 없습니다")
+        raise StorageUnavailable("INVENTORY_DB_PATH가 가리키는 DB 파일이 없습니다")
     checksum = file_sha256(path)
     sidecar = path.with_suffix(".sha256")
     if sidecar.is_file() and sidecar.read_text().strip() != checksum:
-        raise StorageUnavailable("STOCK_DB_PATH DB 파일이 SHA-256 sidecar와 일치하지 않습니다")
+        raise StorageUnavailable("INVENTORY_DB_PATH DB 파일이 SHA-256 sidecar와 일치하지 않습니다")
     return path, f"sha256:{checksum}"
 
 
@@ -172,7 +172,7 @@ def _write_checksum(target: Path) -> str:
 class R2ObjectStore:
     """Small read-only adapter; pass a fake client to exercise it offline."""
 
-    IMAGE_CACHE_NOTE = ("이미지 캐시 디렉터리(STOCK_IMAGE_CACHE_DIR, 기본 STOCK_CACHE_DIR/images)에 쓸 수 없어 "
+    IMAGE_CACHE_NOTE = ("이미지 캐시 디렉터리(INVENTORY_IMAGE_CACHE_DIR, 기본 INVENTORY_CACHE_DIR/images)에 쓸 수 없어 "
                         "상품 사진을 캐시하지 않고 R2에서 받은 그대로 응답에 넣었습니다.")
 
     def __init__(self, settings: R2Settings, client=None, cache_dir: Path | None = None,

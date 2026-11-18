@@ -25,8 +25,8 @@ import duckdb
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--zip", required=True, help="Kaggle H&M 전체 압축 파일 경로")
-ap.add_argument("--out", default=os.environ.get("STOCK_IMAGE_DIR", "data/images"))
-ap.add_argument("--db", default=os.environ.get("STOCK_DB_PATH", "data/stock.duckdb"))
+ap.add_argument("--out", default=os.environ.get("INVENTORY_IMAGE_DIR", "data/images"))
+ap.add_argument("--db", default=os.environ.get("INVENTORY_DB_PATH", "data/stock.duckdb"))
 ap.add_argument("--max-side", type=int, default=0, help="0이면 원본 그대로, 아니면 긴 변을 이 크기로 줄임")
 args = ap.parse_args()
 

@@ -11,6 +11,6 @@
   "contract_version": "inventory-handoff",
   "source_schema_version": "1.0.0",
   "result_schema_version": "1.0.0",
-  "auth_env": "VOGUE_AGENT_SERVICE_BEARER_TOKEN",
+  "auth_env": "FASHION_PLANNER_SERVICE_TOKEN",
   "startup_db_policy": "head-and-existing-checksummed-cache-only"
 }

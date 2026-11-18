@@ -1,5 +1,5 @@
 {
-  "note": "Expected response to examples/stub/inventory-request.json (input = the trend stub result, unchanged) with STOCK_DB_PATH=<scripts/build_fixture_db.py output>. `result` is fashion_planner_inventory.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
+  "note": "Expected response to examples/stub/inventory-request.json (input = the trend stub result, unchanged) with INVENTORY_DB_PATH=<scripts/build_fixture_db.py output>. `result` is fashion_planner_inventory.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
   "http_status": 200,
   "contract_version": "inventory-handoff",
   "request_id": "stub-trend-001",

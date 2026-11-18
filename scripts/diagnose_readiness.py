@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def main():
     from fashion_planner_inventory.storage import R2Settings, file_sha256
-    names = ("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "R2_ACCOUNT_ID",
+    names = ("FASHION_PLANNER_SERVICE_TOKEN", "R2_ACCOUNT_ID",
              "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT",
-             "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_CACHE_DIR", "STOCK_DB_PATH", "STOCK_CLIP_INDEX_PATH",
+             "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "INVENTORY_CACHE_DIR", "INVENTORY_DB_PATH", "INVENTORY_CLIP_INDEX_PATH",
              "Access Key ID", "Secret Access Key")
     result = {"observed_at": datetime.now(timezone.utc).isoformat(),
               "dotenv_exists": Path(".env").is_file(), "dotenv_loaded_by_probe": False,
@@ -31,7 +31,7 @@ def main():
               "r2": {"configured": False, "reachable": None, "authenticated": None},
               "database": {"data_verified": False, "as_of": None, "synthetic": None},
               "downloads": 0, "uploads": 0, "db_writes": 0}
-    cache = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "inventory"))
+    cache = Path(os.environ.get("INVENTORY_CACHE_DIR", Path(tempfile.gettempdir()) / "inventory"))
     result["existing_cache_files"] = len(list(cache.glob("stock-*.duckdb"))) if cache.is_dir() else 0
     try:
         settings = R2Settings.from_env()

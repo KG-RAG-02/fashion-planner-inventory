@@ -1,9 +1,9 @@
 # fashion-planner-inventory (과잉재고 상품 매칭) HTTP API 이미지
-# DB와 이미지는 이미지에 넣지 않는다. R2 모드는 STOCK_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
-# STOCK_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
+# DB와 이미지는 이미지에 넣지 않는다. R2 모드는 INVENTORY_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
+# INVENTORY_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.
 # CLIP 유사도 필터는 재고 CLIP 인덱스가 있을 때만 동작하고, 없으면 건너뛴다. 인덱스는 R2(R2_CLIP_INDEX_KEY)에서
-# --prepare-cache가 DB와 함께 /cache에 받아 두거나, STOCK_CLIP_INDEX_PATH로 붙인 파일을 쓴다.
+# --prepare-cache가 DB와 함께 /cache에 받아 두거나, INVENTORY_CLIP_INDEX_PATH로 붙인 파일을 쓴다.
 # 인덱스가 있으면 서버 시작 때 CLIP 모델(open_clip ViT-B-32-quickgelu, OpenAI 가중치)을 미리 불러오므로 healthcheck start-period를 길게 둔다.
 FROM python:3.12-slim
 
@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 COPY fashion_planner_inventory ./fashion_planner_inventory
 
 ENV HOME=/tmp \
-    STOCK_CACHE_DIR=/cache
+    INVENTORY_CACHE_DIR=/cache
 USER 10001:10001
 
 EXPOSE 8002

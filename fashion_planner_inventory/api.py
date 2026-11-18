@@ -8,7 +8,7 @@
   GET  /docs                    설명서 (요청 예시 5개, 응답 200·400·500·503·504 형식)
 
 실행 (로컬):   uvicorn fashion_planner_inventory.api:app --port 8002
-실행 (도커):   README 참고. DB는 read-only로 연다: STOCK_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
+실행 (도커):   README 참고. DB는 read-only로 연다: INVENTORY_DB_PATH가 있으면 그 로컬 파일(local-file, R2 설정·HEAD 없음),
               없으면 Cloudflare R2 HEAD로 확인한 기존 검증 cache(시작 시 내려받지 않음).
 """
 
@@ -43,7 +43,7 @@ from fashion_planner_inventory.readiness import FIXTURE_LIMITATION, inspect_data
 from fashion_planner_inventory.trend_request import from_trend_result
 from fashion_planner_inventory.multi import _record_input_provenance
 
-IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
+IMAGE_DIR = os.environ.get("INVENTORY_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "inventory-handoff"
 HANDOFF_PATH = "/v1/agents/inventory/runs"
 DEFAULT_HANDOFF_TIMEOUT_SECONDS = 60.0
@@ -51,13 +51,13 @@ MAX_HANDOFF_TIMEOUT_SECONDS = 600.0
 
 
 def handoff_timeout_seconds() -> float:
-    """Whole-request deadline of the producer route: ``STOCK_HANDOFF_TIMEOUT_SECONDS`` (default 60).
+    """Whole-request deadline of the producer route: ``INVENTORY_HANDOFF_TIMEOUT_SECONDS`` (default 60).
 
     Blank, non-numeric or out-of-range values (not in (0, 600]) mean the default. The agent processes
     trends one after another (DB queries, CLIP snap image download and embedding per trend), so a caller
     that sends many trends may need a longer deadline; its own read timeout must stay above this value.
     """
-    raw = os.environ.get("STOCK_HANDOFF_TIMEOUT_SECONDS", "").strip()
+    raw = os.environ.get("INVENTORY_HANDOFF_TIMEOUT_SECONDS", "").strip()
     try:
         value = float(raw) if raw else DEFAULT_HANDOFF_TIMEOUT_SECONDS
     except ValueError:
@@ -72,17 +72,17 @@ _RUN_LOCK = threading.RLock()
 
 
 def database_mode() -> str:
-    """``local-file`` when ``STOCK_DB_PATH`` is set (no R2 settings or HEAD), otherwise ``cloudflare-r2``."""
-    return "local-file" if os.environ.get("STOCK_DB_PATH", "").strip() else "cloudflare-r2"
+    """``local-file`` when ``INVENTORY_DB_PATH`` is set (no R2 settings or HEAD), otherwise ``cloudflare-r2``."""
+    return "local-file" if os.environ.get("INVENTORY_DB_PATH", "").strip() else "cloudflare-r2"
 
 
 def prepare_database() -> tuple[str, str, R2ObjectStore | None]:
     """Locate the DB to open read-only; never download.
 
-    local-file: the ``STOCK_DB_PATH`` file (and its SHA-256 sidecar when present); images then come
-    from ``STOCK_IMAGE_DIR``. cloudflare-r2: HEAD plus one verified existing cache version.
+    local-file: the ``INVENTORY_DB_PATH`` file (and its SHA-256 sidecar when present); images then come
+    from ``INVENTORY_IMAGE_DIR``. cloudflare-r2: HEAD plus one verified existing cache version.
     """
-    local = os.environ.get("STOCK_DB_PATH", "").strip()
+    local = os.environ.get("INVENTORY_DB_PATH", "").strip()
     if local:
         path, version = open_local_database(local)
         return str(path), version, None
@@ -135,13 +135,13 @@ app = FastAPI(
 
 
 def clip_index_path():
-    """CLIP 인덱스 경로. STOCK_CLIP_INDEX_PATH → (R2 모드) R2_CLIP_INDEX_KEY의 검증된 캐시 → 기본 data/clip_index.npz.
+    """CLIP 인덱스 경로. INVENTORY_CLIP_INDEX_PATH → (R2 모드) R2_CLIP_INDEX_KEY의 검증된 캐시 → 기본 data/clip_index.npz.
 
     서버는 시작할 때 인덱스를 내려받지 않는다. 캐시는 --prepare-cache가 DB와 함께 채운다.
     R2_CLIP_INDEX_KEY가 있는데 캐시가 없으면 None (인덱스 없음 → 요청마다 no_index).
     """
     from fashion_planner_inventory import clip_matcher
-    local = os.environ.get("STOCK_CLIP_INDEX_PATH", "").strip()
+    local = os.environ.get("INVENTORY_CLIP_INDEX_PATH", "").strip()
     if local:
         return local
     store = state.get("object_store")
@@ -272,7 +272,7 @@ def _handoff_error(request_id: str | None, code: str, message: str, *, wrap: boo
 async def _handoff_deadline(request: Request, call_next):
     if request.url.path != HANDOFF_PATH:
         return await call_next(request)
-    token = os.environ.get("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "")
+    token = os.environ.get("FASHION_PLANNER_SERVICE_TOKEN", "")
     authorization = request.headers.get("authorization", "")
     scheme, _, supplied = authorization.partition(" ")
     if not token or scheme.lower() != "bearer" or not supplied.strip() or not hmac.compare_digest(
@@ -353,7 +353,7 @@ HANDOFF_RESPONSES = {
 @app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="inventory-handoff Stock producer 실행",
           description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 inventory 결과 payload(schema_version 1.0.0) 그대로 반환됩니다. "
-                       "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
+                       "운영에서는 HTTPS와 FASHION_PLANNER_SERVICE_TOKEN Bearer 인증이 필요합니다."))
 def inventory_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):
     body = request.scope["_stock_source_body"]
     rid = body.get("request_id")

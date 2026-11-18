@@ -21,7 +21,7 @@
       "status": "result.status",
       "result": "inventory-result.schema.json"
     },
-    "authentication": "Authorization: Bearer VOGUE_AGENT_SERVICE_BEARER_TOKEN"
+    "authentication": "Authorization: Bearer FASHION_PLANNER_SERVICE_TOKEN"
   },
   "type": "object",
   "required": [

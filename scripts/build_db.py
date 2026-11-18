@@ -1,7 +1,7 @@
 """H&M 원본(Kaggle CSV 또는 Parquet) → data/stock.duckdb
 
 inventory가 쓰는 articles, transactions만 올린다. customers는 쓰지 않아 올리지 않는다.
-입력은 STOCK_DATA_DIR(기본 data/) 아래 Kaggle 원본 이름 그대로 둔다. 같은 이름의 .csv가 있으면 CSV를, 없으면 .parquet를 읽는다.
+입력은 INVENTORY_DATA_DIR(기본 data/) 아래 Kaggle 원본 이름 그대로 둔다. 같은 이름의 .csv가 있으면 CSV를, 없으면 .parquet를 읽는다.
   articles.csv 또는 articles.parquet
   transactions_train.csv 또는 transactions_train.parquet
 실행: python scripts/build_db.py   (이후 build_attributes.py, build_virtual_stock.py)
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import duckdb
 
-DATA_DIR = os.getenv("STOCK_DATA_DIR", "data")
-DB_PATH = os.getenv("STOCK_DB_PATH", "data/stock.duckdb")
+DATA_DIR = os.getenv("INVENTORY_DATA_DIR", "data")
+DB_PATH = os.getenv("INVENTORY_DB_PATH", "data/stock.duckdb")
 
 
 def source(name: str) -> str:

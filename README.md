@@ -41,8 +41,8 @@ python -m pytest
 - 이미지는 Kaggle 대회 전체 압축 파일(`kaggle competitions download -c h-and-m-personalized-fashion-recommendations -p data/raw`)에서
   의류 상품 것만 꺼낸다. `--max-side 512`를 주면 긴 변 512px로 줄여 저장해 응답이 가벼워진다(Pillow 필요).
 - 생성된 DuckDB·이미지·CLIP 인덱스는 Git이나 Docker 이미지에 넣지 않는다. 배포 전 담당자가 Cloudflare R2의 private bucket에 업로드하고, DB object key·이미지 prefix·CLIP 인덱스 key·무신사 착샷 prefix를 환경 설정(`R2_DB_KEY`, `R2_IMAGE_PREFIX`, `R2_CLIP_INDEX_KEY`, `R2_SNAP_IMAGE_PREFIX`)에 등록한다. 무신사 착샷은 `scripts/extract_snap_images.py`로 HF parquet에서 꺼내 `scripts/upload_snap_images.py`(쓰기 권한 키)로 올린다.
-- `build_clip_index.py`는 `.env`를 읽어 DB(`STOCK_DB_PATH`, 없으면 R2 DB 캐시)와 R2 상품 사진으로 의류 재고 79,178개 중 사진이나 소재·디테일이 있는 79,174개의 임베딩을 계산한다(`--image-dir`를 주면 로컬 사진). 사진은 내려받아 메모리에서만 쓰고 저장하지 않는다. 규칙은 아래 'API › 요청'의 CLIP 유사도 필터와 같고, 파일에 규칙 이름(`rule`)이 기록된다.
-- 로컬 빌드·검증 스크립트는 `STOCK_DB_PATH`(기본 `data/stock.duckdb`)와 `STOCK_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `STOCK_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절). local-file 모드와 `scripts/run_agent.py`는 R2 착샷 저장소를 쓰지 않으므로 착샷 기준 이미지는 소재·디테일 텍스트만으로 CLIP을 건다(`search.clip.image_skip: no_snap_store`).
+- `build_clip_index.py`는 `.env`를 읽어 DB(`INVENTORY_DB_PATH`, 없으면 R2 DB 캐시)와 R2 상품 사진으로 의류 재고 79,178개 중 사진이나 소재·디테일이 있는 79,174개의 임베딩을 계산한다(`--image-dir`를 주면 로컬 사진). 사진은 내려받아 메모리에서만 쓰고 저장하지 않는다. 규칙은 아래 'API › 요청'의 CLIP 유사도 필터와 같고, 파일에 규칙 이름(`rule`)이 기록된다.
+- 로컬 빌드·검증 스크립트는 `INVENTORY_DB_PATH`(기본 `data/stock.duckdb`)와 `INVENTORY_IMAGE_DIR`(기본 `data/images`)를 사용한다. API도 `INVENTORY_DB_PATH`가 설정되면 R2 대신 그 파일을 read-only로 연다(local-file 모드, 아래 2절). local-file 모드와 `scripts/run_agent.py`는 R2 착샷 저장소를 쓰지 않으므로 착샷 기준 이미지는 소재·디테일 텍스트만으로 CLIP을 건다(`search.clip.image_skip: no_snap_store`).
 
 ## 2. 환경 설정
 
@@ -57,22 +57,22 @@ python -m pytest
 | `R2_IMAGE_PREFIX` | 없음 | 이미지 object key prefix. 비우면 로컬 이미지 디렉터리를 사용 |
 | `R2_ACCESS_KEY_ID` | 없음 | R2 읽기 전용 API token의 access key ID |
 | `R2_SECRET_ACCESS_KEY` | 없음 | R2 읽기 전용 API token의 secret access key |
-| `STOCK_CACHE_DIR` | OS 임시 폴더의 `inventory` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
-| `STOCK_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
-| `STOCK_IMAGE_CACHE_DIR` | `$STOCK_CACHE_DIR/images` | R2에서 받은 상품 이미지 캐시. 쓸 수 없으면(read-only mount 등) 캐시 없이 사진을 응답에 넣고 trend 결과 limitations에 적는다(500이 아님) |
-| `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
-| `VOGUE_AGENT_SERVICE_BEARER_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 secret store에서 같은 값 사용 |
-| `R2_CLIP_INDEX_KEY` | 없음 | 재고 CLIP 인덱스(`scripts/build_clip_index.py`로 만든 npz)의 R2 object key. `--prepare-cache`가 DB와 함께 `STOCK_CACHE_DIR/clip-index-<sha256>.npz`로 받는다 |
+| `INVENTORY_CACHE_DIR` | OS 임시 폴더의 `inventory` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
+| `INVENTORY_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
+| `INVENTORY_IMAGE_CACHE_DIR` | `$INVENTORY_CACHE_DIR/images` | R2에서 받은 상품 이미지 캐시. 쓸 수 없으면(read-only mount 등) 캐시 없이 사진을 응답에 넣고 trend 결과 limitations에 적는다(500이 아님) |
+| `INVENTORY_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `INVENTORY_IMAGE_DIR` |
+| `FASHION_PLANNER_SERVICE_TOKEN` | 없음 | 두 inventory route의 공통 Bearer token. Project_08의 `FASHION_PLANNER_SERVICE_TOKEN`과 secret store에서 같은 값 사용 |
+| `R2_CLIP_INDEX_KEY` | 없음 | 재고 CLIP 인덱스(`scripts/build_clip_index.py`로 만든 npz)의 R2 object key. `--prepare-cache`가 DB와 함께 `INVENTORY_CACHE_DIR/clip-index-<sha256>.npz`로 받는다 |
 | `R2_SNAP_IMAGE_PREFIX` | 없음 | 무신사 스냅 착샷 JPEG의 R2 prefix(예: `musinsa-snap`). 02 착샷의 `image_ref`(`hf://datasets/disl/musinsa-snap-new@<revision>#row=<n>`)를 `<prefix>/<revision>/<n>.jpg`로 읽는다. 없거나 객체가 없으면(다른 revision 등) 착샷은 소재·디테일 텍스트만으로 CLIP을 건다 |
-| `STOCK_CLIP_INDEX_PATH` | 없음 | 설정하면 R2 대신 이 인덱스 파일을 쓴다. 둘 다 없으면 `data/clip_index.npz`. 인덱스가 없거나 규칙(`rule`)이 다르면 서버는 뜨고 CLIP 필터만 건너뛴다(`search.clip.skip_reason: no_index`) |
-| `STOCK_HANDOFF_TIMEOUT_SECONDS` | `60` | 두 inventory route의 전체 HTTP 처리 제한 시간(초, 0 초과 600 이하). 넘으면 504 `TIMEOUT` |
+| `INVENTORY_CLIP_INDEX_PATH` | 없음 | 설정하면 R2 대신 이 인덱스 파일을 쓴다. 둘 다 없으면 `data/clip_index.npz`. 인덱스가 없거나 규칙(`rule`)이 다르면 서버는 뜨고 CLIP 필터만 건너뛴다(`search.clip.skip_reason: no_index`) |
+| `INVENTORY_HANDOFF_TIMEOUT_SECONDS` | `60` | 두 inventory route의 전체 HTTP 처리 제한 시간(초, 0 초과 600 이하). 넘으면 504 `TIMEOUT` |
 
 - R2 SDK region 값은 `auto`입니다. 접속은 S3 호환 API와 계정 endpoint를 사용합니다. jurisdiction bucket은 `R2_ENDPOINT`에 해당 공식 endpoint를 지정해야 합니다.
 - R2 키는 해당 bucket의 `Object Read only` 권한만 부여하고, `R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`는 배포 secret store에 둡니다. `.env`는 로컬 개발 전용이며 커밋하지 않습니다.
-- API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m fashion_planner_inventory.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `STOCK_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
+- API는 시작 시 R2 HEAD의 ETag/version과 기존 cache의 size/SHA-256 sidecar를 확인합니다. DB 다운로드는 자동 실행하지 않습니다. cache 준비는 별도 데이터 작업 `python -m fashion_planner_inventory.server --prepare-cache`입니다: 같은 R2 설정으로 객체 버전마다 한 번 내려받아 `INVENTORY_CACHE_DIR/stock-<sha256(bucket/key/version)>.duckdb`와 `.sha256` sidecar를 쓰고, read-only로 열어 readiness를 검사한 뒤 DuckDB 라이브러리 버전과 파일 storage version을 JSON 한 줄로 출력합니다(비밀·bucket·key는 출력하지 않음). 준비되지 않으면 exit 1.
 - 확인된 이미지 key 구조는 `<R2_IMAGE_PREFIX>/<article_id 앞 3자리>/<article_id>.jpg`입니다. 예: `images/099/0999991001.jpg`. `/health`의 `images_configured`는 prefix/폴더 설정 여부를 나타내고 개별 object는 요청 중 확인합니다.
-- `STOCK_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
-- 두 inventory route의 HTTP deadline은 기본 60초이고(`STOCK_HANDOFF_TIMEOUT_SECONDS`), 통합 배포는 180초로 둡니다. Project_08은 Stock 응답을 210초까지 기다립니다. 트렌드는 순서대로 처리하고, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 읽기(상품 이미지 URL 5초, 착샷은 R2)·CLIP 임베딩 계산이 더해집니다. 초과 요청은 504로 응답하지만 이미 시작한 동기 DB 조회·이미지 내려받기의 강제 취소는 보장하지 않습니다.
+- `INVENTORY_DB_PATH`가 설정되면 API는 local-file 모드로 시작해 R2 DB 설정·HEAD를 쓰지 않습니다(stub 프로필·오프라인 점검용). schema·snapshot readiness 검사는 같습니다.
+- 두 inventory route의 HTTP deadline은 기본 60초이고(`INVENTORY_HANDOFF_TIMEOUT_SECONDS`), 통합 배포는 180초로 둡니다. Project_08은 Stock 응답을 210초까지 기다립니다. 트렌드는 순서대로 처리하고, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 읽기(상품 이미지 URL 5초, 착샷은 R2)·CLIP 임베딩 계산이 더해집니다. 초과 요청은 504로 응답하지만 이미 시작한 동기 DB 조회·이미지 내려받기의 강제 취소는 보장하지 않습니다.
 - 서버는 시작할 때 CLIP 인덱스를 읽고(내려받지 않음: R2 인덱스는 `--prepare-cache`로 준비), 인덱스가 있으면 CLIP 모델도 미리 불러온다(첫 요청이 느리지 않게). `/health`의 `clip_index_loaded`·`clip_n_indexed`로 상태를 본다. CLIP 모델 가중치는 처음 불러올 때 내려받으므로 컨테이너가 인터넷에 나갈 수 있거나 `HOME`(`/tmp`) 아래 캐시가 준비되어 있어야 한다.
 
 ## 3. 로컬 실행
@@ -87,16 +87,16 @@ python -m fashion_planner_inventory.server                                 # HTT
 
 ```powershell
 docker build -t inventory:v1 .
-docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" inventory:v1 python -m fashion_planner_inventory.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
-docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images inventory:v1
+docker run --rm --env-file .env -v "$INVENTORY_CACHE_DIR:/cache" inventory:v1 python -m fashion_planner_inventory.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
+docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$INVENTORY_CACHE_DIR:/cache:ro" -e INVENTORY_IMAGE_CACHE_DIR=/tmp/stock-images inventory:v1
 ```
 
-- CLIP 인덱스는 `R2_CLIP_INDEX_KEY`가 있으면 `--prepare-cache`가 `/cache`에 받아 두고 서버가 그 파일을 읽는다(로컬 파일은 `STOCK_CLIP_INDEX_PATH`로 붙임). 없으면 서버는 뜨고 CLIP 필터만 건너뛴다(`/health`의 `clip_index_loaded: false`). 인덱스가 있으면 시작할 때 CLIP 모델 가중치를 `HOME`(`/tmp`) 아래로 내려받아 불러오므로 시간이 걸린다(healthcheck start-period 60초).
+- CLIP 인덱스는 `R2_CLIP_INDEX_KEY`가 있으면 `--prepare-cache`가 `/cache`에 받아 두고 서버가 그 파일을 읽는다(로컬 파일은 `INVENTORY_CLIP_INDEX_PATH`로 붙임). 없으면 서버는 뜨고 CLIP 필터만 건너뛴다(`/health`의 `clip_index_loaded: false`). 인덱스가 있으면 시작할 때 CLIP 모델 가중치를 `HOME`(`/tmp`) 아래로 내려받아 불러오므로 시간이 걸린다(healthcheck start-period 60초).
 
-- 이미지는 uid/gid 10001, `HOME=/tmp`, `STOCK_CACHE_DIR=/cache`로 실행되고 `/app`에 쓰지 않는다. read-only root filesystem에서는 `/tmp` tmpfs와 `/cache`(volume 또는 tmpfs)만 쓰기 가능하게 둔다. `/cache`를 read-only로 붙이면 R2 이미지 캐시는 `STOCK_IMAGE_CACHE_DIR`(예: `/tmp/stock-images`)로 옮긴다. `--prepare-cache`로 host 폴더를 채울 때 Linux host에서는 그 폴더를 uid 10001이 쓸 수 있어야 한다.
+- 이미지는 uid/gid 10001, `HOME=/tmp`, `INVENTORY_CACHE_DIR=/cache`로 실행되고 `/app`에 쓰지 않는다. read-only root filesystem에서는 `/tmp` tmpfs와 `/cache`(volume 또는 tmpfs)만 쓰기 가능하게 둔다. `/cache`를 read-only로 붙이면 R2 이미지 캐시는 `INVENTORY_IMAGE_CACHE_DIR`(예: `/tmp/stock-images`)로 옮긴다. `--prepare-cache`로 host 폴더를 채울 때 Linux host에서는 그 폴더를 uid 10001이 쓸 수 있어야 한다.
 - `HEALTHCHECK`는 `python -m fashion_planner_inventory.server --check-ready`(`GET /health/ready`, 외부 호출 없음)라서 DB가 준비되어야 healthy가 된다. liveness는 `GET /health/live`.
 
-- 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `STOCK_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m fashion_planner_inventory.server --prepare-cache`를 실행해 준비합니다.
+- 시작 시 R2 HEAD와 기존 cache의 size/SHA-256 sidecar만 검사하고 DuckDB read-only 연결을 엽니다. DB 다운로드는 자동 실행하지 않습니다. cache가 없거나 sidecar 검증·schema·sample snapshot 검사가 실패하면 `/health/ready`는 503입니다. 기존 cache 경로를 `INVENTORY_CACHE_DIR`로 지정하며 cache 파일은 같은 이미지로 `python -m fashion_planner_inventory.server --prepare-cache`를 실행해 준비합니다.
 - `--env-file .env`로 런타임 설정을 전달합니다. 이미지 안에는 `.env`, DB, 이미지가 들어가지 않습니다.
 - 확인: 브라우저에서 http://localhost:8002/health 또는 http://localhost:8002/docs
   (`/docs`에서 POST → Try it out → Examples에서 예시 요청을 골라 Execute)
@@ -105,7 +105,7 @@ docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp 
 
 ```powershell
 Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post `
-  -Headers @{ Authorization = "Bearer $env:VOGUE_AGENT_SERVICE_BEARER_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:FASHION_PLANNER_SERVICE_TOKEN" } `
   -ContentType "application/json; charset=utf-8" -InFile examples/request-example.json |
   ConvertTo-Json -Depth 10
 ```
@@ -116,7 +116,7 @@ Invoke-RestMethod -Uri http://localhost:8002/v1/inventory-products -Method Post 
 
 ```bash
 python scripts/build_fixture_db.py /tmp/stock-fixture.duckdb   # 이미지 안에서는 python -m fashion_planner_inventory.fixture_db <out.duckdb>
-STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token> \
+INVENTORY_DB_PATH=/tmp/stock-fixture.duckdb FASHION_PLANNER_SERVICE_TOKEN=<token> \
   python -m fashion_planner_inventory.server
 ```
 
@@ -134,9 +134,9 @@ STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token>
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
 | POST | `/v1/agents/inventory/runs` | Project_08 `inventory-handoff`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
 
-두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
+두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `FASHION_PLANNER_SERVICE_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `FASHION_PLANNER_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
 
-Stock route는 기본 60초 전체 deadline을 적용합니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 180초이고 Project_08은 Stock 응답을 210초까지 기다립니다). 시간을 넘기면 HTTP는 504 envelope(`reason: timeout`)를 반환하지만, Python 동기 처리를 강제로 멈추지 못하므로 이미 시작한 DB 조회·기준 이미지 내려받기는 서버 쪽에서 끝까지 실행될 수 있습니다.
+Stock route는 기본 60초 전체 deadline을 적용합니다(`INVENTORY_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 180초이고 Project_08은 Stock 응답을 210초까지 기다립니다). 시간을 넘기면 HTTP는 504 envelope(`reason: timeout`)를 반환하지만, Python 동기 처리를 강제로 멈추지 못하므로 이미 시작한 DB 조회·기준 이미지 내려받기는 서버 쪽에서 끝까지 실행될 수 있습니다.
 
 HTTP envelope `inventory-handoff`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health/live`는 API 생존만 확인합니다. `/health/ready`와 호환 별칭 `/health`는 DB schema/column type·nonempty tables·sample/as_of/version·필수 수치 검사가 통과해야 200입니다. DB 미준비는 503입니다. 이미지 누락은 상태 필드로만 보고합니다. CLIP 인덱스 상태(`clip_index_loaded`)는 표시만 하고 200/503 판정에는 쓰지 않습니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
 

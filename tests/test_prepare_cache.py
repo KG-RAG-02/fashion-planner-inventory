@@ -32,10 +32,10 @@ def r2_env(monkeypatch, tmp_path):
     for name, value in {"R2_ACCOUNT_ID": "synthetic-account", "R2_BUCKET": "synthetic-bucket",
                         "R2_DB_KEY": "db/stock.duckdb", "R2_ACCESS_KEY_ID": "synthetic-access-key-id",
                         "R2_SECRET_ACCESS_KEY": "synthetic-secret-access-key",
-                        "STOCK_CACHE_DIR": str(tmp_path / "cache")}.items():
+                        "INVENTORY_CACHE_DIR": str(tmp_path / "cache")}.items():
         monkeypatch.setenv(name, value)
-    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "STOCK_DB_PATH",
-                 "STOCK_CLIP_INDEX_PATH"):
+    for name in ("R2_ENDPOINT", "R2_IMAGE_PREFIX", "R2_CLIP_INDEX_KEY", "R2_SNAP_IMAGE_PREFIX", "INVENTORY_DB_PATH",
+                 "INVENTORY_CLIP_INDEX_PATH"):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -91,7 +91,7 @@ def test_prepare_cache_without_r2_settings_fails_before_any_client(monkeypatch, 
     for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
                  "Access Key ID", "Secret Access Key"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("STOCK_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("INVENTORY_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setattr(storage, "_client", lambda settings: pytest.fail("must not build an R2 client"))
     code, report, _ = _run(capsys)
     assert code == 1 and report["reason"] == "StorageConfigurationError" and report["status"] == "error"

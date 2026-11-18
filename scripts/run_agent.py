@@ -8,7 +8,7 @@
   python scripts/run_agent.py --request examples/request-trends-example.json   # 트렌드 여러 개
   python scripts/run_agent.py --out data/resp.json     # 응답을 파일로도 저장
 
-DB는 STOCK_DB_PATH(기본 data/stock.duckdb). 착샷 CLIP 필터는 STOCK_CLIP_INDEX_PATH(기본 data/clip_index.npz)가
+DB는 INVENTORY_DB_PATH(기본 data/stock.duckdb). 착샷 CLIP 필터는 INVENTORY_CLIP_INDEX_PATH(기본 data/clip_index.npz)가
 있을 때 걸리고, 없으면 search.clip.skip_reason=no_index로 기록된다.
 """
 
@@ -31,7 +31,7 @@ ap.add_argument("--out")
 args = ap.parse_args()
 
 req = json.loads(Path(args.request).read_text(encoding="utf-8")) if args.request else EXAMPLE
-con = duckdb.connect(os.environ.get("STOCK_DB_PATH", "data/stock.duckdb"), read_only=True)
+con = duckdb.connect(os.environ.get("INVENTORY_DB_PATH", "data/stock.duckdb"), read_only=True)
 resp = run_request(req, con)   # 트렌드마다 상품 1개
 con.close()
 

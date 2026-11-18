@@ -17,8 +17,8 @@ REQ = build_trend_result("req_api", [BALLET], include=["상의"], gender="여") 
 
 @pytest.fixture
 def make_client(con, tmp_path, monkeypatch):
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
-    monkeypatch.delenv("STOCK_DB_PATH", raising=False)   # R2 mode (STOCK_DB_PATH would select local-file)
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", "test-stock-token")
+    monkeypatch.delenv("INVENTORY_DB_PATH", raising=False)   # R2 mode (INVENTORY_DB_PATH would select local-file)
     # conftest의 작은 DB를 파일로 저장해 API가 read_only로 열게 한다
     db = tmp_path / "t.duckdb"
     con.execute(f"ATTACH '{db.as_posix()}' AS f")
@@ -62,7 +62,7 @@ def test_health_reports_clip_index(make_client, monkeypatch):
 
 
 def test_clip_index_path_order(monkeypatch, tmp_path):
-    """STOCK_CLIP_INDEX_PATH → R2 캐시(R2_CLIP_INDEX_KEY, 서버는 받지 않음) → 기본 data/clip_index.npz."""
+    """INVENTORY_CLIP_INDEX_PATH → R2 캐시(R2_CLIP_INDEX_KEY, 서버는 받지 않음) → 기본 data/clip_index.npz."""
     import fashion_planner_inventory.api as api
     import fashion_planner_inventory.clip_matcher as clip
     from fashion_planner_inventory.storage import StorageUnavailable
@@ -78,9 +78,9 @@ def test_clip_index_path_order(monkeypatch, tmp_path):
                 raise StorageUnavailable("no cache")
             return self.cached, "v1"
 
-    monkeypatch.setenv("STOCK_CLIP_INDEX_PATH", str(tmp_path / "x.npz"))
+    monkeypatch.setenv("INVENTORY_CLIP_INDEX_PATH", str(tmp_path / "x.npz"))
     assert api.clip_index_path() == str(tmp_path / "x.npz")
-    monkeypatch.delenv("STOCK_CLIP_INDEX_PATH")
+    monkeypatch.delenv("INVENTORY_CLIP_INDEX_PATH")
     monkeypatch.setitem(api.state, "object_store", Store("clip/i.npz", tmp_path / "cached.npz"))
     assert api.clip_index_path() == tmp_path / "cached.npz" and api.state["object_store"].calls == [False]
     monkeypatch.setitem(api.state, "object_store", Store("clip/i.npz", None))
@@ -187,7 +187,7 @@ def test_trend_result_request(client):
 
 
 def test_db_missing_is_503(tmp_path, monkeypatch):
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", "test-stock-token")
     import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "prepare_database", lambda: (str(tmp_path / "missing.duckdb"), "test-version", None))
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
@@ -200,7 +200,7 @@ def test_db_missing_is_503(tmp_path, monkeypatch):
 def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypatch):
     import fashion_planner_inventory.api as api
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
-    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "STOCK_DB_PATH"):
+    for name in ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_DB_KEY", "INVENTORY_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
     with TestClient(api.app, headers={"Authorization": "Bearer test-stock-token"}) as c:
         response = c.get("/health")
@@ -213,7 +213,7 @@ def test_missing_r2_location_is_unhealthy_without_exposing_credentials(monkeypat
 
 @pytest.fixture
 def handoff_client(make_client, monkeypatch):
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", "test-stock-token")
     with make_client() as c:
         yield c
 
@@ -373,9 +373,9 @@ def test_handoff_deadline_is_configurable(monkeypatch):
              "0": 60.0, "-5": 60.0, "601": 60.0, "abc": 60.0}
     for raw, expected in cases.items():
         if raw is None:
-            monkeypatch.delenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raising=False)
+            monkeypatch.delenv("INVENTORY_HANDOFF_TIMEOUT_SECONDS", raising=False)
         else:
-            monkeypatch.setenv("STOCK_HANDOFF_TIMEOUT_SECONDS", raw)
+            monkeypatch.setenv("INVENTORY_HANDOFF_TIMEOUT_SECONDS", raw)
         assert api.handoff_timeout_seconds() == expected, raw
 
 
@@ -428,7 +428,7 @@ def test_ambiguous_json_rejected(handoff_client, raw):
 
 def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypatch):
     import fashion_planner_inventory.api as api
-    monkeypatch.setenv("VOGUE_AGENT_SERVICE_BEARER_TOKEN", "test-stock-token")
+    monkeypatch.setenv("FASHION_PLANNER_SERVICE_TOKEN", "test-stock-token")
     def unavailable():
         raise RuntimeError("fixture DB unavailable")
     monkeypatch.setattr(api, "prepare_database", unavailable)

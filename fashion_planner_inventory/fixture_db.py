@@ -1,4 +1,4 @@
-"""결정적 합성 fixture DuckDB — 테스트와 오프라인 stub 프로필(`STOCK_DB_PATH`)이 같이 쓴다. H&M 원본 데이터가 아니다.
+"""결정적 합성 fixture DuckDB — 테스트와 오프라인 stub 프로필(`INVENTORY_DB_PATH`)이 같이 쓴다. H&M 원본 데이터가 아니다.
 
 - create_base_tables(con): tests/conftest.py가 써 온 작은 표(a1~a6) 그대로.
 - add_stub_rows(con): trend stub 결과(examples/stub/inventory-request.json의 input: 발레코어, 2027 SS,

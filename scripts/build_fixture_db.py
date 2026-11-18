@@ -1,4 +1,4 @@
-"""결정적 합성 fixture DuckDB를 만든다 — stub 프로필의 STOCK_DB_PATH (H&M 원본이 아닌 합성 데이터).
+"""결정적 합성 fixture DuckDB를 만든다 — stub 프로필의 INVENTORY_DB_PATH (H&M 원본이 아닌 합성 데이터).
 
 실행: python scripts/build_fixture_db.py <out.duckdb> [--force] [--storage-version v1.0.0]
       컨테이너 안: python -m fashion_planner_inventory.fixture_db <out.duckdb>
@@ -6,7 +6,7 @@
   (examples/stub/inventory-request.json의 input, 발레코어·상의·핑크)와 맞춘 상품 3개 + 합성 표지 표 stock_fixture.
 - 출력: 경로, 표별 행 수, 내용 해시(content_sha256: 같은 코드면 같은 값), readiness, DuckDB·storage version.
 - 있는 파일은 --force 없이 덮어쓰지 않는다 (exit 2). readiness가 준비되지 않으면 exit 1.
-사용: STOCK_DB_PATH=<out.duckdb> python -m fashion_planner_inventory.server
+사용: INVENTORY_DB_PATH=<out.duckdb> python -m fashion_planner_inventory.server
 """
 from __future__ import annotations
 

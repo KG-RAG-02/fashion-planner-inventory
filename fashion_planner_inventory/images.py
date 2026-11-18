@@ -4,7 +4,7 @@ Kaggle H&M 데이터의 images 폴더 구조를 그대로 쓴다:
     <image_dir>/<article_id 앞 3자리>/<article_id>.jpg   예: data/images/099/0999990001.jpg
 
 이미지는 데이터라서 Git·도커 이미지에 넣지 않는다. 실행할 때 data/를 연결한다.
-폴더 위치는 환경변수 STOCK_IMAGE_DIR (기본 data/images).
+폴더 위치는 환경변수 INVENTORY_IMAGE_DIR (기본 data/images).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import base64
 import os
 from pathlib import Path
 
-DEFAULT_IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", "data/images")
+DEFAULT_IMAGE_DIR = os.environ.get("INVENTORY_IMAGE_DIR", "data/images")
 
 
 def image_path(image_dir: str | Path, article_id: str) -> Path:

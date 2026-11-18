@@ -4,7 +4,7 @@
   python -m fashion_planner_inventory.server --check-ready      exit 0 when GET /health/ready answers 200
   python -m fashion_planner_inventory.server --prepare-cache    data job: download the configured R2 DB (and the CLIP
                                                   index when R2_CLIP_INDEX_KEY is set) into
-                                                  STOCK_CACHE_DIR (checksummed), inspect it, report
+                                                  INVENTORY_CACHE_DIR (checksummed), inspect it, report
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def prepare_cache() -> int:
 
     The API never downloads at startup; this is the separate data job that fills its cache.
     Writes ``stock-<sha256(bucket/key/version)>.duckdb`` plus the ``.sha256`` sidecar into
-    ``STOCK_CACHE_DIR`` (an already verified version is reused), prints one JSON report
+    ``INVENTORY_CACHE_DIR`` (an already verified version is reused), prints one JSON report
     (DuckDB library version, the file's storage version, readiness) without credentials,
     endpoint, bucket or key, and returns 0 only when the database is ready.
     With ``R2_CLIP_INDEX_KEY`` it also caches ``clip-index-<sha256>.npz`` and reports ``clip_index``
@@ -47,8 +47,8 @@ def prepare_cache() -> int:
         path, version = store.prepare_database(allow_download=True)
     except (StorageConfigurationError, StorageUnavailable) as exc:
         return _report({**report, "reason": type(exc).__name__, "message": str(exc)}, 1)
-    except OSError as exc:   # STOCK_CACHE_DIR cannot be created
-        return _report({**report, "reason": type(exc).__name__, "message": "STOCK_CACHE_DIR를 만들거나 쓸 수 없습니다"}, 1)
+    except OSError as exc:   # INVENTORY_CACHE_DIR cannot be created
+        return _report({**report, "reason": type(exc).__name__, "message": "INVENTORY_CACHE_DIR를 만들거나 쓸 수 없습니다"}, 1)
     report.update(db_version=version, cache_path=str(path), size_bytes=path.stat().st_size,
                   sha256=store.database_metadata.get("sha256"), sha256_sidecar=path.with_suffix(".sha256").is_file())
     try:

@@ -11,7 +11,7 @@
 기준 쪽과 인덱스 쪽(scripts/build_clip_index.py)이 이 모듈의 to_gray·fuse와 clip_vocab.clip_text를 같이 쓴다.
 인덱스 파일에는 규칙 이름(INDEX_RULE)이 들어 있고, 다르면 인덱스를 쓰지 않는다(no_index).
 
-후보 임베딩: 미리 계산한 인덱스(npz). 경로는 configure()로 정한다 — STOCK_CLIP_INDEX_PATH,
+후보 임베딩: 미리 계산한 인덱스(npz). 경로는 configure()로 정한다 — INVENTORY_CLIP_INDEX_PATH,
     없으면 R2_CLIP_INDEX_KEY를 사전 준비(--prepare-cache)로 받아 둔 캐시 파일 (api.lifespan), 기본 data/clip_index.npz.
 남기는 규칙(색별 상위 KEEP_RATIO=10%): 후보를 재고 색(kf_color)별로 나눠, 각 색 안에서 유사도 상위 10%(올림, 색마다 최소 1개)를 남긴다.
     유사도 수준은 기준 이미지마다 달라(H&M 사진 기준 중앙값 0.81~0.86) 고정 기준값은 쓰지 않는다.
@@ -58,7 +58,7 @@ KEEP_RULE = "per_color_top"
 COLOR_COL = "kf_color"
 
 DEFAULT_INDEX_PATH = Path(__file__).parent.parent / "data" / "clip_index.npz"
-_index_path: Optional[Path] = Path(os.environ.get("STOCK_CLIP_INDEX_PATH", "") or DEFAULT_INDEX_PATH)
+_index_path: Optional[Path] = Path(os.environ.get("INVENTORY_CLIP_INDEX_PATH", "") or DEFAULT_INDEX_PATH)
 
 
 def configure(path) -> Optional[Path]:
