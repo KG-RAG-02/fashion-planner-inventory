@@ -1,22 +1,22 @@
-# stock-agent producer payload 계약 (1.0) 및 HTTP handoff (v0.1)
+# inventory producer payload 계약 (1.0) 및 HTTP handoff (v0.1)
 
-03 상품 재고 에이전트(`stock-agent`)의 producer 입력·결과 payload 형식은 이 레포 소유 버전 `1.0`입니다. `vogue-handoff/0.1`은 project_08 호출 경계의 공통 HTTP envelope 버전이며 payload `schema_version`과 별개입니다.
+03 상품 재고 에이전트(`inventory`)의 producer 입력·결과 payload 형식은 이 레포 소유 버전 `1.0`입니다. `vogue-handoff/0.1`은 project_08 호출 경계의 공통 HTTP envelope 버전이며 payload `schema_version`과 별개입니다.
 
 | 파일 | 내용 |
 |---|---|
 | `VERSION` | 응답 `schema_version` (`1.0`) |
-| `schemas/stock-agent-request.schema.json` | producer input (JSON Schema 2020-12). TrendAnalysisResult 그대로 |
-| `schemas/stock-agent-result.schema.json` | producer result payload 1.0 |
+| `schemas/inventory-request.schema.json` | producer input (JSON Schema 2020-12). TrendAnalysisResult 그대로 |
+| `schemas/inventory-result.schema.json` | producer result payload 1.0 |
 | `examples/` | 요청 1개, 응답 3개 (정상, 02 no_results, 시즌 없음). 레포의 `examples/`도 02 형식 요청 |
 
-레거시 `POST /v1/inventory-products`도 canonical과 동일한 Bearer 인증을 요구합니다. Project_08용 canonical 경로는 `POST /v1/agents/stock-agent/runs`이며 `Authorization: Bearer ...`를 요구하고, 요청은 `{contract_version, request_id, input}` envelope입니다. `input`은 아래 producer input 그대로이며 응답은 `{contract_version, request_id, producer, status, result}`로 감싸되 `result` 전체를 보존합니다. `/docs`와 `/openapi.json`에 두 경로를 게시하며 FastAPI 422 대신 400 오류 payload를 사용합니다. `tests/test_contracts.py`는 producer payload, API 테스트는 HTTP envelope를 검사합니다.
+레거시 `POST /v1/inventory-products`도 canonical과 동일한 Bearer 인증을 요구합니다. Project_08용 canonical 경로는 `POST /v1/agents/inventory/runs`이며 `Authorization: Bearer ...`를 요구하고, 요청은 `{contract_version, request_id, input}` envelope입니다. `input`은 아래 producer input 그대로이며 응답은 `{contract_version, request_id, producer, status, result}`로 감싸되 `result` 전체를 보존합니다. `/docs`와 `/openapi.json`에 두 경로를 게시하며 FastAPI 422 대신 400 오류 payload를 사용합니다. `tests/test_contracts.py`는 producer payload, API 테스트는 HTTP envelope를 검사합니다.
 
 ## 흐름
 
 ```
 사용자 쿼리 ──▶ 오케스트레이터 (Project_08): 쿼리 전처리 → ①②③④ 순차 blocking 호출 → 결과 통합 → 기획안 초안 UI
                  ① trend-analysis-agent (02)       ◀ 전처리된 쿼리                                  ▶ TrendResult + Evidence
-                 ② stock-agent (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
+                 ② inventory (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
                  ③ new-product-agent (05)          ◀ 전처리된 쿼리 + TrendResult + InventoryProductResult ▶ PlanningDraft
                  ④ sales-market-agent (04)         ◀ PlanningDraft                                  ▶ MarketData
 ```
@@ -67,7 +67,7 @@
 
 - `products[i]` ↔ `trend_results[i]`. 트렌드마다 상품 1개(사진 포함). 못 고르면 `null`.
 - producer result 1.0에는 `findings`와 최상위 `limitations`가 없습니다. 상품은 `products`, 트렌드별 결과·한계는 `trend_results`에 있습니다. HTTP envelope는 producer result 외부를 감싸며 필드를 이동·재구성하지 않습니다.
-- 근거는 `evidence` 한 곳에 모으고, `trend_results[i].evidence_ids`가 그 트렌드의 근거 ID를 가리킵니다. ID 형식은 `stock-agent:<style.id>:E-001`. `manifest_id`는 계산에 쓴 DB 버전(`/health`의 `db_version`)이고, 외부 이미지 근거 E-006은 `null`입니다.
+- 근거는 `evidence` 한 곳에 모으고, `trend_results[i].evidence_ids`가 그 트렌드의 근거 ID를 가리킵니다. ID 형식은 `inventory:<style.id>:E-001`. `manifest_id`는 계산에 쓴 DB 버전(`/health`의 `db_version`)이고, 외부 이미지 근거 E-006은 `null`입니다.
 - `status`: 모두 ok → `ok`, 일부만 상품 있음 → `partial`, 모두 오류 → `error`, 그 밖 → `no_results`.
 
 ## 오류 코드
@@ -86,7 +86,7 @@ HTTP 번호는 응답 `status`가 `error`일 때만 붙습니다. 트렌드 중 
 
 ## HTTP 인증·전송 및 실행 제한
 
-- canonical `/v1/agents/stock-agent/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 일치하는 `Authorization: Bearer <token>`을 요구합니다. 누락/오류는 401 `UNAUTHORIZED`; 토큰은 코드, 응답, 로그에 기록하지 않습니다. 토큰은 Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 배포 비밀 저장소에서 동일하게 주입합니다.
+- canonical `/v1/agents/inventory/runs`는 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 일치하는 `Authorization: Bearer <token>`을 요구합니다. 누락/오류는 401 `UNAUTHORIZED`; 토큰은 코드, 응답, 로그에 기록하지 않습니다. 토큰은 Project_08의 `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 배포 비밀 저장소에서 동일하게 주입합니다.
 - 두 inventory route 모두 같은 fail-closed Bearer 인증을 본문 파싱 전에 요구합니다. token 미설정/누락/오류는 401이며 유효 token의 malformed JSON은 400입니다.
 - 운영은 TLS 종료 지점에서 HTTPS를 제공하고 backend로 전달할 때 Authorization header를 보존합니다. Project_08은 operational HTTPS + bearer를 요구합니다. loopback HTTP는 개발에서만 사용하며 Project_08의 `VOGUE_AGENT_HTTP_DEV_MODE=1`와 함께 사용합니다. 이 서버는 HTTP/HTTPS scheme을 강제하지 않으므로 운영 scheme 강제는 ingress/reverse proxy 배포 설정의 책임입니다.
 - Project_08은 Stock 응답을 210초까지 기다립니다. Stock route는 전체 HTTP 처리에 기본 60초 deadline(`STOCK_HANDOFF_TIMEOUT_SECONDS`, 0 초과 600 이하, 통합 배포는 180초)을 두고, 초과하면 504 `TIMEOUT`(`reason: timeout`) envelope를 반환합니다. 트렌드는 순서대로 처리하며, 트렌드마다 DB 조회와 기준 이미지가 있으면 그 이미지 읽기(상품 이미지 URL 5초, 착샷은 R2)·CLIP 임베딩 계산이 있습니다. 트렌드가 많은 호출자는 deadline을 늘리고 자기 read timeout을 그보다 길게 둡니다. Python thread의 동기 처리는 취소가 보장되지 않아, deadline 순간 이미 실행 중인 DB 조회·이미지 내려받기는 서버 쪽에서 끝까지 실행될 수 있습니다. 현재 구현은 응답 상한만 보장합니다.

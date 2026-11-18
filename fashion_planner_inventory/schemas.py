@@ -2,7 +2,7 @@
 
 동작 규칙은 multi.run_request(trend 결과 → 내부 형식)·agent.run이 정한다. 요청 본문은 envelope만 검사하고
 input(trend 결과)은 그대로 넘긴다(빠진 값·잘못된 값은 run이 400으로 알려 줌). 응답 모델은 설명서에만 쓴다.
-input의 필드 설명은 contracts/schemas/stock-agent-request.schema.json에 있다.
+input의 필드 설명은 contracts/schemas/inventory-request.schema.json에 있다.
 """
 
 from __future__ import annotations
@@ -167,13 +167,13 @@ class InventoryResponse(BaseModel):
     """inventory 응답. products[i] ↔ trend_results[i]. 공통 envelope의 findings·최상위 limitations는 쓰지 않음"""
     schema_version: str
     request_id: Optional[str]
-    agent_id: str = "stock-agent"
+    agent_id: str = "inventory"
     status: Literal["ok", "partial", "no_results", "error"]
     summary: str
     products: list[Optional[Product]] = Field(description="트렌드 순서대로 n개. 상품을 못 고른 트렌드는 null. 중복 허용")
     trend_results: list[TrendResult] = Field(description="트렌드 순서대로 n개")
     season_basis: Optional[dict[str, Any]] = Field(None, description="대신 쓴 과거 시즌 기간과 시즌 출처")
-    evidence: list[dict[str, Any]] = Field(description="트렌드마다 데이터 출처. evidence_id = stock-agent:<style.id>:E-001, style_id")
+    evidence: list[dict[str, Any]] = Field(description="트렌드마다 데이터 출처. evidence_id = inventory:<style.id>:E-001, style_id")
     errors: list[Error] = Field(description="공통 입력 오류. 트렌드별 오류는 trend_results[].errors")
     input_provenance: Optional[dict[str, Any]] = Field(
         None, description="Trend source version and the explicit Stock input-adapter provenance"
@@ -184,7 +184,7 @@ class ErrorResponse(BaseModel):
     """오류 응답 (같은 envelope)"""
     schema_version: str
     request_id: Optional[str]
-    agent_id: str = "stock-agent"
+    agent_id: str = "inventory"
     status: Literal["error"]
     summary: str
     products: list[Any] = []
@@ -194,7 +194,7 @@ class ErrorResponse(BaseModel):
 
 
 class HandoffProducer(BaseModel):
-    agent_id: str = "stock-agent"
+    agent_id: str = "inventory"
     schema_version: str = Field(description="Stock producer result schema version; currently 1.0")
 
 

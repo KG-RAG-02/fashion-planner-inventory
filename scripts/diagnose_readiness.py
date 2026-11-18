@@ -1,6 +1,6 @@
 """Safe read-only diagnosis; no dotenv loading, DB download, build or upload.
 
-Run from stock-agent: python scripts/diagnose_readiness.py
+Run from inventory: python scripts/diagnose_readiness.py
 Only key presence, aggregate metadata and failure classes are printed.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ def main():
               "r2": {"configured": False, "reachable": None, "authenticated": None},
               "database": {"data_verified": False, "as_of": None, "synthetic": None},
               "downloads": 0, "uploads": 0, "db_writes": 0}
-    cache = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "stock-agent"))
+    cache = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "inventory"))
     result["existing_cache_files"] = len(list(cache.glob("stock-*.duckdb"))) if cache.is_dir() else 0
     try:
         settings = R2Settings.from_env()

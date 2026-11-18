@@ -179,7 +179,7 @@ def test_run_ok(con):
     assert tr["search"]["trend_colors"] == ["라이트핑크", "화이트"] and tr["search"]["color_overlap"] == 2
     assert tr["summary"].startswith("2027 SS(봄·여름) 상의 기획용 짝 카테고리(") and "재고 금액" in tr["summary"]
     assert any("sample" in x for x in tr["limitations"])
-    assert [e["evidence_id"] for e in resp["evidence"]][:4] == [f"stock-agent:E-00{i}" for i in range(1, 5)]
+    assert [e["evidence_id"] for e in resp["evidence"]][:4] == [f"inventory:E-00{i}" for i in range(1, 5)]
     assert validate_output(resp) == []
 
 
@@ -424,7 +424,7 @@ def test_snap_applies_clip_and_records_it(con):
     assert o["score"] == 0.8                                                    # 상품 이미지(0.95)보다 착샷 우선
     assert any("소재·질감·디테일 유사도(CLIP, 흑백 이미지 + 소재·디테일, 색 제외)로 재고 색마다 유사도 상위 10%를 남겨 후보 2개 중 1개를 남겼습니다" in x
                for x in tr["limitations"])
-    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["stock-agent:E-006"]
+    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["inventory:E-006"]
     assert e6["locator"] == SNAP["image_url"] and e6["source_id"] == "musinsa_snap"
     assert e6["source_type"] == "external_outfit_image" and e6["source_name"].startswith("무신사 스냅 착샷")
     assert validate_output(resp) == []
@@ -447,7 +447,7 @@ def test_catalog_image_used_when_no_snap(con):
     assert o["status"] == "used" and o["kind"] == "catalog_item" and o["product_id"] == "otpensource:9"
     assert any(x.startswith("무신사 상품 이미지(otpensource:9, 트렌드 아이템 블라우스)와 ") for x in tr["limitations"])
     assert any("무신사 스냅 착샷이 없어 트렌드 아이템의 무신사 상품 이미지를 기준으로" in x for x in tr["limitations"])
-    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["stock-agent:E-006"]
+    e6 = {e["evidence_id"]: e for e in resp["evidence"]}["inventory:E-006"]
     assert e6["source_type"] == "external_product_image" and e6["source_name"].startswith("무신사 상품 이미지")
     assert validate_output(resp) == []
 
@@ -459,7 +459,7 @@ def test_no_reference_skips_clip(con):
     s = resp["trend_result"]["search"]
     assert resp["status"] == "ok" and clip.calls == [] and s["clip"] is None
     assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == "no_reference"
-    assert "stock-agent:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
+    assert "inventory:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
     assert any("무신사 착샷·상품 이미지가 없어" in x for x in resp["trend_result"]["limitations"])
 
 
@@ -470,7 +470,7 @@ def test_clip_skipped_is_recorded_honestly(con, why, note):
     s = resp["trend_result"]["search"]
     assert resp["status"] == "ok" and s["clip"]["applied"] is False and s["clip"]["skip_reason"] == why
     assert s["outfit_reference"]["status"] == "skipped" and s["outfit_reference"]["skip_reason"] == why
-    assert "stock-agent:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
+    assert "inventory:E-006" not in {e["evidence_id"] for e in resp["evidence"]}
     lim = resp["trend_result"]["limitations"]
     assert any(note in x for x in lim) and not any("남겼습니다" in x for x in lim)
 

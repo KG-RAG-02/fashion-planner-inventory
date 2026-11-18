@@ -12,8 +12,8 @@ jsonschema = pytest.importorskip("jsonschema")
 
 ROOT = Path(__file__).resolve().parents[1]
 C = ROOT / "contracts"
-REQ = json.loads((C / "schemas/stock-agent-request.schema.json").read_text(encoding="utf-8"))
-RES = json.loads((C / "schemas/stock-agent-result.schema.json").read_text(encoding="utf-8"))
+REQ = json.loads((C / "schemas/inventory-request.schema.json").read_text(encoding="utf-8"))
+RES = json.loads((C / "schemas/inventory-result.schema.json").read_text(encoding="utf-8"))
 
 
 def errors(schema, obj):
@@ -71,4 +71,4 @@ def test_snap_request_and_response_match_schema(con, tmp_path):
     assert errors(RES, r) == [] and r["status"] == "ok"
     s = r["trend_results"][0]["search"]
     assert s["outfit_reference"]["status"] == "used" and s["clip"]["applied"] is True
-    assert "stock-agent:style_012:E-006" in r["trend_results"][0]["evidence_ids"]
+    assert "inventory:style_012:E-006" in r["trend_results"][0]["evidence_ids"]

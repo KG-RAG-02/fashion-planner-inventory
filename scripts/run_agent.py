@@ -1,4 +1,4 @@
-"""stock-agent 요청 1건 실행 → 응답 JSON 출력
+"""inventory 요청 1건 실행 → 응답 JSON 출력
 
 요청은 trend 결과(TrendAnalysisResult) 형식이다 (examples/).
 

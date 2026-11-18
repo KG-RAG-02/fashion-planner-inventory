@@ -18,7 +18,7 @@ trend 서비스는 트렌드를 목록(trends)으로 넘긴다. 1개여도 목�
     trend_results   [trend_result, ...]   n개. trend_results[i] ↔ products[i] (product_index = i)
                     trend_results[i].evidence_ids = 그 트렌드의 근거 ID (evidence에서 찾음)
     evidence        트렌드마다 E-001~E-005(CLIP을 걸었으면 E-006). 이어 붙이면 ID가 겹쳐서 앞에 트렌드 ID를 붙임
-                    (stock-agent:style_007:E-001), 항목마다 style_id
+                    (inventory:style_007:E-001), 항목마다 style_id
     status          모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 그 밖(상품 0개) → no_results
     summary         전체 한 줄 (트렌드별 문장은 trend_results[].summary)
     errors          공통 입력 오류, 또는 모든 트렌드가 오류일 때 한 줄 (트렌드별 오류는 trend_results[].errors)

@@ -69,8 +69,8 @@ from fashion_planner_inventory.synthetic import VERSION as STOCK_VERSION
 from fashion_planner_inventory.trend_input import USER_COLOR_BASES, TrendInput, read_trend
 
 SCHEMA_VERSION = "1.0"
-AGENT_ID = "stock-agent"
-NS = "stock-agent"            # evidence_id 앞부분: stock-agent:E-001
+AGENT_ID = "inventory"
+NS = "inventory"            # evidence_id 앞부분: inventory:E-001
 # 시즌은 trend 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).
 # inventory는 계산하지 않고 받은 값과 출처를 그대로 쓴다.
 REQUIRED = ("request_id", "season")

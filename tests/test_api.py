@@ -110,7 +110,7 @@ def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
 
 def _run(client, body):
     """canonical 경로로 trend 결과를 보내고 (HTTP 상태, producer 결과)를 돌려준다."""
-    r = client.post("/v1/agents/stock-agent/runs", json={
+    r = client.post("/v1/agents/inventory/runs", json={
         "contract_version": "vogue-handoff/0.1", "request_id": body["request_id"], "input": body})
     return r, (r.json()["result"] if "result" in r.json() else r.json())
 
@@ -142,8 +142,8 @@ def test_season_origin_and_extra_fields_pass_through(client):
 
 def test_docs_show_envelope_examples_and_400(client):
     spec = client.get("/openapi.json").json()
-    assert set(spec["paths"]) == {"/health/live", "/health/ready", "/health", "/v1/agents/stock-agent/runs"}
-    op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
+    assert set(spec["paths"]) == {"/health/live", "/health/ready", "/health", "/v1/agents/inventory/runs"}
+    op = spec["paths"]["/v1/agents/inventory/runs"]["post"]
     assert set(op["responses"]) == {"200", "400", "401", "500", "503", "504"}     # 422 대신 400
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"one_trend", "multi_trends", "no_user_category", "upstream_no_results", "missing_season"} == set(examples)
@@ -224,7 +224,7 @@ def _handoff(body=REQ, request_id=None, version="vogue-handoff/0.1"):
 
 def _post_handoff(client, body=None, token="test-stock-token"):
     headers = {"Authorization": f"Bearer {token}"} if token is not None else {"Authorization": ""}
-    return client.post("/v1/agents/stock-agent/runs", json=body or _handoff(), headers=headers)
+    return client.post("/v1/agents/inventory/runs", json=body or _handoff(), headers=headers)
 
 
 def test_handoff_accepts_trend_11_and_records_adapter_provenance(handoff_client):
@@ -251,7 +251,7 @@ def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     env = r.json()
     assert env["contract_version"] == "vogue-handoff/0.1"
     assert env["request_id"] == env["result"]["request_id"] == REQ["request_id"]
-    assert env["producer"] == {"agent_id": "stock-agent", "schema_version": "1.0"}
+    assert env["producer"] == {"agent_id": "inventory", "schema_version": "1.0"}
     assert env["status"] == env["result"]["status"] == "ok"
     assert list(env["result"]) == ["schema_version", "request_id", "agent_id", "status", "summary", "products",
                                     "trend_results", "season_basis", "evidence", "errors", "input_provenance"]
@@ -282,7 +282,7 @@ def test_handoff_request_id_mismatch_uses_outer_id(handoff_client, outer, inner)
 
 
 def test_handoff_missing_external_id_is_400_error_payload(handoff_client):
-    r = handoff_client.post("/v1/agents/stock-agent/runs", json={
+    r = handoff_client.post("/v1/agents/inventory/runs", json={
         "contract_version": "vogue-handoff/0.1", "input": REQ},
         headers={"Authorization": "Bearer test-stock-token"})
     assert r.status_code == 400 and "contract_version" not in r.json()
@@ -322,7 +322,7 @@ def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatc
 
 def test_handoff_partial_status_is_copied(handoff_client, monkeypatch):
     import fashion_planner_inventory.api as api
-    partial = {"schema_version": "1.0", "request_id": REQ["request_id"], "agent_id": "stock-agent",
+    partial = {"schema_version": "1.0", "request_id": REQ["request_id"], "agent_id": "inventory",
                "status": "partial", "summary": "partial", "products": [], "trend_results": [],
                "season_basis": None, "evidence": [], "errors": []}
     monkeypatch.setattr(api, "_run_inventory", lambda payload: partial)
@@ -331,14 +331,14 @@ def test_handoff_partial_status_is_copied(handoff_client, monkeypatch):
 
 
 def test_handoff_invalid_json_is_400_not_422(handoff_client):
-    r = handoff_client.post("/v1/agents/stock-agent/runs", data="{bad json", headers={
+    r = handoff_client.post("/v1/agents/inventory/runs", data="{bad json", headers={
         "Authorization": "Bearer test-stock-token", "Content-Type": "application/json"})
     assert r.status_code == 400 and r.status_code != 422
     assert r.json()["status"] == "error"
 
 
 def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
-    r = handoff_client.post("/v1/agents/stock-agent/runs", json={
+    r = handoff_client.post("/v1/agents/inventory/runs", json={
         "contract_version": "vogue-handoff/0.1", "request_id": REQ["request_id"]},
         headers={"Authorization": "Bearer test-stock-token"})
     assert r.status_code == 400 and r.status_code != 422
@@ -347,7 +347,7 @@ def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
 
 def test_handoff_openapi_declares_bearer_auth(handoff_client):
     spec = handoff_client.get("/openapi.json").json()
-    op = spec["paths"]["/v1/agents/stock-agent/runs"]["post"]
+    op = spec["paths"]["/v1/agents/inventory/runs"]["post"]
     assert "422" not in op["responses"]
     assert {"200", "400", "500", "503", "504"} <= set(op["responses"])
     assert op["security"] == [{"BearerAuth": []}]
@@ -416,14 +416,14 @@ def test_auth_precedes_even_malformed_json(handoff_client, authorization, monkey
     def forbidden(*args, **kwargs):
         pytest.fail("unauthorized request entered inventory")
     monkeypatch.setattr(api, "_run_inventory", forbidden)
-    result = handoff_client.post("/v1/agents/stock-agent/runs", content=b"{invalid",
+    result = handoff_client.post("/v1/agents/inventory/runs", content=b"{invalid",
                                  headers={"Authorization": authorization})
     assert result.status_code == 401
 
 
 @pytest.mark.parametrize("raw", [b'{"request_id":"one","request_id":"two"}', b'{"x":NaN}', b'{"x":1e999}'])
 def test_ambiguous_json_rejected(handoff_client, raw):
-    assert handoff_client.post("/v1/agents/stock-agent/runs", content=raw).status_code == 400
+    assert handoff_client.post("/v1/agents/inventory/runs", content=raw).status_code == 400
 
 
 def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypatch):
@@ -459,7 +459,7 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
               {"url": "https://img.example.invalid/1.jpg", "basis": "article"}]
     trend["trends"][0]["style"]["example_images"] = images
     assert trend["schema_version"] == "1.1"
-    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts/schemas/stock-agent-request.schema.json")
+    schema = json.loads((Path(__file__).resolve().parents[1] / "contracts/schemas/inventory-request.schema.json")
                         .read_text(encoding="utf-8"))
     assert list(jsonschema.Draft202012Validator(schema).iter_errors(trend)) == []
 

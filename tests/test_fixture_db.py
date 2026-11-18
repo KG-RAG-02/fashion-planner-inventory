@@ -65,7 +65,7 @@ def test_stub_request_is_an_unchanged_trend_11_result():
     source = req["input"]
     assert source["schema_version"] == "1.1" and source["status"] == "ok" and source["trends"]
     assert source["trends"][0]["style"]["example_images"]
-    assert list(_schema("stock-agent-request.schema.json").iter_errors(source)) == []
+    assert list(_schema("inventory-request.schema.json").iter_errors(source)) == []
 
 
 @pytest.fixture
@@ -94,8 +94,8 @@ def test_trend_stub_result_runs_ok_in_local_file_mode(stub_env):
         assert {k: ready.json()[k] for k in ("db", "synthetic_fixture")} == {
             k: expected["health_ready"][k] for k in ("db", "synthetic_fixture")}
         assert ready.json()["db_version"] == "sha256:" + hashlib.sha256(stub_env.read_bytes()).hexdigest()
-        unauth = c.post("/v1/agents/stock-agent/runs", json=req)
-        r = c.post("/v1/agents/stock-agent/runs", json=req, headers={"Authorization": f"Bearer {TOKEN}"})
+        unauth = c.post("/v1/agents/inventory/runs", json=req)
+        r = c.post("/v1/agents/inventory/runs", json=req, headers={"Authorization": f"Bearer {TOKEN}"})
     assert unauth.status_code == expected["without_bearer"]["http_status"] == 401
     assert r.status_code == expected["http_status"] == 200
     body = r.json()
@@ -106,4 +106,4 @@ def test_trend_stub_result_runs_ok_in_local_file_mode(stub_env):
     assert fixture_db.summarize_result(result) == expected["result"]
     assert result["input_provenance"]["source_payload_sha256"] == hashlib.sha256(canonical_bytes(req["input"])).hexdigest()
     assert all(FIXTURE_LIMITATION in tr["limitations"] for tr in result["trend_results"])
-    assert list(_schema("stock-agent-result.schema.json").iter_errors(result)) == []
+    assert list(_schema("inventory-result.schema.json").iter_errors(result)) == []

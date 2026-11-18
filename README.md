@@ -1,4 +1,4 @@
-# stock-agent (과잉재고 에이전트)
+# inventory (과잉재고 에이전트)
 
 VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드마다 짝 카테고리에서 트렌드 색과 어울리는 색의 과잉재고를 찾아,
 무신사 착샷(없으면 무신사 상품 이미지)이 있으면 그 이미지와 소재·질감·디테일이 비슷한(CLIP, 색 제외) 후보로 좁힌 뒤 과잉재고 순위로 **트렌드마다 상품 1개(사진 포함)**를 반환한다.
@@ -6,13 +6,13 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 ```
 사용자 쿼리 ──▶ 오케스트레이터 (Project_08): 쿼리 전처리 → ①②③④ 순차 blocking 호출 → 결과 통합 → 기획안 초안 UI
                  ① trend-analysis-agent (02)       ◀ 전처리된 쿼리                                  ▶ TrendResult + Evidence
-                 ② stock-agent (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
+                 ② inventory (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
                  ③ new-product-agent (05)          ◀ 전처리된 쿼리 + TrendResult + InventoryProductResult ▶ PlanningDraft
                  ④ sales-market-agent (04)         ◀ PlanningDraft                                  ▶ MarketData
 ```
 
 오케스트레이터(Project_08)가 사용자 쿼리를 전처리하고 에이전트 4개를 순서대로 부른 뒤, 모든 결과를 모아 기획안 초안 UI로 조립한다.
-에이전트끼리는 직접 부르지 않는다. stock-agent는 오케스트레이터에게서 trend 결과(`TrendAnalysisResult`, 전처리된 쿼리 조건 `applied_filters` 포함)를
+에이전트끼리는 직접 부르지 않는다. inventory는 오케스트레이터에게서 trend 결과(`TrendAnalysisResult`, 전처리된 쿼리 조건 `applied_filters` 포함)를
 `vogue-handoff/0.1` envelope의 `input`으로 받고, 결과(InventoryProductResult = producer payload 1.0)를 오케스트레이터에 돌려준다.
 오케스트레이터가 이 결과를 new-product-agent에 넘긴다. Producer payload와 Project_08 공통 HTTP envelope의 역할은 [`contracts/`](contracts/README.md)에 구분해 기록한다.
 
@@ -20,7 +20,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 - 재고 후보가 0개면 트렌드 색 조건만 단계적으로 완화한다. 사용자 색·사용자 카테고리는 완화하지 않는다
 - CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(open_clip `ViT-B-32-quickgelu`, OpenAI 가중치)과 미리 만든 재고 임베딩 인덱스로 계산한다
 
-- producer agent_id: `stock-agent`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
+- producer agent_id: `inventory`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
 - 재고·판매가는 가상 데이터(`data_nature: sample`). 상세 규칙은 `docs/issues_draft.md`
 
 ## 1. 데이터 준비 및 R2 배치
@@ -57,7 +57,7 @@ python -m pytest
 | `R2_IMAGE_PREFIX` | 없음 | 이미지 object key prefix. 비우면 로컬 이미지 디렉터리를 사용 |
 | `R2_ACCESS_KEY_ID` | 없음 | R2 읽기 전용 API token의 access key ID |
 | `R2_SECRET_ACCESS_KEY` | 없음 | R2 읽기 전용 API token의 secret access key |
-| `STOCK_CACHE_DIR` | OS 임시 폴더의 `stock-agent` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
+| `STOCK_CACHE_DIR` | OS 임시 폴더의 `inventory` | 선택 사항. 내려받은 DB와 요청된 이미지의 로컬 캐시 |
 | `STOCK_IMAGE_DIR` | `data/images` | 로컬 개발/폴백 이미지 디렉터리 |
 | `STOCK_IMAGE_CACHE_DIR` | `$STOCK_CACHE_DIR/images` | R2에서 받은 상품 이미지 캐시. 쓸 수 없으면(read-only mount 등) 캐시 없이 사진을 응답에 넣고 trend 결과 limitations에 적는다(500이 아님) |
 | `STOCK_DB_PATH` | 없음 | 설정하면 local-file 모드: R2 DB 설정·HEAD 없이 이 DuckDB 파일을 read-only로 연다. 옆에 `<이름>.sha256` sidecar가 있으면 일치해야 한다. `/health/ready`는 `db: local-file`, `db_version: sha256:<파일 해시>`. 이미지는 `STOCK_IMAGE_DIR` |
@@ -86,9 +86,9 @@ python -m fashion_planner_inventory.server                                 # HTT
 ## 4. Docker 실행
 
 ```powershell
-docker build -t stock-agent:v1 .
-docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" stock-agent:v1 python -m fashion_planner_inventory.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
-docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images stock-agent:v1
+docker build -t inventory:v1 .
+docker run --rm --env-file .env -v "$STOCK_CACHE_DIR:/cache" inventory:v1 python -m fashion_planner_inventory.server --prepare-cache   # DB·CLIP 인덱스 cache 준비 (데이터 작업)
+docker run --rm -p 127.0.0.1:8002:8002 --env-file .env --read-only --tmpfs /tmp -v "$STOCK_CACHE_DIR:/cache:ro" -e STOCK_IMAGE_CACHE_DIR=/tmp/stock-images inventory:v1
 ```
 
 - CLIP 인덱스는 `R2_CLIP_INDEX_KEY`가 있으면 `--prepare-cache`가 `/cache`에 받아 두고 서버가 그 파일을 읽는다(로컬 파일은 `STOCK_CLIP_INDEX_PATH`로 붙임). 없으면 서버는 뜨고 CLIP 필터만 건너뛴다(`/health`의 `clip_index_loaded: false`). 인덱스가 있으면 시작할 때 CLIP 모델 가중치를 `HOME`(`/tmp`) 아래로 내려받아 불러오므로 시간이 걸린다(healthcheck start-period 60초).
@@ -132,7 +132,7 @@ STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token>
 | GET | `/health/live` | API 생존만 확인 (DB 미준비에도 200) |
 | GET | `/health/ready`, `/health` | DB readiness·snapshot, `clip_index_loaded`·`clip_n_indexed` |
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
-| POST | `/v1/agents/stock-agent/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
+| POST | `/v1/agents/inventory/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
 
 두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
 
@@ -228,7 +228,7 @@ Producer result 1.0에는 `findings`와 최상위 `limitations`가 없다. 상�
 |---|---|
 | `products` | 트렌드 순서대로 n개. 상품 정보만(`style_id`, `sku_ids`, `category`, `season`, `attributes`, `inventory`, `image`). 상품을 못 고른 트렌드는 `null`. 같은 상품이 여러 번 나올 수 있음 |
 | `trend_results` | n개. `trend_results[i]` ↔ `products[i]` (`product_index`). `style`, `status`, `rank`, `reason`(근거 숫자), `summary`(추천 이유 한 줄), `search`(찾은 조건), `limitations`, `errors`, `evidence_ids`(이 트렌드의 근거 ID) |
-| `evidence` | 트렌드마다 데이터 출처 E-001~E-006(E-005 상품 사진, E-006 CLIP 기준 이미지는 쓴 경우만). `evidence_id` = `stock-agent:<style.id>:E-001`, `style_id`. `manifest_id`는 계산에 쓴 DB 버전(`/health`의 `db_version`), E-006은 `null`. 근거는 여기 한 곳에 모으고 `evidence_ids`로 가리킴 |
+| `evidence` | 트렌드마다 데이터 출처 E-001~E-006(E-005 상품 사진, E-006 CLIP 기준 이미지는 쓴 경우만). `evidence_id` = `inventory:<style.id>:E-001`, `style_id`. `manifest_id`는 계산에 쓴 DB 버전(`/health`의 `db_version`), E-006은 `null`. 근거는 여기 한 곳에 모으고 `evidence_ids`로 가리킴 |
 | `status` | 모두 ok → ok / 일부만 상품 있음 → partial / 모두 오류 → error / 상품 0개 → no_results |
 
 ### 오류 코드

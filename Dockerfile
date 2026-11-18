@@ -1,4 +1,4 @@
-# stock-agent (과잉재고 에이전트) HTTP API 이미지
+# fashion-planner-inventory (과잉재고 상품 매칭) HTTP API 이미지
 # DB와 이미지는 이미지에 넣지 않는다. R2 모드는 STOCK_CACHE_DIR(/cache)의 검증된 cache를, local-file 모드는
 # STOCK_DB_PATH 파일을 read-only로 연다. uid/gid 10001로 실행되고 /app에 쓰지 않으므로 read-only root filesystem
 # 에서는 /tmp(tmpfs)와 /cache(volume 또는 tmpfs)만 쓰기 가능하게 주면 된다.

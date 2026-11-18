@@ -80,7 +80,7 @@ def test_one_result_per_trend_in_order(go, con, tmp_path):
     assert any("색 조건 없이" in x for x in r["trend_results"][1]["limitations"])
     # 근거: 트렌드마다 E-001~, ID 앞에 style id
     ev = [e["evidence_id"] for e in r["evidence"]]
-    assert "stock-agent:style_012:E-001" in ev and "stock-agent:style_007:E-001" in ev and len(ev) == len(set(ev))
+    assert "inventory:style_012:E-001" in ev and "inventory:style_007:E-001" in ev and len(ev) == len(set(ev))
     assert {e["style_id"] for e in r["evidence"]} == {"style_012", "style_007"}
     assert "style_012(발레코어)" in r["summary"] and "트렌드 2개" in r["summary"]
     assert r["season_basis"]["source"] == "user"
@@ -95,7 +95,7 @@ def test_duplicate_product_allowed(go, con, tmp_path):
 def test_same_style_id_twice_keeps_evidence_unique(go, con, tmp_path):
     r = go(req(BALLET, BALLET), con, image_dir=str(tmp_path))
     assert r["status"] == "ok" and validate_response(r) == []
-    assert "stock-agent:style_012#2:E-001" in {e["evidence_id"] for e in r["evidence"]}
+    assert "inventory:style_012#2:E-001" in {e["evidence_id"] for e in r["evidence"]}
 
 
 def test_partial_keeps_null_slot(go, con, tmp_path):

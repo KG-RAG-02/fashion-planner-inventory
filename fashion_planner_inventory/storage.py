@@ -96,7 +96,7 @@ def _client(settings: R2Settings):
 
 
 def _safe_cache_dir() -> Path:
-    root = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "stock-agent"))
+    root = Path(os.environ.get("STOCK_CACHE_DIR", Path(tempfile.gettempdir()) / "fashion-planner-inventory"))
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         root.chmod(0o700)

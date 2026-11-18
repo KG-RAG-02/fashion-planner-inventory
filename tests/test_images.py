@@ -34,7 +34,7 @@ def test_top1_with_image(con, tmp_path):
     p = resp["product"]
     assert resp["trend_result"]["rank"] == 1 and p["sku_ids"][0] == first
     assert base64.b64decode(p["image"]["data"]) == JPG
-    assert "stock-agent:E-005" in {e["evidence_id"] for e in resp["evidence"]} and validate_output(resp) == []
+    assert "inventory:E-005" in {e["evidence_id"] for e in resp["evidence"]} and validate_output(resp) == []
 
 
 def test_skips_to_next_rank_when_top1_has_no_image(con, tmp_path):
@@ -53,7 +53,7 @@ def test_no_image_anywhere_returns_top1_without_image(con, tmp_path):
     resp = run(REQ, con, image_dir=str(tmp_path / "empty"))
     assert resp["trend_result"]["rank"] == 1 and resp["product"]["image"] is None
     assert any("이미지가 있는 상품이 없어" in x for x in resp["trend_result"]["limitations"])
-    assert "stock-agent:E-005" not in {e["evidence_id"] for e in resp["evidence"]}
+    assert "inventory:E-005" not in {e["evidence_id"] for e in resp["evidence"]}
     assert validate_output(resp) == []
 
 

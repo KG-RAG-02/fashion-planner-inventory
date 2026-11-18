@@ -80,7 +80,7 @@ def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(loca
         assert str(tmp_path) not in ready.text and "stock-local" not in ready.text
         with pytest.raises(duckdb.Error):
             api.state["con"].execute("CREATE TABLE forbidden(i INTEGER)")  # opened read-only
-        r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
+        r = c.post("/v1/agents/inventory/runs", json=_handoff(REQ))
     assert r.status_code == 200 and r.json()["status"] == "ok"
     assert r.json()["result"]["products"][0]["sku_ids"] == ["a1"]
 
@@ -95,7 +95,7 @@ def test_local_file_sidecar_must_match_and_missing_file_fails_closed(local_env, 
         ready = c.get("/health/ready")
         assert ready.status_code == 503 and ready.json()["db"] == "local-file"
         assert ready.json()["reason"] == "StorageUnavailable"
-        assert c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ)).status_code == 503
+        assert c.post("/v1/agents/inventory/runs", json=_handoff(REQ)).status_code == 503
     sidecar.write_text(hashlib.sha256(db.read_bytes()).hexdigest() + "\n")
     with _client() as c:
         assert c.get("/health/ready").status_code == 200                   # a matching sidecar is accepted
@@ -134,7 +134,7 @@ def test_unwritable_image_cache_is_a_limitation_not_a_500(monkeypatch, con, tmp_
     monkeypatch.setattr(api, "prepare_database", lambda: (str(db), "test-version", store))
     monkeypatch.setattr(api, "warm_up_clip", lambda: {"clip_index_loaded": False, "clip_n_indexed": 0})
     with _client() as c:
-        r = c.post("/v1/agents/stock-agent/runs", json=_handoff(REQ))
+        r = c.post("/v1/agents/inventory/runs", json=_handoff(REQ))
     result = r.json()["result"]
     assert r.status_code == 200 and result["status"] == "ok" and ImageObjects.downloads == 1
     assert result["products"][0]["image"]["size_bytes"] == 4

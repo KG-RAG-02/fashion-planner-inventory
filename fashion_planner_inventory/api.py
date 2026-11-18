@@ -1,6 +1,6 @@
-"""stock-agent HTTP API
+"""inventory HTTP API
 
-  POST /v1/agents/stock-agent/runs  vogue-handoff/0.1 envelope + Bearer auth, input = TrendAnalysisResult 그대로
+  POST /v1/agents/inventory/runs  vogue-handoff/0.1 envelope + Bearer auth, input = TrendAnalysisResult 그대로
                                 products[i] ↔ trend_results[i] (fashion_planner_inventory/multi.py)
                                 오류 code는 팀 공통 코드, HTTP 번호는 fashion_planner_inventory/errors.py
   GET  /health/live             API 생존
@@ -45,7 +45,7 @@ from fashion_planner_inventory.multi import _record_input_provenance
 
 IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
 HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
-HANDOFF_PATH = "/v1/agents/stock-agent/runs"
+HANDOFF_PATH = "/v1/agents/inventory/runs"
 DEFAULT_HANDOFF_TIMEOUT_SECONDS = 60.0
 MAX_HANDOFF_TIMEOUT_SECONDS = 600.0
 
@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="stock-agent",
+    title="inventory",
     version=SCHEMA_VERSION,
     description="Fashion Planner의 inventory(상품 재고) 단계. 트렌드마다 짝 카테고리에서 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색의 과잉재고를 "
                 "순위로 매겨, 사진이 있는 최상위 1개와 추천 이유를 돌려준다. 재고·판매가는 가상 데이터(sample).",
@@ -352,9 +352,9 @@ HANDOFF_RESPONSES = {
 
 @app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="vogue-handoff/0.1 Stock producer 실행",
           description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
-                       "producer result는 stock-agent payload schema 1.0 그대로 반환됩니다. "
+                       "producer result는 inventory payload schema 1.0 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
-def stock_agent_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):
+def inventory_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):
     body = request.scope["_stock_source_body"]
     rid = body.get("request_id")
     rid = rid if isinstance(rid, str) and rid.strip() else None

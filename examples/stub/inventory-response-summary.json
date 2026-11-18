@@ -4,7 +4,7 @@
   "contract_version": "vogue-handoff/0.1",
   "request_id": "stub-trend-001",
   "producer": {
-    "agent_id": "stock-agent",
+    "agent_id": "inventory",
     "schema_version": "1.0"
   },
   "status": "ok",
@@ -55,10 +55,10 @@
       }
     ],
     "evidence_ids": [
-      "stock-agent:900003-s0:E-001",
-      "stock-agent:900003-s0:E-002",
-      "stock-agent:900003-s0:E-003",
-      "stock-agent:900003-s0:E-004"
+      "inventory:900003-s0:E-001",
+      "inventory:900003-s0:E-002",
+      "inventory:900003-s0:E-003",
+      "inventory:900003-s0:E-004"
     ],
     "input_provenance": {
       "source_agent_id": "trend-analysis-agent",

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "request_id": "req_example_011",
-  "agent_id": "stock-agent",
+  "agent_id": "inventory",
   "status": "error",
   "summary": "필수 입력이 없습니다: applied_filters.season. 02 결과의 applied_filters.season에 시즌이 있어야 합니다 (쿼리 전처리에서 사용자가 말하지 않았으면 다음 패션 시즌, origin=default_next). 받은 applied_filters: {'season': None, 'categories': {'include': [{'raw': '블라우스', 'major': '상의', 'minor': '블라우스'}], 'exclude': []}, 'gender': '여', 'attributes': [{'type': 'color', 'value': '화이트'}]}",
   "products": [],
