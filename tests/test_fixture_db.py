@@ -1,6 +1,6 @@
 """Synthetic fixture DB (fashion_planner_inventory.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
 
-examples/stub/stock-request.json carries the trend-analysis-agent stub result unchanged (vogue-handoff/0.1);
+examples/stub/inventory-request.json carries the trend-analysis-agent stub result unchanged (vogue-handoff/0.1);
 with STOCK_DB_PATH=<fixture DB> it must give ok/partial with a product.
 """
 import hashlib
@@ -60,7 +60,7 @@ def test_conftest_tables_are_the_fixture_base_tables(con):
 
 
 def test_stub_request_is_an_unchanged_trend_11_result():
-    req = _json(STUB / "stock-request.json")
+    req = _json(STUB / "inventory-request.json")
     assert req["contract_version"] == "vogue-handoff/0.1" and req["request_id"] == req["input"]["request_id"]
     source = req["input"]
     assert source["schema_version"] == "1.1" and source["status"] == "ok" and source["trends"]
@@ -86,8 +86,8 @@ def stub_env(monkeypatch, tmp_path):
 def test_trend_stub_result_runs_ok_in_local_file_mode(stub_env):
     import fashion_planner_inventory.api as api
     from fashion_planner_inventory.readiness import FIXTURE_LIMITATION
-    req = _json(STUB / "stock-request.json")
-    expected = _json(STUB / "stock-response-summary.json")
+    req = _json(STUB / "inventory-request.json")
+    expected = _json(STUB / "inventory-response-summary.json")
     with TestClient(api.app) as c:
         ready = c.get("/health/ready")
         assert ready.status_code == 200
