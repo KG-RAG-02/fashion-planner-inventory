@@ -8,7 +8,7 @@
   "liveness_path": "/health/live",
   "readiness_path": "/health/ready",
   "run_path": "/v1/agents/inventory/runs",
-  "contract_version": "vogue-handoff/0.1",
+  "contract_version": "inventory-handoff",
   "source_schema_version": "1.1",
   "result_schema_version": "1.0",
   "auth_env": "VOGUE_AGENT_SERVICE_BEARER_TOKEN",

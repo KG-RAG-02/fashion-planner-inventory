@@ -63,7 +63,7 @@ def _client():
 
 
 def _handoff(body):
-    return {"contract_version": "vogue-handoff/0.1", "request_id": body["request_id"], "input": body}
+    return {"contract_version": "inventory-handoff", "request_id": body["request_id"], "input": body}
 
 
 def test_local_file_mode_needs_no_r2_opens_read_only_and_reports_local_file(local_env, con, tmp_path):

@@ -200,13 +200,13 @@ class HandoffProducer(BaseModel):
 
 class HandoffRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    contract_version: Literal["vogue-handoff/0.1"]
+    contract_version: Literal["inventory-handoff"]
     request_id: str = Field(min_length=1)
     input: dict[str, Any] = Field(description="Unchanged TrendAnalysisResult producer object")
 
 
 class HandoffResponse(BaseModel):
-    contract_version: Literal["vogue-handoff/0.1"] = "vogue-handoff/0.1"
+    contract_version: Literal["inventory-handoff"] = "inventory-handoff"
     request_id: str
     producer: HandoffProducer
     status: Literal["ok", "partial", "no_results", "error"]
@@ -218,6 +218,6 @@ class HandoffResponse(BaseModel):
 # canonical 경로 /docs 예시: 위 trend 결과 예시를 envelope의 input에 그대로 넣는다
 HANDOFF_EXAMPLES = {
     name: {"summary": ex["summary"],
-           "value": {"contract_version": "vogue-handoff/0.1", "request_id": ex["value"]["request_id"], "input": ex["value"]}}
+           "value": {"contract_version": "inventory-handoff", "request_id": ex["value"]["request_id"], "input": ex["value"]}}
     for name, ex in REQUEST_EXAMPLES.items()
 }

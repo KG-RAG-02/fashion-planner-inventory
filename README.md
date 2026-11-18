@@ -13,14 +13,14 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 
 오케스트레이터(Project_08)가 사용자 쿼리를 전처리하고 에이전트 4개를 순서대로 부른 뒤, 모든 결과를 모아 기획안 초안 UI로 조립한다.
 에이전트끼리는 직접 부르지 않는다. inventory는 오케스트레이터에게서 trend 결과(`TrendAnalysisResult`, 전처리된 쿼리 조건 `applied_filters` 포함)를
-`vogue-handoff/0.1` envelope의 `input`으로 받고, 결과(InventoryProductResult = producer payload 1.0)를 오케스트레이터에 돌려준다.
+`inventory-handoff` envelope의 `input`으로 받고, 결과(InventoryProductResult = producer payload 1.0)를 오케스트레이터에 돌려준다.
 오케스트레이터가 이 결과를 new-product-agent에 넘긴다. Producer payload와 Project_08 공통 HTTP envelope의 역할은 [`contracts/`](contracts/README.md)에 구분해 기록한다.
 
 - 처리는 정해진 규칙과 SQL·계산으로만 한다(외부 모델 API 호출 없음). 같은 입력·데이터면 같은 결과가 나온다. 단, 기준 이미지를 내려받지 못한 요청은 소재·디테일 텍스트만으로 CLIP 유사도를 계산하므로 결과가 다를 수 있다(`search.clip.image_used`)
 - 재고 후보가 0개면 트렌드 색 조건만 단계적으로 완화한다. 사용자 색·사용자 카테고리는 완화하지 않는다
 - CLIP 유사도 필터는 03 서버 안에서 CLIP 모델(open_clip `ViT-B-32-quickgelu`, OpenAI 가중치)과 미리 만든 재고 임베딩 인덱스로 계산한다
 
-- producer agent_id: `inventory`; payload schema: `1.0`; Project_08 HTTP envelope: `vogue-handoff/0.1`
+- producer agent_id: `inventory`; payload schema: `1.0`; Project_08 HTTP envelope: `inventory-handoff`
 - 재고·판매가는 가상 데이터(`data_nature: sample`). 상세 규칙은 `docs/issues_draft.md`
 
 ## 1. 데이터 준비 및 R2 배치
@@ -122,7 +122,7 @@ STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token>
 
 - fixture DB(`fashion_planner_inventory/fixture_db.py`): `tests/conftest.py`의 작은 표(a1~a6) + trend-analysis-agent stub 결과(발레코어·상의·핑크 → 짝 하의·아우터, 봄·여름)에 맞춘 합성 상품 3개 + 표지 표 `stock_fixture`. H&M 원본이 아니고 내용은 매번 같다(`content_sha256`). storage version v1.0.0으로 써서 DuckDB 1.x·2.x 모두 읽는다. 있는 파일은 `--force` 없이 덮어쓰지 않는다.
 - `/health/ready`: `db: local-file`, `synthetic_fixture: true`. 트렌드 결과마다 limitations에 합성 DB라는 문장이 붙는다.
-- 요청: `examples/stub/inventory-request.json` — `vogue-handoff/0.1`, `input`은 trend stub 결과 그대로(`trends[].style.example_images` 포함).
+- 요청: `examples/stub/inventory-request.json` — `inventory-handoff`, `input`은 trend stub 결과 그대로(`trends[].style.example_images` 포함).
 - 기대 응답: `examples/stub/inventory-response-summary.json` — HTTP 200 `ok`, 상품 1개(`0910001001` 스커트·화이트, 사진 없음), bearer가 없으면 401. `tests/test_fixture_db.py`가 대조한다.
 
 ## API
@@ -132,13 +132,13 @@ STOCK_DB_PATH=/tmp/stock-fixture.duckdb VOGUE_AGENT_SERVICE_BEARER_TOKEN=<token>
 | GET | `/health/live` | API 생존만 확인 (DB 미준비에도 200) |
 | GET | `/health/ready`, `/health` | DB readiness·snapshot, `clip_index_loaded`·`clip_n_indexed` |
 | POST | `/v1/inventory-products` | 요청 1건 → 응답. `status`가 error일 때만 오류 번호(아래 오류 코드 표), 그 외 200 (`status`로 ok/partial/no_results 구분) |
-| POST | `/v1/agents/inventory/runs` | Project_08 `vogue-handoff/0.1`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
+| POST | `/v1/agents/inventory/runs` | Project_08 `inventory-handoff`; Bearer 인증; TrendAnalysisResult를 `input`으로 받고 producer payload 1.0을 `result`에 보존 |
 
 두 inventory endpoint 모두 본문 파싱 전에 동일한 Bearer 인증을 요구합니다. `VOGUE_AGENT_SERVICE_BEARER_TOKEN`과 `Authorization: Bearer <token>`이 필요하며 누락/불일치는 401입니다. token을 오류나 로그에 노출하지 않습니다. 운영은 HTTPS를 ingress/TLS termination에서 제공하고 authorization header를 backend까지 전달해야 합니다. loopback 개발 때 Project_08에 `VOGUE_AGENT_HTTP_DEV_MODE=1`을 설정합니다. 토큰 미설정도 401이며 malformed JSON도 인증보다 먼저 처리하지 않습니다.
 
 Stock route는 기본 60초 전체 deadline을 적용합니다(`STOCK_HANDOFF_TIMEOUT_SECONDS`로 조정, 통합 배포는 180초이고 Project_08은 Stock 응답을 210초까지 기다립니다). 시간을 넘기면 HTTP는 504 envelope(`reason: timeout`)를 반환하지만, Python 동기 처리를 강제로 멈추지 못하므로 이미 시작한 DB 조회·기준 이미지 내려받기는 서버 쪽에서 끝까지 실행될 수 있습니다.
 
-HTTP envelope `vogue-handoff/0.1`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health/live`는 API 생존만 확인합니다. `/health/ready`와 호환 별칭 `/health`는 DB schema/column type·nonempty tables·sample/as_of/version·필수 수치 검사가 통과해야 200입니다. DB 미준비는 503입니다. 이미지 누락은 상태 필드로만 보고합니다. CLIP 인덱스 상태(`clip_index_loaded`)는 표시만 하고 200/503 판정에는 쓰지 않습니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
+HTTP envelope `inventory-handoff`과 producer `schema_version="1.0"`은 별개입니다. 응답의 `result`는 원래 Stock payload 전체입니다. `/health/live`는 API 생존만 확인합니다. `/health/ready`와 호환 별칭 `/health`는 DB schema/column type·nonempty tables·sample/as_of/version·필수 수치 검사가 통과해야 200입니다. DB 미준비는 503입니다. 이미지 누락은 상태 필드로만 보고합니다. CLIP 인덱스 상태(`clip_index_loaded`)는 표시만 하고 200/503 판정에는 쓰지 않습니다. `/docs`와 `/openapi.json`에 두 endpoint를 모두 게시합니다.
 
 ### 요청
 

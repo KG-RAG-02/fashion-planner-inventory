@@ -1,7 +1,7 @@
 {
   "note": "Expected response to examples/stub/inventory-request.json (input = the trend-analysis-agent stub result, unchanged) with STOCK_DB_PATH=<scripts/build_fixture_db.py output>. `result` is fashion_planner_inventory.fixture_db.summarize_result(); tests/test_fixture_db.py checks it.",
   "http_status": 200,
-  "contract_version": "vogue-handoff/0.1",
+  "contract_version": "inventory-handoff",
   "request_id": "stub-trend-001",
   "producer": {
     "agent_id": "inventory",

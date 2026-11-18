@@ -1,6 +1,6 @@
 """Synthetic fixture DB (fashion_planner_inventory.fixture_db, scripts/build_fixture_db.py) and the cross-repo stub run.
 
-examples/stub/inventory-request.json carries the trend-analysis-agent stub result unchanged (vogue-handoff/0.1);
+examples/stub/inventory-request.json carries the trend-analysis-agent stub result unchanged (inventory-handoff);
 with STOCK_DB_PATH=<fixture DB> it must give ok/partial with a product.
 """
 import hashlib
@@ -61,7 +61,7 @@ def test_conftest_tables_are_the_fixture_base_tables(con):
 
 def test_stub_request_is_an_unchanged_trend_11_result():
     req = _json(STUB / "inventory-request.json")
-    assert req["contract_version"] == "vogue-handoff/0.1" and req["request_id"] == req["input"]["request_id"]
+    assert req["contract_version"] == "inventory-handoff" and req["request_id"] == req["input"]["request_id"]
     source = req["input"]
     assert source["schema_version"] == "1.1" and source["status"] == "ok" and source["trends"]
     assert source["trends"][0]["style"]["example_images"]

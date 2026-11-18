@@ -1,6 +1,6 @@
 """inventory HTTP API
 
-  POST /v1/agents/inventory/runs  vogue-handoff/0.1 envelope + Bearer auth, input = TrendAnalysisResult 그대로
+  POST /v1/agents/inventory/runs  inventory-handoff envelope + Bearer auth, input = TrendAnalysisResult 그대로
                                 products[i] ↔ trend_results[i] (fashion_planner_inventory/multi.py)
                                 오류 code는 팀 공통 코드, HTTP 번호는 fashion_planner_inventory/errors.py
   GET  /health/live             API 생존
@@ -44,7 +44,7 @@ from fashion_planner_inventory.trend_request import from_trend_result
 from fashion_planner_inventory.multi import _record_input_provenance
 
 IMAGE_DIR = os.environ.get("STOCK_IMAGE_DIR", DEFAULT_IMAGE_DIR)
-HANDOFF_CONTRACT_VERSION = "vogue-handoff/0.1"
+HANDOFF_CONTRACT_VERSION = "inventory-handoff"
 HANDOFF_PATH = "/v1/agents/inventory/runs"
 DEFAULT_HANDOFF_TIMEOUT_SECONDS = 60.0
 MAX_HANDOFF_TIMEOUT_SECONDS = 600.0
@@ -350,7 +350,7 @@ HANDOFF_RESPONSES = {
 }
 
 
-@app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="vogue-handoff/0.1 Stock producer 실행",
+@app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="inventory-handoff Stock producer 실행",
           description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 inventory payload schema 1.0 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))

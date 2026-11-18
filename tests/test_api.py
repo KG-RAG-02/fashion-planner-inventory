@@ -111,7 +111,7 @@ def test_clip_warm_up_failure_keeps_server_up(monkeypatch):
 def _run(client, body):
     """canonical 경로로 trend 결과를 보내고 (HTTP 상태, producer 결과)를 돌려준다."""
     r = client.post("/v1/agents/inventory/runs", json={
-        "contract_version": "vogue-handoff/0.1", "request_id": body["request_id"], "input": body})
+        "contract_version": "inventory-handoff", "request_id": body["request_id"], "input": body})
     return r, (r.json()["result"] if "result" in r.json() else r.json())
 
 
@@ -149,7 +149,7 @@ def test_docs_show_envelope_examples_and_400(client):
     assert {"one_trend", "multi_trends", "no_user_category", "upstream_no_results", "missing_season"} == set(examples)
     for ex in examples.values():
         value = ex["value"]
-        assert value["contract_version"] == "vogue-handoff/0.1" and value["request_id"] == value["input"]["request_id"]
+        assert value["contract_version"] == "inventory-handoff" and value["request_id"] == value["input"]["request_id"]
     assert "InventoryResponse" in spec["components"]["schemas"]
 
 
@@ -218,7 +218,7 @@ def handoff_client(make_client, monkeypatch):
         yield c
 
 
-def _handoff(body=REQ, request_id=None, version="vogue-handoff/0.1"):
+def _handoff(body=REQ, request_id=None, version="inventory-handoff"):
     return {"contract_version": version, "request_id": request_id or body["request_id"], "input": body}
 
 
@@ -249,7 +249,7 @@ def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     r = _post_handoff(handoff_client)
     assert r.status_code == 200
     env = r.json()
-    assert env["contract_version"] == "vogue-handoff/0.1"
+    assert env["contract_version"] == "inventory-handoff"
     assert env["request_id"] == env["result"]["request_id"] == REQ["request_id"]
     assert env["producer"] == {"agent_id": "inventory", "schema_version": "1.0"}
     assert env["status"] == env["result"]["status"] == "ok"
@@ -258,7 +258,7 @@ def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     assert env["result"]["products"][0]["sku_ids"] == ["a1"]
 
 
-@pytest.mark.parametrize("payload,version", [(REQ, "vogue-handoff/9"), (REQ, ""), ([], "vogue-handoff/0.1")])
+@pytest.mark.parametrize("payload,version", [(REQ, "trend-handoff"), (REQ, ""), ([], "inventory-handoff")])
 def test_handoff_bad_version_or_input_is_400_envelope(handoff_client, payload, version):
     env_req = {"contract_version": version, "request_id": REQ["request_id"], "input": payload}
     r = _post_handoff(handoff_client, env_req)
@@ -283,7 +283,7 @@ def test_handoff_request_id_mismatch_uses_outer_id(handoff_client, outer, inner)
 
 def test_handoff_missing_external_id_is_400_error_payload(handoff_client):
     r = handoff_client.post("/v1/agents/inventory/runs", json={
-        "contract_version": "vogue-handoff/0.1", "input": REQ},
+        "contract_version": "inventory-handoff", "input": REQ},
         headers={"Authorization": "Bearer test-stock-token"})
     assert r.status_code == 400 and "contract_version" not in r.json()
     assert r.json()["request_id"] is None
@@ -315,7 +315,7 @@ def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatc
             payload, code, "controlled"))
         r = _post_handoff(handoff_client)
         assert r.status_code == expected
-        assert r.json()["contract_version"] == "vogue-handoff/0.1"
+        assert r.json()["contract_version"] == "inventory-handoff"
         assert r.json()["status"] == r.json()["result"]["status"] == "error"
         assert r.json()["request_id"] == r.json()["result"]["request_id"]
 
@@ -339,7 +339,7 @@ def test_handoff_invalid_json_is_400_not_422(handoff_client):
 
 def test_handoff_missing_required_fields_is_400_not_422(handoff_client):
     r = handoff_client.post("/v1/agents/inventory/runs", json={
-        "contract_version": "vogue-handoff/0.1", "request_id": REQ["request_id"]},
+        "contract_version": "inventory-handoff", "request_id": REQ["request_id"]},
         headers={"Authorization": "Bearer test-stock-token"})
     assert r.status_code == 400 and r.status_code != 422
     assert r.json()["result"]["errors"][0]["reason"] == "invalid_input"
