@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fashion-planner-inventory"
+version = "1.0.0"
+description = "트렌드마다 함께 제안할 과잉재고 상품을 고르는 fashion-planner의 inventory 서비스"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "The Fashion Planner Contributors" }]
+keywords = ["fashion", "inventory", "overstock", "duckdb", "clip", "fastapi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Natural Language :: Korean",
+    "Private :: Do Not Upload",
+]
+# requirements.txt(도커 이미지용)와 같은 목록을 유지한다. tests/test_packaging.py가 둘을 대조한다.
+dependencies = [
+    "duckdb>=1.1",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "Pillow>=10.0",
+    "requests>=2.31",
+    "boto3>=1.35",
+]
+
+[project.optional-dependencies]
+# CLIP 필터. torch는 CPU 전용 인덱스에서 따로 설치하는 것을 권한다(Dockerfile 참고).
+clip = ["open-clip-torch>=2.24"]
+dev = ["pytest>=8", "httpx>=0.27", "jsonschema>=4.18"]
+
+[project.urls]
+Homepage = "https://github.com/KG-RAG-02/fashion-planner-inventory"
+Issues = "https://github.com/KG-RAG-02/fashion-planner-inventory/issues"
+
+[tool.setuptools]
+packages = ["fashion_planner_inventory"]
+
+[tool.setuptools.package-data]
+fashion_planner_inventory = ["service-manifest.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
