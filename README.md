@@ -31,7 +31,7 @@ VOGUE 기획 파이프라인의 **03 상품 재고** 에이전트. 02 트렌드�
 pip install -r requirements-dev.txt
 python scripts/build_db.py          # H&M CSV → data/stock.duckdb
 python scripts/build_attributes.py  # K-Fashion 속성 → article_attrs
-python scripts/build_stock_v1.py    # 가상 재고 → stock_v1
+python scripts/build_virtual_stock.py    # 가상 재고 → stock_v1
 python scripts/extract_images.py --zip data/raw/h-and-m-personalized-fashion-recommendations.zip
                                     # 의류 상품 이미지만 → data/images/<앞 3자리>/<article_id>.jpg
 python scripts/build_clip_index.py  # 재고 상품 CLIP 인덱스 → data/clip_index.npz (DB·사진은 R2에서 읽음)

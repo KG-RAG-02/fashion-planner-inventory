@@ -1,7 +1,7 @@
-"""가상 재고 v1 생성 → stock_v1 테이블 (#D)
+"""가상 재고 생성 → stock_v1 테이블
 
 먼저 scripts/build_attributes.py로 article_attrs를 만든 뒤 실행한다.
-실행: 레포 맨 위 폴더에서  python scripts/build_stock_v1.py
+실행: 레포 맨 위 폴더에서  python scripts/build_virtual_stock.py
 """
 
 import os
