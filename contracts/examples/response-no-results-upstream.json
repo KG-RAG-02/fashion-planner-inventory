@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "request_id": "req_example_010",
+  "request_id": "req_example_no_results",
   "agent_id": "inventory",
   "status": "no_results",
   "summary": "트렌드 분석 결과가 없어(no_results) 재고를 조회하지 않았습니다. 트렌드 분석 한계: 2027SS에 해당하는 트렌드가 없습니다.",
@@ -15,6 +15,6 @@
     "internal_schema_version": null,
     "adapter_version": "inventory-trend-input-adapter",
     "transformed": true,
-    "source_payload_sha256": "76ec188f67166263c44c4667b396ce12b09abf898f64ac9aa5a55537a5ec6152"
+    "source_payload_sha256": "88c254297fc2ed346f8324129072cf50b6aaaea9451463e2b065a0e0294f0daa"
   }
 }
