@@ -65,7 +65,7 @@ REQUEST_EXAMPLES = {
         "value": _example("req_example_002", [_MAXI, _BALLET], include=["상의"], gender="여"),
     },
     "no_user_category": {
-        "summary": "사용자 카테고리·성별 없음: 트렌드 카테고리의 짝, 고객군은 Item 성별, 시즌은 trend가 정함",
+        "summary": "사용자 카테고리·성별 없음: 트렌드 카테고리의 짝, 고객군은 Item 성별, 시즌은 질의 구조화가 정한 다음 시즌(default_next)",
         "value": _example("req_example_003", [_BALLET], year=2026, season="FW", origin="default_next"),
     },
     "upstream_no_results": {

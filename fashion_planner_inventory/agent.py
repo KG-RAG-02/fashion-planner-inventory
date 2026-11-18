@@ -588,7 +588,7 @@ def run(request: dict, con, now: datetime | None = None, image_dir: str | None =
         manifest_id: str | None = None) -> dict:
     """요청 1건(트렌드 1개) → 응답 dict. con은 read_only DuckDB 연결.
 
-    - season 필수(trend가 정해서 줌). inventory는 시즌을 계산하지 않는다
+    - season 필수(trend 결과의 applied_filters.season. 시즌이 없던 질의는 orchestrator가 다음 시즌으로 정해 둔다). inventory는 시즌을 계산하지 않는다
     - trend 필수: trend 결과의 트렌드 1개 {style, items}. 트렌드 색·카테고리는 trend_input.read_trend 규칙
     - 짝 카테고리: target_category(trend) → 없으면 트렌드 카테고리 짝 교집합 → 둘 다 없으면 전체 영역
     - 사용자 색(target_colors, trend)이 있으면: 트렌드 아이템 색과 겹치는 사용자 색만, 하나도 안 겹치면 사용자 색 전부를 기준 색으로
