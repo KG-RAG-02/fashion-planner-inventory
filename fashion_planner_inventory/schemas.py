@@ -23,7 +23,7 @@ _MAXI = {"style": {"id": "style_007", "name": "정제된 맥시멀리스트"},
 
 # trend 결과(TrendAnalysisResult) 그대로 (similar_products 등은 줄임). contracts/examples/request-trend-result.json과 같다
 TREND_RESULT_EXAMPLE = {
-    "schema_version": "1.1",
+    "schema_version": "1.0.0",
     "request_id": "req_example_010",
     "status": "ok",
     "applied_filters": {
@@ -195,7 +195,7 @@ class ErrorResponse(BaseModel):
 
 class HandoffProducer(BaseModel):
     agent_id: str = "inventory"
-    schema_version: str = Field(description="Stock producer result schema version; currently 1.0")
+    schema_version: str = Field(description="inventory 결과 payload의 schema_version (1.0.0)")
 
 
 class HandoffRequest(BaseModel):

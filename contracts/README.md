@@ -15,7 +15,7 @@
 
 ```
 사용자 쿼리 ──▶ 오케스트레이터 (Project_08): 쿼리 전처리 → ①②③④ 순차 blocking 호출 → 결과 통합 → 기획안 초안 UI
-                 ① trend-analysis-agent (02)       ◀ 전처리된 쿼리                                  ▶ TrendResult + Evidence
+                 ① trend (02)       ◀ 전처리된 쿼리                                  ▶ TrendResult + Evidence
                  ② inventory (03, 이 레포)        ◀ 전처리된 쿼리 + TrendResult                     ▶ InventoryProductResult
                  ③ new-product-agent (05)          ◀ 전처리된 쿼리 + TrendResult + InventoryProductResult ▶ PlanningDraft
                  ④ sales-market-agent (04)         ◀ PlanningDraft                                  ▶ MarketData

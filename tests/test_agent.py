@@ -29,7 +29,7 @@ def trend(*items, sid="style_012", name="발레코어"):
 
 
 BLOUSE = {"category_major": "상의", "category_minor": "블라우스", "colors": ["라이트핑크", "화이트"]}
-REQ = {"schema_version": "1.0", "request_id": "req_test", "season": "2027-SS",
+REQ = {"schema_version": "1.0.0", "request_id": "req_test", "season": "2027-SS",
        "target_category": "상의", "segment": "Ladieswear", "trend": trend(BLOUSE)}
 
 

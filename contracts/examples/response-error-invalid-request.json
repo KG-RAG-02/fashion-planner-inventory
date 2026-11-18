@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.0.0",
   "request_id": "req_example_011",
   "agent_id": "inventory",
   "status": "error",
@@ -16,10 +16,10 @@
     }
   ],
   "input_provenance": {
-    "source_agent_id": "trend-analysis-agent",
-    "source_schema_version": "1.1",
+    "source_agent_id": "trend",
+    "source_schema_version": "1.0.0",
     "internal_schema_version": null,
-    "adapter_version": "stock-trend-input-adapter/1.0",
+    "adapter_version": "inventory-trend-input-adapter",
     "transformed": true,
     "source_payload_sha256": "808b7a7575c39911f2bb582725232f0ad8f812bad3c277e4102f7be02c297113"
   }

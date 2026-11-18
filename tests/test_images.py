@@ -8,7 +8,7 @@ from fashion_planner_inventory.images import image_path, load_image
 JPG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"
 TREND = {"style": {"id": "style_x", "name": "색 없음"},
          "items": [{"category_major": "상의", "category_minor": "블라우스", "colors": []}]}
-REQ = {"schema_version": "1.0", "request_id": "req_img", "season": "2027-SS",
+REQ = {"schema_version": "1.0.0", "request_id": "req_img", "season": "2027-SS",
        "target_category": "상의", "segment": "Ladieswear", "trend": TREND}   # 후보 a1, a2
 
 

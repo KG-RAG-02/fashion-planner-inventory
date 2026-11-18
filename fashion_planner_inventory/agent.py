@@ -68,7 +68,7 @@ from fashion_planner_inventory.snap import reference as snap_reference
 from fashion_planner_inventory.synthetic import VERSION as STOCK_VERSION
 from fashion_planner_inventory.trend_input import USER_COLOR_BASES, TrendInput, read_trend
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.0.0"
 AGENT_ID = "inventory"
 NS = "inventory"            # evidence_id 앞부분: inventory:E-001
 # 시즌은 trend 결과의 applied_filters.season으로 받는다(쿼리에 없으면 다음 시즌, origin=default_next).

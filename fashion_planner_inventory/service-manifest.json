@@ -9,8 +9,8 @@
   "readiness_path": "/health/ready",
   "run_path": "/v1/agents/inventory/runs",
   "contract_version": "inventory-handoff",
-  "source_schema_version": "1.1",
-  "result_schema_version": "1.0",
+  "source_schema_version": "1.0.0",
+  "result_schema_version": "1.0.0",
   "auth_env": "VOGUE_AGENT_SERVICE_BEARER_TOKEN",
   "startup_db_policy": "head-and-existing-checksummed-cache-only"
 }

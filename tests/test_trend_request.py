@@ -43,7 +43,7 @@ def test_converts_applied_filters():
 
 
 def test_trend_producer_version_is_not_misread_as_stock_internal_version():
-    r = res(schema_version="1.1")
+    r = res(schema_version="1.0.0")
     original = copy.deepcopy(r)
     req, status, _ = from_trend_result(r)
     assert status == "ok"

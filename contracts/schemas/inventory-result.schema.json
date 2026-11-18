@@ -19,7 +19,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0"
+      "const": "1.0.0"
     },
     "request_id": {
       "type": [
@@ -100,10 +100,10 @@
         "source_payload_sha256"
       ],
       "properties": {
-        "source_agent_id": {"const": "trend-analysis-agent"},
+        "source_agent_id": {"const": "trend"},
         "source_schema_version": {"type": "string", "minLength": 1},
         "internal_schema_version": {"type": ["string", "null"]},
-        "adapter_version": {"const": "stock-trend-input-adapter/1.0"},
+        "adapter_version": {"const": "inventory-trend-input-adapter"},
         "transformed": {"type": "boolean"},
         "source_payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }

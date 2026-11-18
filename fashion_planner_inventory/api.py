@@ -352,7 +352,7 @@ HANDOFF_RESPONSES = {
 
 @app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="inventory-handoff Stock producer 실행",
           description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
-                       "producer result는 inventory payload schema 1.0 그대로 반환됩니다. "
+                       "producer result는 inventory 결과 payload(schema_version 1.0.0) 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 VOGUE_AGENT_SERVICE_BEARER_TOKEN Bearer 인증이 필요합니다."))
 def inventory_runs(request: Request, body: HandoffRequest = Body(..., openapi_examples=HANDOFF_EXAMPLES)):
     body = request.scope["_stock_source_body"]

@@ -228,17 +228,17 @@ def _post_handoff(client, body=None, token="test-stock-token"):
 
 
 def test_handoff_accepts_trend_11_and_records_adapter_provenance(handoff_client):
-    trend = {**REQ, "schema_version": "1.1"}
+    trend = {**REQ, "schema_version": "1.0.0"}
     body = _handoff({**trend, "status": "no_results", "trends": []})
     response = _post_handoff(handoff_client, body=body)
     assert response.status_code == 200
     envelope = response.json()
     assert envelope["status"] == envelope["result"]["status"] == "no_results"
     assert envelope["result"]["input_provenance"] == {
-        "source_agent_id": "trend-analysis-agent",
-        "source_schema_version": "1.1",
+        "source_agent_id": "trend",
+        "source_schema_version": "1.0.0",
         "internal_schema_version": None,
-        "adapter_version": "stock-trend-input-adapter/1.0",
+        "adapter_version": "inventory-trend-input-adapter",
         "transformed": True,
         "source_payload_sha256": envelope["result"]["input_provenance"]["source_payload_sha256"],
     }
@@ -251,7 +251,7 @@ def test_handoff_envelope_preserves_result_and_metadata(handoff_client):
     env = r.json()
     assert env["contract_version"] == "inventory-handoff"
     assert env["request_id"] == env["result"]["request_id"] == REQ["request_id"]
-    assert env["producer"] == {"agent_id": "inventory", "schema_version": "1.0"}
+    assert env["producer"] == {"agent_id": "inventory", "schema_version": "1.0.0"}
     assert env["status"] == env["result"]["status"] == "ok"
     assert list(env["result"]) == ["schema_version", "request_id", "agent_id", "status", "summary", "products",
                                     "trend_results", "season_basis", "evidence", "errors", "input_provenance"]
@@ -322,7 +322,7 @@ def test_handoff_server_status_mappings_are_enveloped(handoff_client, monkeypatc
 
 def test_handoff_partial_status_is_copied(handoff_client, monkeypatch):
     import fashion_planner_inventory.api as api
-    partial = {"schema_version": "1.0", "request_id": REQ["request_id"], "agent_id": "inventory",
+    partial = {"schema_version": "1.0.0", "request_id": REQ["request_id"], "agent_id": "inventory",
                "status": "partial", "summary": "partial", "products": [], "trend_results": [],
                "season_basis": None, "evidence": [], "errors": []}
     monkeypatch.setattr(api, "_run_inventory", lambda payload: partial)
@@ -458,7 +458,7 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
     images = [{"url": "https://img.example.invalid/0.jpg", "basis": "item_link"},
               {"url": "https://img.example.invalid/1.jpg", "basis": "article"}]
     trend["trends"][0]["style"]["example_images"] = images
-    assert trend["schema_version"] == "1.1"
+    assert trend["schema_version"] == "1.0.0"
     schema = json.loads((Path(__file__).resolve().parents[1] / "contracts/schemas/inventory-request.schema.json")
                         .read_text(encoding="utf-8"))
     assert list(jsonschema.Draft202012Validator(schema).iter_errors(trend)) == []
@@ -466,7 +466,7 @@ def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(han
     r = _post_handoff(handoff_client, _handoff(trend))
     assert r.status_code == 200 and r.json()["status"] == "ok"
     provenance = r.json()["result"]["input_provenance"]
-    assert provenance["source_schema_version"] == "1.1"
+    assert provenance["source_schema_version"] == "1.0.0"
     assert provenance["source_payload_sha256"] == hashlib.sha256(canonical_bytes(trend)).hexdigest()
     without = copy.deepcopy(trend)
     del without["trends"][0]["style"]["example_images"]

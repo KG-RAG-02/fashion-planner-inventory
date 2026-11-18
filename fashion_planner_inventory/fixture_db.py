@@ -1,7 +1,7 @@
 """결정적 합성 fixture DuckDB — 테스트와 오프라인 stub 프로필(`STOCK_DB_PATH`)이 같이 쓴다. H&M 원본 데이터가 아니다.
 
 - create_base_tables(con): tests/conftest.py가 써 온 작은 표(a1~a6) 그대로.
-- add_stub_rows(con): trend-analysis-agent stub 결과(examples/stub/inventory-request.json의 input: 발레코어, 2027 SS,
+- add_stub_rows(con): trend stub 결과(examples/stub/inventory-request.json의 input: 발레코어, 2027 SS,
   사용자 카테고리 상의, 사용자 색 핑크)와 맞춘 상품 3개 — 짝 영역 하의·아우터, 핑크와 어울리는 색, 봄·여름.
 - finalize(con): articles 표, stock_v1 snapshot 열(2020-09-22 · virtual_stock_v1 · sample), 표지 표 `stock_fixture`.
   readiness는 `stock_fixture`가 있으면 synthetic_fixture=true를 내고, API는 trend 결과마다 합성 DB임을 limitations에 적는다.
@@ -76,7 +76,7 @@ def finalize(con) -> None:
     con.execute(f"CREATE TABLE {FIXTURE_TABLE} (key VARCHAR, value VARCHAR)")
     con.execute(f"INSERT INTO {FIXTURE_TABLE} VALUES ('data_nature', 'synthetic_fixture'), "
                 "('builder', 'fashion_planner_inventory.fixture_db'), "
-                "('aligned_with', 'trend-analysis-agent examples/stub (request_id stub-trend-001)')")
+                "('aligned_with', 'trend examples/stub (request_id stub-trend-001)')")
 
 
 def content_digest(con) -> str:

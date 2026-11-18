@@ -16,7 +16,7 @@
       "request_id": "<same request ID>",
       "producer": {
         "agent_id": "inventory",
-        "schema_version": "1.0"
+        "schema_version": "1.0.0"
       },
       "status": "result.status",
       "result": "inventory-result.schema.json"
@@ -70,7 +70,7 @@
       }
     },
     "schema_version": {
-      "const": "1.1",
+      "const": "1.0.0",
       "description": "Trend producer schema, separate from Stock result1.0"
     }
   },

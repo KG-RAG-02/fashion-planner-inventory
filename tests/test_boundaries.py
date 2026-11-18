@@ -34,7 +34,7 @@ def test_derived_input_cannot_mutate_raw_and_no_results_has_no_zero_stock():
     assert canonical_bytes(source) == before
     result = run_request({**source, "status": "no_results", "trends": []}, None)
     assert result["status"] == "no_results" and result["products"] == []
-    assert result["input_provenance"]["source_schema_version"] == "1.1"
+    assert result["input_provenance"]["source_schema_version"] == "1.0.0"
 
 
 @pytest.mark.parametrize("source", [{1: "value"}, {"value": float("nan")}, {"value": float("inf")}])

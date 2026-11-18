@@ -30,7 +30,7 @@ import hashlib
 import json
 
 UPSTREAM_STATUSES = ("ok", "no_results", "error")
-UPSTREAM_SCHEMA_VERSION = "1.1"
+UPSTREAM_SCHEMA_VERSION = "1.0.0"
 
 
 def canonical_bytes(value) -> bytes:
@@ -48,8 +48,8 @@ def canonical_bytes(value) -> bytes:
 
 
 def input_provenance(source: dict) -> dict:
-    return {"source_agent_id": "trend-analysis-agent", "source_schema_version": source["schema_version"],
-            "internal_schema_version": None, "adapter_version": "stock-trend-input-adapter/1.0",
+    return {"source_agent_id": "trend", "source_schema_version": source["schema_version"],
+            "internal_schema_version": None, "adapter_version": "inventory-trend-input-adapter",
             "transformed": True, "source_payload_sha256": hashlib.sha256(canonical_bytes(source)).hexdigest()}
 
 
@@ -61,7 +61,7 @@ def validate_source(res: dict) -> None:
     canonical_bytes(res)
     if res.get("schema_version") != UPSTREAM_SCHEMA_VERSION:
         raise ValueError("지원하는 Trend schema_version은 1.1입니다.")
-    if "agent_id" in res and res["agent_id"] != "trend-analysis-agent":
+    if "agent_id" in res and res["agent_id"] != "trend":
         raise ValueError("Trend agent_id가 일치하지 않습니다.")
     if not isinstance(res.get("request_id"), str) or not res["request_id"].strip():
         raise ValueError("Trend request_id는 비어 있지 않은 문자열이어야 합니다.")
