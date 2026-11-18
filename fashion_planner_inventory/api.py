@@ -173,7 +173,7 @@ def _json(resp: dict, status_code: int = 200) -> JSONResponse:
 
 
 def _openapi():
-    """문서에서 FastAPI 422를 제외하고 v0.1 Bearer 보안을 명시한다."""
+    """문서에서 FastAPI 422를 제외하고 Bearer 보안을 명시한다."""
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
@@ -341,16 +341,16 @@ def health():
 
 
 HANDOFF_RESPONSES = {
-    200: {"model": HandoffResponse, "description": "v0.1 envelope with Stock producer result (ok, partial, no_results)"},
+    200: {"model": HandoffResponse, "description": "inventory-handoff envelope with the inventory producer result (ok, partial, no_results)"},
     400: {"description": "INVALID_REQUEST producer result; wrapped when a non-empty external request_id is available"},
     401: {"model": ErrorResponse, "description": "UNAUTHORIZED: missing or invalid Bearer token"},
-    500: {"model": HandoffResponse, "description": "v0.1 envelope with INTERNAL_ERROR producer result"},
-    503: {"model": HandoffResponse, "description": "v0.1 envelope with SOURCE_UNAVAILABLE producer result"},
-    504: {"model": HandoffResponse, "description": "v0.1 envelope with TIMEOUT producer result"},
+    500: {"model": HandoffResponse, "description": "inventory-handoff envelope with INTERNAL_ERROR producer result"},
+    503: {"model": HandoffResponse, "description": "inventory-handoff envelope with SOURCE_UNAVAILABLE producer result"},
+    504: {"model": HandoffResponse, "description": "inventory-handoff envelope with TIMEOUT producer result"},
 }
 
 
-@app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="inventory-handoff Stock producer 실행",
+@app.post(HANDOFF_PATH, responses=HANDOFF_RESPONSES, summary="inventory 실행 (inventory-handoff)",
           description=("orchestrator가 부르는 인증된 agent route. input은 TrendAnalysisResult 원본 객체이며 "
                        "producer result는 inventory 결과 payload(schema_version 1.0.0) 그대로 반환됩니다. "
                        "운영에서는 HTTPS와 FASHION_PLANNER_SERVICE_TOKEN Bearer 인증이 필요합니다."))

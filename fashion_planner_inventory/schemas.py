@@ -176,7 +176,7 @@ class InventoryResponse(BaseModel):
     evidence: list[dict[str, Any]] = Field(description="트렌드마다 데이터 출처. evidence_id = inventory:<style.id>:E-001, style_id")
     errors: list[Error] = Field(description="공통 입력 오류. 트렌드별 오류는 trend_results[].errors")
     input_provenance: Optional[dict[str, Any]] = Field(
-        None, description="Trend source version and the explicit Stock input-adapter provenance"
+        None, description="trend 입력의 버전과 inventory 입력 어댑터 provenance"
     )
 
 

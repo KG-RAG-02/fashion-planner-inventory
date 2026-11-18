@@ -46,7 +46,7 @@ def main():
                                 etag=head.get("ETag"), size_bytes=head.get("ContentLength"),
                                 last_modified=str(head.get("LastModified")), upstream_checksum_verified=False)
             identity = hashlib.sha256(f"{settings.bucket}/{settings.db_key}/{version}".encode()).hexdigest()
-            path = cache / f"stock-{identity}.duckdb"
+            path = cache / f"inventory-{identity}.duckdb"
             if not path.is_file():
                 result["database"]["reason"] = "matching_existing_cache_missing_no_download"
             else:

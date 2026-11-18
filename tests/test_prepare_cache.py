@@ -54,8 +54,8 @@ def test_prepare_cache_downloads_once_writes_sidecar_and_reports_versions(r2_env
     assert code == 0 and report["status"] == "ready" and client.downloads == 1
     identity = hashlib.sha256(b"synthetic-bucket/db/stock.duckdb/v1").hexdigest()
     cache = tmp_path / "cache"
-    assert sorted(p.name for p in cache.iterdir()) == [f"stock-{identity}.duckdb", f"stock-{identity}.sha256"]
-    assert (cache / f"stock-{identity}.sha256").read_text() == hashlib.sha256(payload).hexdigest() == report["sha256"]
+    assert sorted(p.name for p in cache.iterdir()) == [f"inventory-{identity}.duckdb", f"inventory-{identity}.sha256"]
+    assert (cache / f"inventory-{identity}.sha256").read_text() == hashlib.sha256(payload).hexdigest() == report["sha256"]
     assert report["sha256_sidecar"] is True and report["db_version"] == "v1" and report["size_bytes"] == len(payload)
     assert report["duckdb_version"] == duckdb.__version__ and report["readiness"]["db_ready"] is True
     assert "storage_version" in report and report["header_version_number"] is not None

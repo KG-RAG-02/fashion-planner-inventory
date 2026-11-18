@@ -145,7 +145,7 @@ def build_fixture_db(path: str | Path, *, storage_version: str | None = DEFAULT_
 
 
 def summarize_result(result: dict) -> dict:
-    """Stock producer result → 비교용 요약 (시각·이미지 바이트 없이; examples/stub/inventory-response-summary.json)."""
+    """inventory producer result → 비교용 요약 (시각·이미지 바이트 없이; examples/stub/inventory-response-summary.json)."""
     return {
         "status": result.get("status"),
         "products": [None if p is None else {
@@ -163,7 +163,7 @@ def summarize_result(result: dict) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Build the deterministic synthetic Stock fixture DuckDB.")
+    ap = argparse.ArgumentParser(description="Build the deterministic synthetic inventory fixture DuckDB.")
     ap.add_argument("out", help="output .duckdb path (refused if it exists unless --force)")
     ap.add_argument("--force", action="store_true", help="replace an existing file")
     ap.add_argument("--storage-version", default=DEFAULT_STORAGE_VERSION,

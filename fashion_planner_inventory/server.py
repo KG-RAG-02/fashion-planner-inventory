@@ -1,4 +1,4 @@
-"""Start/check Stock using the packaged service manifest.
+"""Start/check the inventory service using the packaged service manifest.
 
   python -m fashion_planner_inventory.server [--host 0.0.0.0]   run the API (port from service-manifest.json)
   python -m fashion_planner_inventory.server --check-ready      exit 0 when GET /health/ready answers 200
@@ -27,7 +27,7 @@ def prepare_cache() -> int:
     """Download the configured R2 DB (and CLIP index) once, then inspect the cache files read-only.
 
     The API never downloads at startup; this is the separate data job that fills its cache.
-    Writes ``stock-<sha256(bucket/key/version)>.duckdb`` plus the ``.sha256`` sidecar into
+    Writes ``inventory-<sha256(bucket/key/version)>.duckdb`` plus the ``.sha256`` sidecar into
     ``INVENTORY_CACHE_DIR`` (an already verified version is reused), prints one JSON report
     (DuckDB library version, the file's storage version, readiness) without credentials,
     endpoint, bucket or key, and returns 0 only when the database is ready.

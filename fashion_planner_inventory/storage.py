@@ -319,7 +319,7 @@ class R2ObjectStore:
     def prepare_database(self, attempts: int = 3, backoff_seconds: float = 0.25,
                          *, allow_download: bool = True) -> tuple[Path, str]:
         """Download the configured DB once per object version to an atomic cache file."""
-        path, version, meta = self._prepare_object(self.settings.db_key, "stock", ".duckdb", "R2 DB",
+        path, version, meta = self._prepare_object(self.settings.db_key, "inventory", ".duckdb", "R2 DB",
                                                    attempts, backoff_seconds, allow_download)
         self.database_metadata = meta
         return path, version

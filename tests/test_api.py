@@ -444,7 +444,7 @@ def test_db_unavailable_is_alive_and_upstream_no_results_skips_database(monkeypa
 
 
 def test_trend_11_example_images_are_accepted_and_covered_by_the_source_hash(handoff_client):
-    """Trend 1.1 may carry trends[].style.example_images (schema_version stays 1.1). Stock accepts it,
+    """A trend result may carry trends[].style.example_images (same schema_version). Inventory accepts it,
     and hashes the unchanged object into input_provenance."""
     import copy
     import hashlib

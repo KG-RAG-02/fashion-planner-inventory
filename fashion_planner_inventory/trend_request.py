@@ -144,7 +144,7 @@ def from_trend_result(res: dict) -> tuple[dict, str, str | None]:
         if isinstance(a, dict) and a.get("type") == "color" and a.get("value") and a["value"] not in colors:
             colors.append(a["value"])
 
-    # schema_version belongs to TrendAnalysisResult, not Stock's internal request.
+    # schema_version belongs to TrendAnalysisResult, not the inventory internal request.
     # The complete source object remains in the orchestrator's preceding trend stage trace.
     req = {"request_id": res.get("request_id"), "trends": res.get("trends") or []}
     if af.get("season") is not None:
