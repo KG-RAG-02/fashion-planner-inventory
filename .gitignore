@@ -8,6 +8,8 @@ data/
 *.jpg
 *.jpeg
 *.png
+# 다이어그램 결과 PNG는 커밋한다(제3자 사진이 아니라 docs/diagrams/src에서 렌더한 그림)
+!docs/diagrams/*.png
 
 # 비밀 값
 .env

@@ -1,0 +1,41 @@
+// inventory 서비스의 오프라인 데이터 빌드. 여기서 만든 것은 Git에도 도커 이미지에도 넣지 않는다.
+// @토큰@ 색은 scripts/render_diagrams.sh가 라이트·다크 테마 값으로 바꾼다.
+digraph data_build {
+  graph [rankdir=LR, bgcolor="@BG@", fontname="Pretendard", fontcolor="@FG@", fontsize=13,
+         nodesep=0.3, ranksep=0.45, pad=0.25];
+  node  [shape=box, style="rounded,filled", fontname="Pretendard", fontsize=11, fontcolor="@FG@",
+         fillcolor="@SVC_FILL@", color="@SVC_LINE@", penwidth=1.3, margin="0.15,0.06"];
+  edge  [fontname="Pretendard", fontsize=10, color="@FG@", fontcolor="@FG@", penwidth=1.1, arrowsize=0.7];
+
+  kaggle [label="Kaggle: H&M Personalized\nFashion Recommendations\n(대회 규칙 동의 필요)", style="rounded,dashed", fillcolor="@BG@", color="@EXT@"];
+  hf     [label="Hugging Face:\ndisl/musinsa-snap-new\n(고정 revision)", style="rounded,dashed", fillcolor="@BG@", color="@EXT@"];
+  weights[label="OpenCLIP ViT-B-32-quickgelu\nOpenAI 가중치\n(실행 중 내려받음)", style="rounded,dashed", fillcolor="@BG@", color="@EXT@"];
+
+  build_db   [label="build_db.py\narticles, transactions\n(2020-09-22까지)"];
+  attrs      [label="build_attributes.py\nK-Fashion 영역·카테고리·색\n소재·핏·시즌 적합성"];
+  vstock     [label="build_virtual_stock.py\n가상 재고·판매가\n(고정 시드)"];
+  extract    [label="extract_images.py\n의류 상품 사진만"];
+  clipidx    [label="build_clip_index.py\n흑백 사진 + 소재·디테일 텍스트"];
+  snaps      [label="extract_snap_images.py\n행마다 JPEG 1장"];
+  upload     [label="upload_snap_images.py\n쓰기 키, 자기 비공개 버킷", style="rounded,filled,dashed"];
+
+  duck   [label="DuckDB 파일\narticles · transactions\narticle_attrs · virtual_stock", shape=cylinder, fillcolor="@BG@"];
+  photos [label="images/<앞 3자리>/<article_id>.jpg", shape=cylinder, fillcolor="@BG@"];
+  npz    [label="clip_index.npz\n(규칙 이름 기록)", shape=cylinder, fillcolor="@BG@"];
+  snapjp [label="snap_images/<revision>/<row>.jpg", shape=cylinder, fillcolor="@BG@"];
+  r2     [label="비공개 객체 저장소\n(선택, S3 호환)", style="rounded,dashed", fillcolor="@BG@", color="@EXT@"];
+  api    [label="inventory API\nlocal-file 모드 또는 검증된 캐시", fillcolor="@SVC_FILL@"];
+  fixture[label="fixture_db (합성)\n오프라인 stub, H&M 데이터 없음", style="rounded,filled,dashed"];
+
+  kaggle -> build_db [label="CSV"];
+  kaggle -> extract [label="이미지(zip)"];
+  build_db -> duck; duck -> attrs; attrs -> duck; duck -> vstock; vstock -> duck;
+  duck -> extract [label="의류 article_id"]; extract -> photos;
+  duck -> clipidx; photos -> clipidx; weights -> clipidx; clipidx -> npz;
+  hf -> snaps [label="parquet"]; snaps -> snapjp -> upload -> r2;
+  duck -> api [style=dotted]; photos -> api [style=dotted]; npz -> api [style=dotted];
+  duck -> r2 [label="직접 올림(선택)", style=dashed, color="@EXT@"];
+  npz -> r2 [style=dashed, color="@EXT@"];
+  r2 -> api [label="--prepare-cache: DB, CLIP 인덱스\n요청마다: 착샷", style=dashed, color="@EXT@", fontcolor="@FG@"];
+  fixture -> api [label="local-file 모드", style=dashed];
+}
