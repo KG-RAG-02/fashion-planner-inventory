@@ -135,7 +135,7 @@ def test_build_reason_fields_and_detail():
     # 스카이블루는 핑크·화이트 둘 다와 어울림
     assert rs["color"] == {"product_color": "스카이블루", "matched_trend_colors": ["라이트핑크", "화이트"],
                            "tone_on_tone": [], "trend_color_basis": "user_category_items",
-                           "rule": "조합표 v1, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"}
+                           "rule": "조합표, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"}
     assert rs["sell_through"] == 0.341 and rs["score"] == 0.912
     assert rs["data_nature"]["sell_through"] == "sample" and rs["data_nature"]["season_share"] == "fact"
     assert reason_detail(rs) == ("라이트핑크·화이트와 어울리는 스카이블루. 재고 금액 2,020만 원(가상), 판매율 34%(가상), "
@@ -294,7 +294,7 @@ def test_user_color_in_trend_used_and_missing_one_noted(con):
     assert tr["search"]["trend_colors"] == ["화이트"] and tr["search"]["trend_color_basis"] == "user_colors_in_trend"
     assert tr["search"]["user_colors"] == ["화이트", "블랙"] and tr["search"]["user_colors_excluded"] == ["블랙"]
     assert any("사용자 색 중 블랙" in x for x in tr["limitations"])
-    assert tr["reason"]["color"]["rule"] == "조합표 v1, 사용자 색과 어울리는 색 중 가장 많이 겹치는 색 + 사용자 색 자체(톤온톤)"
+    assert tr["reason"]["color"]["rule"] == "조합표, 사용자 색과 어울리는 색 중 가장 많이 겹치는 색 + 사용자 색 자체(톤온톤)"
     assert "사용자 색(화이트)과 어울리는 색 중 가장 많이 겹치는 색" in tr["summary"]
     assert tr["search"]["color_attempts"][-1]["n_candidates"] == 1     # 화이트의 조합색 스카이블루(a1)만, 레드는 아님
 
@@ -314,7 +314,7 @@ def test_user_color_not_in_trend_still_used(con):
 def test_no_user_colors_keeps_trend_colors(con):
     tr = run({**REQ, "target_colors": []}, con)["trend_result"]
     assert tr["search"]["trend_color_basis"] == "user_category_items" and tr["search"]["user_colors"] == []
-    assert tr["reason"]["color"]["rule"] == "조합표 v1, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
+    assert tr["reason"]["color"]["rule"] == "조합표, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
 
 
 # ---- 재고 후보가 0개일 때 트렌드 색 완화 (사용자 색·카테고리는 완화하지 않음)
@@ -336,7 +336,7 @@ def test_relax_to_any_matching_color(con):
     assert [(a["mode"], a["n_candidates"]) for a in s["color_attempts"]] == [("max_overlap", 0), ("any", 1)]
     assert s["color_mode"] == "any" and "레드" in s["colors"]
     assert s["relaxed"] == [{"condition": "color_rule", "from": "max_overlap", "to": "any"}]
-    assert tr["reason"]["color"]["rule"].startswith("조합표 v1, 트렌드 색과 하나라도 어울리는 색")
+    assert tr["reason"]["color"]["rule"].startswith("조합표, 트렌드 색과 하나라도 어울리는 색")
     assert "하나라도 어울리는 색" in tr["summary"]
     assert any("트렌드 색(블랙, 그레이) 조건을 완화했습니다: 가장 많이 겹치는 색 → 하나라도 어울리는 색" in x
                for x in tr["limitations"])

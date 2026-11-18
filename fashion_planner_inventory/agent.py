@@ -78,8 +78,8 @@ SEASON_SOURCES = ("user", "inferred", "unknown")   # 응답 season_basis.source 
 SEASON_ORIGINS = {"user_requested": "user", "default_next": "inferred"}   # trend SeasonRequest.origin → source
 SAMPLE_WARNING = "재고·판매가는 가상 데이터(sample)입니다. 상대 비교로만 해석하세요."
 LICENSE = "Kaggle H&M 대회 규정(비상업적 용도)"
-COLOR_RULE = "조합표 v1, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
-USER_COLOR_RULE = "조합표 v1, 사용자 색과 어울리는 색 중 가장 많이 겹치는 색 + 사용자 색 자체(톤온톤)"
+COLOR_RULE = "조합표, 트렌드 색과 어울리는 색 중 가장 많이 겹치는 색 + 트렌드 색 자체(톤온톤)"
+USER_COLOR_RULE = "조합표, 사용자 색과 어울리는 색 중 가장 많이 겹치는 색 + 사용자 색 자체(톤온톤)"
 
 
 # ---------------------------------------------------------------- summary
